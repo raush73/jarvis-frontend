@@ -1,0 +1,51 @@
+import { NextResponse } from "next/server";
+import { backendFetch } from "@/lib/backendFetch";
+
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const { id } = await ctx.params;
+  const r = await backendFetch(`/customers/${id}/tool-types`, { method: "GET" });
+  const text = await r.text();
+  return new NextResponse(text, {
+    status: r.status,
+    headers: { "Content-Type": r.headers.get("content-type") ?? "application/json" },
+  });
+}
+
+export async function PATCH(
+  req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const { id } = await ctx.params;
+  const body = await req.text();
+  const r = await backendFetch(`/customers/${id}/tool-types`, {
+    method: "PATCH",
+    body,
+    headers: { "Content-Type": "application/json" },
+  });
+  const text = await r.text();
+  return new NextResponse(text, {
+    status: r.status,
+    headers: { "Content-Type": r.headers.get("content-type") ?? "application/json" },
+  });
+}
+
+export async function DELETE(
+  req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const { id } = await ctx.params;
+  const body = await req.text();
+  const r = await backendFetch(`/customers/${id}/tool-types`, {
+    method: "DELETE",
+    body,
+    headers: { "Content-Type": "application/json" },
+  });
+  const text = await r.text();
+  return new NextResponse(text, {
+    status: r.status,
+    headers: { "Content-Type": r.headers.get("content-type") ?? "application/json" },
+  });
+}

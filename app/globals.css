@@ -1,0 +1,292 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0c0f14;
+  --foreground: #ededed;
+  
+  /* Recruiting UI Colors */
+  --recruiting-bg: #0c0f14;
+  --recruiting-surface: rgba(255, 255, 255, 0.04);
+  --recruiting-border: rgba(255, 255, 255, 0.08);
+  --recruiting-accent-blue: #3b82f6;
+  --recruiting-accent-green: #22c55e;
+  --recruiting-accent-purple: #8b5cf6;
+  --recruiting-accent-amber: #f59e0b;
+  --recruiting-text-primary: #ffffff;
+  --recruiting-text-secondary: rgba(255, 255, 255, 0.7);
+  --recruiting-text-muted: rgba(255, 255, 255, 0.5);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Selection styling */
+::selection {
+  background: rgba(59, 130, 246, 0.4);
+  color: #fff;
+}
+
+/* Focus ring override */
+*:focus-visible {
+  outline: 2px solid var(--recruiting-accent-blue);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   GLOBAL NAVIGATION INVARIANT
+   Level 0: Global Top Bar
+   Level 1: Module Tabs
+   ============================================ */
+
+/* --- Level 0: Global Top Bar --- */
+.global-top-nav {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 52px;
+  padding: 0 20px;
+  background: linear-gradient(180deg, rgba(20, 24, 32, 0.98) 0%, rgba(12, 15, 20, 0.98) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(12px);
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 24px;
+  margin-right: 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.logo-mark {
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+
+.logo-text {
+  font-weight: 600;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.95);
+  letter-spacing: -0.3px;
+}
+
+.nav-domains {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.nav-domain-item {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: -0.1px;
+}
+
+.nav-domain-item:hover {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.nav-domain-item.active {
+  color: #fff;
+  background: rgba(59, 130, 246, 0.15);
+}
+
+/* --- Level 1: Module Tabs --- */
+.module-tabs {
+  height: 44px;
+  padding: 0 20px;
+  background: rgba(12, 15, 20, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  position: sticky;
+  top: 52px;
+  z-index: 99;
+  backdrop-filter: blur(8px);
+}
+
+.module-tabs-container {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 136px; /* Align with content after logo */
+}
+
+.module-tab-item {
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: 0;
+}
+
+.module-tab-item:hover {
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.module-tab-item.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* --- Page Content Area --- */
+.page-content {
+  min-height: calc(100vh - 96px);
+}
+
+/* --- Level 2: Order-Level Navigation --- */
+.order-nav {
+  height: 42px;
+  padding: 0 20px;
+  background: rgba(15, 18, 25, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  position: sticky;
+  top: 96px; /* Below GlobalTopNav (52px) + ModuleTabs (44px) */
+  z-index: 98;
+  backdrop-filter: blur(8px);
+}
+
+.order-nav-container {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 136px; /* Align with content after logo */
+}
+
+.order-nav-tab {
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: 0;
+  position: relative;
+}
+
+.order-nav-tab:hover {
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.order-nav-tab.active {
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.order-nav-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 70%;
+  height: 2px;
+  background: #3b82f6;
+  border-radius: 1px;
+}
+
+/* Phase 2 (frontend-only): visual guardrails (logged-out demo banner) */
+.auth-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.auth-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(59, 130, 246, 0.35);
+  border: 1px solid rgba(59, 130, 246, 0.55);
+}
+
+.auth-text {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* jarvis:ownership-select */
+.salesperson-select{
+  background:#0f172a;
+  color:#ffffff;
+  border:1px solid #334155;
+}
+.salesperson-select option{
+  background:#0f172a;
+  color:#ffffff;
+}

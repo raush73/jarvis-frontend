@@ -1,0 +1,653 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { apiFetch } from "@/lib/api";
+
+/**
+ * This page MUST visually match the Trade detail shell:
+ * - trade-detail-container
+ * - page-header/back-link/subtitle
+ * - detail-card/card-header/card-body
+ *
+ * Functional goal:
+ * - Edit MW4H "required" tool list for a Trade (template)
+ * - No "Required vs Optional" toggle in UI (everything selected is required)
+ * - Keep backend contract future-proof by sending requiredToolTypeIds = toolTypeIds
+ */
+
+type ToolType = {
+  id: string;
+  name: string;
+  isActive: boolean;
+};
+
+type TradeToolType = {
+  toolTypeId: string;
+  isRequired: boolean;
+};
+
+type TradeToolTypesResponse = {
+  tradeId: string;
+  tools: TradeToolType[];
+};
+
+type BackendTrade = {
+  id: string;
+  name: string;
+  isActive: boolean;
+};
+
+// Map mock Trade IDs (TRD-001 etc) to names so we can resolve backend Trade IDs.
+const MOCK_TRADE_ID_TO_NAME: Record<string, string> = {
+  "TRD-001": "Millwright",
+  "TRD-002": "Welder",
+  "TRD-003": "Pipefitter",
+  "TRD-004": "Electrician",
+  "TRD-005": "Crane Operator",
+  "TRD-006": "Ironworker",
+  "TRD-007": "Rigger",
+  "TRD-008": "Instrument Technician",
+  "TRD-009": "Boilermaker",
+  "TRD-010": "Carpenter",
+};
+
+function setsEqual(a: Set<string>, b: Set<string>) {
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
+
+export default function TradeToolsTemplatePage() {
+  const params = useParams();
+  const routeTradeId = params.id as string; // could be TRD-001 or backend prisma id
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const [toolTypes, setToolTypes] = useState<ToolType[]>([]);
+  const [toolSearchQuery, setToolSearchQuery] = useState("");
+
+  const [selectedToolIds, setSelectedToolIds] = useState<Set<string>>(new Set());
+  const [initialSelected, setInitialSelected] = useState<Set<string>>(new Set());
+
+  const [resolvedBackendTradeId, setResolvedBackendTradeId] = useState<string | null>(null);
+  const [resolvedTradeName, setResolvedTradeName] = useState<string | null>(null);
+
+  const isDirty = useMemo(() => !setsEqual(selectedToolIds, initialSelected), [selectedToolIds, initialSelected]);
+
+  const activeToolTypes = useMemo(() => toolTypes.filter((t) => t.isActive), [toolTypes]);
+
+  const filteredTools = useMemo(() => {
+    const q = toolSearchQuery.trim().toLowerCase();
+    let list = activeToolTypes;
+    if (q) list = list.filter((t) => t.name.toLowerCase().includes(q));
+
+    // Sort: selected first, then alpha
+    return [...list].sort((a, b) => {
+      const aSel = selectedToolIds.has(a.id) ? 0 : 1;
+      const bSel = selectedToolIds.has(b.id) ? 0 : 1;
+      if (aSel !== bSel) return aSel - bSel;
+      return a.name.localeCompare(b.name);
+    });
+  }, [activeToolTypes, toolSearchQuery, selectedToolIds]);
+
+  const selectedTools = useMemo(() => {
+    const ids = selectedToolIds;
+    return activeToolTypes.filter((t) => ids.has(t.id));
+  }, [activeToolTypes, selectedToolIds]);
+
+  const handleToggleTool = (toolId: string) => {
+    setSelectedToolIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(toolId)) next.delete(toolId);
+      else next.add(toolId);
+      return next;
+    });
+  };
+
+  const handleRemoveTool = (toolId: string) => {
+    setSelectedToolIds((prev) => {
+      const next = new Set(prev);
+      next.delete(toolId);
+      return next;
+    });
+  };
+
+  // Resolve backend Trade ID:
+  // - if route param is already a backend id, use it
+  // - else map TRD-00X -> name -> find backend trade by name
+  async function resolveBackendTrade(routeId: string): Promise<{ id: string; name: string } | null> {
+    // Heuristic: prisma ids in your DB start with "cmm" in current dataset
+    if (routeId && routeId.startsWith("cmm")) {
+      // We still want a display name if possible:
+      try {
+        const all = (await apiFetch(`/trades`)) as BackendTrade[];
+        const hit = all.find((t) => t.id === routeId);
+        return hit ? { id: hit.id, name: hit.name } : { id: routeId, name: routeId };
+      } catch {
+        return { id: routeId, name: routeId };
+      }
+    }
+
+    const mappedName = MOCK_TRADE_ID_TO_NAME[routeId];
+    if (!mappedName) return null;
+
+    const all = (await apiFetch(`/trades`)) as BackendTrade[];
+    const hit =
+      all.find((t) => t.name.toLowerCase() === mappedName.toLowerCase()) ||
+      all.find((t) => t.name.toLowerCase().includes(mappedName.toLowerCase()));
+
+    if (!hit) return null;
+    return { id: hit.id, name: hit.name };
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError(null);
+      setSaved(false);
+
+      try {
+        const resolved = await resolveBackendTrade(routeTradeId);
+        if (!resolved) throw new Error(`Could not resolve backend Trade for route id "${routeTradeId}".`);
+
+        if (cancelled) return;
+        setResolvedBackendTradeId(resolved.id);
+        setResolvedTradeName(resolved.name);
+
+        const [allTools, tradeTools] = await Promise.all([
+          apiFetch(`/tool-types?activeOnly=true`),
+          apiFetch(`/trades/${resolved.id}/tool-types`),
+        ]);
+
+        if (cancelled) return;
+
+        setToolTypes(allTools as ToolType[]);
+
+        const resp = tradeTools as any;
+
+const nextSelected = new Set<string>();
+
+for (const row of resp.items || []) {
+  if (row?.toolType?.id) {
+    nextSelected.add(row.toolType.id);
+  }
+}setSelectedToolIds(nextSelected);
+        setInitialSelected(new Set(nextSelected));
+      } catch (e: any) {
+        setError(e?.message || "Failed to load tools template.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [routeTradeId]);
+
+  async function save() {
+    if (!resolvedBackendTradeId) return;
+
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+
+    try {
+      const toolTypeIds = Array.from(selectedToolIds);
+
+      // Keep backend contract for future optional/required split:
+      // Today: everything selected is "required" by definition.
+      const requiredToolTypeIds = toolTypeIds;
+
+      await apiFetch(`/trades/${resolvedBackendTradeId}/tool-types`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toolTypeIds, requiredToolTypeIds }),
+      });
+
+      setInitialSelected(new Set(selectedToolIds));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1400);
+    } catch (e: any) {
+      setError(e?.message || "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="trade-detail-container">
+      {/* Header with back link */}
+      <div className="page-header">
+        <Link href={`/admin/trades/${routeTradeId}`} className="back-link">
+          ← Back to Trade
+        </Link>
+        <h1>{resolvedTradeName ? `${resolvedTradeName} — Tools` : "Trade Tools"}</h1>
+        <p className="subtitle">MW4H required tool list (template)</p>
+      </div>
+
+      {/* Tools Template Card */}
+      <div className="detail-card tool-list-card">
+        <div className="card-header header-row">
+          <h2>MW4H Required Tool List</h2>
+
+          <div className="header-actions">
+            {isDirty && <span className="pill warn">Unsaved</span>}
+            {saved && <span className="pill ok">Saved</span>}
+
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                setSelectedToolIds(new Set(initialSelected));
+              }}
+              disabled={loading || saving || !isDirty}
+            >
+              Reset
+            </button>
+
+            <button
+              type="button"
+              className="btn primary"
+              onClick={save}
+              disabled={loading || saving || !isDirty}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+
+        <div className="card-body">
+          <p className="section-intro">
+            Company-required minimum tools for this trade. Tools are selected from the Tool Catalog.
+          </p>
+
+          {error && <div className="error-box">{error}</div>}
+
+          {/* Search input */}
+          <div className="tool-search">
+            <input
+              type="text"
+              placeholder="Search Tool Catalog…"
+              value={toolSearchQuery}
+              onChange={(e) => setToolSearchQuery(e.target.value)}
+              disabled={loading}
+            />
+          </div>
+
+          {/* Scrollable tool list */}
+          <div className="tool-list-scroll">
+            {filteredTools.map((tool) => (
+              <label key={tool.id} className="tool-row">
+                <input
+                  type="checkbox"
+                  checked={selectedToolIds.has(tool.id)}
+                  onChange={() => handleToggleTool(tool.id)}
+                  disabled={loading || saving}
+                />
+                <span className="tool-name">{tool.name}</span>
+              </label>
+            ))}
+
+            {!loading && filteredTools.length === 0 && (
+              <div className="tool-empty-search">No tools match your search</div>
+            )}
+
+            {loading && <div className="tool-empty-search">Loading…</div>}
+          </div>
+
+          {/* Selected tools pills */}
+          <div className="selected-tools-section">
+            <span className="selected-label">Selected Tools:</span>
+
+            {selectedTools.length > 0 ? (
+              <div className="selected-pills">
+                {selectedTools.map((tool) => (
+                  <span key={tool.id} className="tool-pill">
+                    {tool.name}
+                    <button
+                      type="button"
+                      className="pill-remove"
+                      onClick={() => handleRemoveTool(tool.id)}
+                      disabled={loading || saving}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">No MW4H required tools selected yet.</div>
+            )}
+          </div>
+
+          {/* Footer note */}
+          <div className="tool-footer-note">
+            This list is required by policy, but it is not a hard dispatch gate. Workers can still pick up missing tools after dispatch.
+          </div>
+        </div>
+      </div>
+
+      <style jsx>{`
+        .trade-detail-container {
+          padding: 24px 40px 60px;
+          max-width: 900px;
+          margin: 0 auto;
+        }
+
+        /* Header */
+        .page-header {
+          margin-bottom: 24px;
+        }
+
+        .back-link {
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.5);
+          text-decoration: none;
+          transition: color 0.15s ease;
+          display: inline-block;
+          margin-bottom: 12px;
+        }
+
+        .back-link:hover {
+          color: #3b82f6;
+        }
+
+        h1 {
+          font-size: 28px;
+          font-weight: 600;
+          color: #fff;
+          margin: 0 0 8px;
+          letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+          font-size: 14px;
+          color: rgba(255, 255, 255, 0.55);
+          margin: 0;
+        }
+
+        /* Detail Card (copied from Trade detail shell) */
+        .detail-card {
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 12px;
+          margin-bottom: 24px;
+        }
+
+        .card-header {
+          padding: 16px 20px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .card-header h2 {
+          font-size: 16px;
+          font-weight: 600;
+          color: #fff;
+          margin: 0;
+        }
+
+        .header-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .header-actions {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .pill {
+          display: inline-flex;
+          align-items: center;
+          padding: 4px 10px;
+          font-size: 11px;
+          font-weight: 700;
+          border-radius: 999px;
+          letter-spacing: 0.2px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.04);
+          color: rgba(255, 255, 255, 0.75);
+        }
+
+        .pill.warn {
+          border-color: rgba(245, 158, 11, 0.25);
+          background: rgba(245, 158, 11, 0.10);
+          color: rgba(245, 158, 11, 0.95);
+        }
+
+        .pill.ok {
+          border-color: rgba(34, 197, 94, 0.25);
+          background: rgba(34, 197, 94, 0.10);
+          color: rgba(34, 197, 94, 0.95);
+        }
+
+        .btn {
+          padding: 8px 12px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          border: 1px solid rgba(255, 255, 255, 0.10);
+          background: rgba(255, 255, 255, 0.04);
+          color: rgba(255, 255, 255, 0.85);
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .btn:hover {
+          background: rgba(255, 255, 255, 0.07);
+        }
+
+        .btn:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+
+        .btn.primary {
+          border-color: rgba(59, 130, 246, 0.35);
+          background: rgba(59, 130, 246, 0.15);
+          color: #93c5fd;
+        }
+
+        .btn.primary:hover {
+          background: rgba(59, 130, 246, 0.22);
+        }
+
+        .btn.ghost {
+          background: transparent;
+        }
+
+        .card-body {
+          padding: 20px;
+        }
+
+        /* Tools section (copy the same look/feel as Trade detail MW4H tool section, without flags) */
+        .tool-list-card {
+          margin-top: 24px;
+        }
+
+        .section-intro {
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.6);
+          margin: 0 0 16px;
+          line-height: 1.5;
+        }
+
+        .error-box {
+          margin: 0 0 12px;
+          padding: 12px 14px;
+          border-radius: 8px;
+          background: rgba(239, 68, 68, 0.10);
+          border: 1px solid rgba(239, 68, 68, 0.25);
+          color: rgba(254, 202, 202, 0.95);
+          font-size: 13px;
+          line-height: 1.5;
+        }
+
+        .tool-search {
+          margin-bottom: 12px;
+        }
+
+        .tool-search input {
+          width: 100%;
+          padding: 10px 14px;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 6px;
+          font-size: 14px;
+          color: #fff;
+        }
+
+        .tool-search input:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+
+        .tool-search input::placeholder {
+          color: rgba(255, 255, 255, 0.35);
+        }
+
+        .tool-list-scroll {
+          max-height: 320px;
+          overflow-y: auto;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 8px;
+          background: rgba(0, 0, 0, 0.15);
+        }
+
+        .tool-row {
+          display: flex;
+          align-items: center;
+          padding: 10px 14px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+          cursor: pointer;
+          transition: background 0.15s ease;
+          user-select: none;
+        }
+
+        .tool-row:last-child {
+          border-bottom: none;
+        }
+
+        .tool-row:hover {
+          background: rgba(59, 130, 246, 0.06);
+        }
+
+        .tool-row input[type="checkbox"] {
+          width: 16px;
+          height: 16px;
+          margin-right: 12px;
+          accent-color: #3b82f6;
+          cursor: pointer;
+        }
+
+        .tool-name {
+          flex: 1;
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.85);
+        }
+
+        .tool-empty-search {
+          padding: 24px;
+          text-align: center;
+          color: rgba(255, 255, 255, 0.4);
+          font-size: 13px;
+        }
+
+        /* Selected tools pills */
+        .selected-tools-section {
+          margin-top: 16px;
+        }
+
+        .selected-label {
+          display: block;
+          font-size: 11px;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.5);
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          margin-bottom: 10px;
+        }
+
+        .selected-pills {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .tool-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 10px;
+          background: rgba(59, 130, 246, 0.12);
+          border: 1px solid rgba(59, 130, 246, 0.25);
+          border-radius: 16px;
+          font-size: 12px;
+          color: #3b82f6;
+        }
+
+        .pill-remove {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 16px;
+          height: 16px;
+          padding: 0;
+          font-size: 14px;
+          color: rgba(59, 130, 246, 0.7);
+          background: transparent;
+          border: none;
+          border-radius: 50%;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .pill-remove:hover {
+          color: #fff;
+          background: rgba(59, 130, 246, 0.3);
+        }
+
+        .pill-remove:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+
+        .empty-state {
+          padding: 16px;
+          text-align: center;
+          color: rgba(255, 255, 255, 0.4);
+          font-size: 13px;
+          font-style: italic;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px dashed rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+        }
+
+        /* Footer note */
+        .tool-footer-note {
+          margin-top: 16px;
+          padding: 12px 14px;
+          background: rgba(139, 92, 246, 0.08);
+          border: 1px solid rgba(139, 92, 246, 0.15);
+          border-radius: 6px;
+          font-size: 12px;
+          color: rgba(139, 92, 246, 0.9);
+          line-height: 1.5;
+        }
+      `}</style>
+    </div>
+  );
+}
+
