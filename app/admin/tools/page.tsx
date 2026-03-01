@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type ToolStatus = "Active" | "Inactive";
@@ -19,66 +19,69 @@ type ToolCategory = {
   tools: Tool[];
 };
 
-const MOCK_CATEGORIES: ToolCategory[] = [
-  {
-    id: "CAT-001",
-    name: "Electrical & Diagnostic",
-    status: "Active",
-    tools: [
-      { id: "TOOL-002", name: "Digital Multimeter", status: "Active" },
-      { id: "TOOL-008", name: "Oscilloscope", status: "Inactive" },
-    ],
-  },
-  {
-    id: "CAT-002",
-    name: "Hand Tools",
-    status: "Active",
-    tools: [
-      { id: "TOOL-005", name: "Hammer Drill", status: "Inactive" },
-      { id: "TOOL-001", name: "Pipe Wrench 24\"", status: "Active" },
-    ],
-  },
-  {
-    id: "CAT-003",
-    name: "Heavy Equipment",
-    status: "Active",
-    tools: [
-      { id: "TOOL-007", name: "Forklift", status: "Active" },
-      { id: "TOOL-003", name: "Hydraulic Press", status: "Active" },
-    ],
-  },
-  {
-    id: "CAT-004",
-    name: "Measurement & Precision",
-    status: "Active",
-    tools: [
-      { id: "TOOL-006", name: "Laser Level", status: "Active" },
-      { id: "TOOL-004", name: "Torque Wrench", status: "Active" },
-    ],
-  },
-  {
-    id: "CAT-005",
-    name: "Retired Inventory",
-    status: "Inactive",
-    tools: [
-      { id: "TOOL-009", name: "Analog Caliper", status: "Inactive" },
-      { id: "TOOL-010", name: "Manual Winch", status: "Inactive" },
-    ],
-  },
-];
-
 export default function ToolCatalogPage() {
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    () => {
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [categories, setCategories] = useState<ToolCategory[]>([]);
+
+
+  
+  const [refreshKey, setRefreshKey] = useState(0);
+useEffect(() => {
+    async function load() {
+      const token = window.localStorage.getItem("jp_accessToken");
+      if (!token) return;
+
+      const [catsRes, toolsRes] = await Promise.all([
+        fetch("/api/tool-categories", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/tools", { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+
+      const cats = await catsRes.json();
+      const tools = await toolsRes.json();
+
+      const catNameById: Record<string, string> = {};
+      const catActiveById: Record<string, boolean> = {};
+
+      (cats || []).forEach((c: any) => {
+        catNameById[c.id] = c.name;
+        catActiveById[c.id] = !!c.isActive;
+      });
+
+      const grouped: Record<string, ToolCategory> = {};
+
+      (tools || []).forEach((t: any) => {
+        const catId = t.categoryId;
+
+        if (!grouped[catId]) {
+          grouped[catId] = {
+            id: catId,
+            name: catNameById[catId] ?? "UNMAPPED CATEGORY",
+            status: catActiveById[catId] ? "Active" : "Inactive",
+            tools: [],
+          };
+        }
+
+        grouped[catId].tools.push({
+          id: t.id,
+          name: t.name,
+          status: t.isActive ? "Active" : "Inactive",
+        });
+      });
+
+      const nextCats = Object.values(grouped).sort((a, b) => a.name.localeCompare(b.name));
+      setCategories(nextCats);
+
       const initial = new Set<string>();
-      MOCK_CATEGORIES.forEach((cat) => {
+      nextCats.forEach((cat) => {
         if (cat.status === "Active") initial.add(cat.id);
       });
-      return initial;
+      setExpandedCategories(initial);
     }
-  );
+
+    load();
+  }, [refreshKey]);
 
   const toggleCategory = (categoryId: string, categoryStatus: CategoryStatus) => {
     if (categoryStatus === "Inactive") return;
@@ -93,27 +96,43 @@ export default function ToolCatalogPage() {
     });
   };
 
-  const filteredCategories = MOCK_CATEGORIES
-    .filter((cat) => {
-      if (statusFilter === "Active Only" && cat.status !== "Active") return false;
-      if (statusFilter === "Inactive Only" && cat.status !== "Inactive") return false;
-      return true;
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
+  
+  async function toggleToolActive(toolId: string, nextIsActive: boolean) {
+    const token = window.localStorage.getItem("jp_accessToken");
+    if (!token) return;
 
-  const getFilteredTools = (tools: Tool[]) => {
+    await fetch(`/api/tools/${toolId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ isActive: nextIsActive }),
+      cache: "no-store",
+    });
+
+    setRefreshKey((k) => k + 1);
+  }
+const getFilteredTools = (tools: Tool[]) => {
     return tools
       .filter((tool) => {
+        if (statusFilter === "Active Only" && tool.status !== "Active") return false;
+        if (statusFilter === "Inactive Only" && tool.status !== "Inactive") return false;
         if (!searchQuery) return true;
         return tool.name.toLowerCase().includes(searchQuery.toLowerCase());
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   };
 
-  const totalTools = filteredCategories.reduce(
-    (sum, cat) => sum + getFilteredTools(cat.tools).length,
-    0
-  );
+  const filteredCategories = categories
+    .map((cat) => ({
+      ...cat,
+      tools: getFilteredTools(cat.tools),
+    }))
+    .filter((cat) => cat.tools.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const totalTools = filteredCategories.reduce((sum, cat) => sum + cat.tools.length, 0);
 
   const getStatusStyle = (status: ToolStatus | CategoryStatus) => {
     if (status === "Active") {
@@ -225,16 +244,11 @@ export default function ToolCatalogPage() {
                           className="tool-cell"
                         >
                           <span className="tool-cell-name">{tool.name}</span>
-                          <span
-                            className="status-badge"
-                            style={{
+                          <span className="status-badge" onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleToolActive(tool.id, tool.status !== "Active"); }} style={{ cursor: "pointer",
                               backgroundColor: getStatusStyle(tool.status).bg,
                               color: getStatusStyle(tool.status).color,
                               borderColor: getStatusStyle(tool.status).border,
-                            }}
-                          >
-                            {tool.status}
-                          </span>
+                            }}>{tool.status}</span>
                         </Link>
                       ))}
                     </div>
@@ -563,6 +577,12 @@ export default function ToolCatalogPage() {
     </div>
   );
 }
+
+
+
+
+
+
 
 
 
