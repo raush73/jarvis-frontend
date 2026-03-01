@@ -34,6 +34,13 @@ export default function TradeDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [saveError, setSaveError] = useState("");
 
+  const [baselineToolIds, setBaselineToolIds] = useState<string[]>([]);
+  const [baselineTools, setBaselineTools] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [baselineLoading, setBaselineLoading] = useState(false);
+  const [baselineError, setBaselineError] = useState("");
+
   const syncDraft = (t: Trade) => {
     setDraftName(t.name);
     setDraftWcClassCode(t.wcClassCode);
@@ -85,6 +92,42 @@ export default function TradeDetailPage() {
       cancelled = true;
     };
   }, [tradeId]);
+
+  useEffect(() => {
+    if (!tradeId || !trade) return;
+    let cancelled = false;
+
+    (async () => {
+      setBaselineLoading(true);
+      setBaselineError("");
+      try {
+        const baseline = await apiFetch<{ tradeId: string; toolIds: string[] }>(
+          `/trades/${tradeId}/tools-baseline`
+        );
+        if (cancelled) return;
+        const toolIds = baseline.toolIds ?? [];
+        setBaselineToolIds(toolIds);
+
+        const allTools = await apiFetch<{ id: string; name: string }[]>(
+          "/tools?activeOnly=true"
+        );
+        if (cancelled) return;
+        const idSet = new Set(toolIds);
+        const filtered = (allTools ?? []).filter((t) => idSet.has(t.id));
+        setBaselineTools(filtered);
+      } catch (e: any) {
+        if (!cancelled) {
+          setBaselineError(e?.message ?? "Failed to load tool list.");
+        }
+      } finally {
+        if (!cancelled) setBaselineLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeId, trade]);
 
   const canSave =
     draftName.trim() !== "" && draftWcClassCode.trim() !== "" && !submitting;
@@ -407,10 +450,29 @@ export default function TradeDetailPage() {
           <h2>MW4H Minimal Tool List</h2>
         </div>
         <div className="card-body">
-          <div className="empty-state">
-            Coming soon &mdash; tool template configuration will be available
-            here.
-          </div>
+          <p className="baseline-summary">
+            {baselineToolIds.length} selected
+          </p>
+          {baselineLoading && (
+            <div className="empty-state">Loading tool list…</div>
+          )}
+          {!baselineLoading && baselineError && (
+            <div className="baseline-error">{baselineError}</div>
+          )}
+          {!baselineLoading && !baselineError && baselineTools.length > 0 && (
+            <ul className="baseline-preview">
+              {baselineTools.slice(0, 12).map((t) => (
+                <li key={t.id}>{t.name}</li>
+              ))}
+            </ul>
+          )}
+          {!baselineLoading &&
+            !baselineError &&
+            baselineTools.length > 12 && (
+              <p className="baseline-more">
+                +{baselineTools.length - 12} more
+              </p>
+            )}
           <div style={{ marginTop: 12, textAlign: "center" }}>
             <Link
               href={`/admin/trades/${tradeId}/tools`}
@@ -749,6 +811,35 @@ export default function TradeDetailPage() {
 
         .tools-link:hover {
           text-decoration: underline;
+        }
+
+        .baseline-summary {
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.7);
+          margin: 0 0 12px;
+        }
+
+        .baseline-error {
+          font-size: 13px;
+          color: #ef4444;
+          margin-bottom: 12px;
+        }
+
+        .baseline-preview {
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.8);
+          margin: 0 0 4px;
+          padding-left: 20px;
+        }
+
+        .baseline-preview li {
+          margin-bottom: 4px;
+        }
+
+        .baseline-more {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.5);
+          margin: 0 0 12px;
         }
       `}</style>
     </div>
