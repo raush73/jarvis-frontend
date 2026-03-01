@@ -1,31 +1,44 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+
+const MOCK_CATEGORY_OPTIONS = [
+  { id: "CAT-001", name: "Electrical & Diagnostic" },
+  { id: "CAT-002", name: "Hand Tools" },
+  { id: "CAT-003", name: "Heavy Equipment" },
+  { id: "CAT-004", name: "Measurement & Precision" },
+  { id: "CAT-005", name: "Retired Inventory" },
+];
 
 export default function AddToolPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const preselectedCategoryId = searchParams.get("categoryId") || "";
 
-  // Form state
+  const [categoryName, setCategoryName] = useState("");
+  const [categoryStatus, setCategoryStatus] = useState<"Active" | "Inactive">("Active");
+  const [categorySaved, setCategorySaved] = useState(false);
+
   const [toolName, setToolName] = useState("");
-  const [description, setDescription] = useState("");
-  const [calibrationRequired, setCalibrationRequired] = useState(false);
-  const [heavyEquipment, setHeavyEquipment] = useState(false);
-  const [precisionTool, setPrecisionTool] = useState(false);
+  const [toolDescription, setToolDescription] = useState("");
+  const [toolCategory, setToolCategory] = useState(preselectedCategoryId);
+  const [toolSaved, setToolSaved] = useState(false);
 
-  // Validation - Tool Name is required
-  const canSubmit = toolName.trim() !== "";
+  const canSaveCategory = categoryName.trim() !== "";
+  const canSaveTool = toolName.trim() !== "" && toolCategory !== "";
 
-  // Handle save
-  const handleSave = () => {
-    if (!canSubmit) return;
+  const handleSaveCategory = () => {
+    if (!canSaveCategory) return;
+    setCategorySaved(true);
+    setTimeout(() => setCategorySaved(false), 2000);
+  };
 
-    // Generate mock id
-    const mockId = `TOOL-${Date.now()}`;
-
-    // Navigate to detail page (no persistence)
-    router.push(`/admin/tools/${mockId}`);
+  const handleSaveTool = () => {
+    if (!canSaveTool) return;
+    setToolSaved(true);
+    setTimeout(() => setToolSaved(false), 2000);
   };
 
   const handleCancel = () => {
@@ -44,16 +57,61 @@ export default function AddToolPage() {
         <Link href="/admin/tools" className="back-link">
           ← Back to Tool Catalog
         </Link>
-        <h1>Add Tool</h1>
+        <h1>Add Category / Tool</h1>
         <p className="subtitle">
-          Add a new tool to the catalog.
+          Create a new category or add a tool to an existing category.
         </p>
       </div>
 
-      {/* Form Section */}
+      {/* Add Category Section */}
       <div className="form-section">
+        <h2 className="section-title">Add Category</h2>
         <div className="form-grid">
-          {/* Tool Name */}
+          <div className="form-row full-width">
+            <label className="form-label">
+              Category Name <span className="required">*</span>
+            </label>
+            <input
+              type="text"
+              className="form-input"
+              value={categoryName}
+              onChange={(e) => setCategoryName(e.target.value)}
+              placeholder="e.g., Welding Equipment"
+            />
+          </div>
+
+          <div className="form-row full-width">
+            <label className="form-label">Status</label>
+            <select
+              className="form-select"
+              value={categoryStatus}
+              onChange={(e) => setCategoryStatus(e.target.value as "Active" | "Inactive")}
+            >
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="section-actions">
+          {categorySaved && (
+            <span className="saved-text">Category saved (placeholder)</span>
+          )}
+          <button
+            type="button"
+            className="save-btn"
+            onClick={handleSaveCategory}
+            disabled={!canSaveCategory}
+          >
+            Save Category
+          </button>
+        </div>
+      </div>
+
+      {/* Add Tool Section */}
+      <div className="form-section">
+        <h2 className="section-title">Add Tool</h2>
+        <div className="form-grid">
           <div className="form-row full-width">
             <label className="form-label">
               Tool Name <span className="required">*</span>
@@ -67,70 +125,57 @@ export default function AddToolPage() {
             />
           </div>
 
-          {/* Description */}
           <div className="form-row full-width">
             <label className="form-label">Description</label>
             <textarea
               className="form-textarea"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              value={toolDescription}
+              onChange={(e) => setToolDescription(e.target.value)}
               placeholder="Optional description of the tool..."
               rows={3}
             />
           </div>
 
-          {/* Flags Section */}
           <div className="form-row full-width">
-            <label className="form-label">Flags</label>
-            <div className="flags-section">
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={calibrationRequired}
-                  onChange={() => setCalibrationRequired(!calibrationRequired)}
-                />
-                <span className="checkbox-label">Calibration Required</span>
-                <span className="checkbox-hint">Tool requires periodic calibration</span>
-              </label>
-
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={heavyEquipment}
-                  onChange={() => setHeavyEquipment(!heavyEquipment)}
-                />
-                <span className="checkbox-label">Heavy Equipment</span>
-                <span className="checkbox-hint">Requires special handling or certification</span>
-              </label>
-
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={precisionTool}
-                  onChange={() => setPrecisionTool(!precisionTool)}
-                />
-                <span className="checkbox-label">Precision Tool</span>
-                <span className="checkbox-hint">High-accuracy measurement or operation</span>
-              </label>
-            </div>
+            <label className="form-label">
+              Category <span className="required">*</span>
+            </label>
+            <select
+              className="form-select"
+              value={toolCategory}
+              onChange={(e) => setToolCategory(e.target.value)}
+            >
+              <option value="">Select a category…</option>
+              {MOCK_CATEGORY_OPTIONS.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
           </div>
+        </div>
+
+        <div className="section-actions">
+          {toolSaved && (
+            <span className="saved-text">Tool saved (placeholder)</span>
+          )}
+          <button
+            type="button"
+            className="save-btn"
+            onClick={handleSaveTool}
+            disabled={!canSaveTool}
+          >
+            Save Tool
+          </button>
         </div>
       </div>
 
-      {/* Form Actions */}
+      {/* Bottom Actions */}
       <div className="form-actions">
         <p className="helper-text">UI-only: saving will be wired later.</p>
         <div className="action-buttons">
           <button type="button" className="cancel-btn" onClick={handleCancel}>
             Cancel
-          </button>
-          <button
-            type="button"
-            className="save-btn"
-            onClick={handleSave}
-            disabled={!canSubmit}
-          >
-            Save
           </button>
         </div>
       </div>
@@ -187,6 +232,16 @@ export default function AddToolPage() {
           margin: 0;
         }
 
+        /* Section Title */
+        .section-title {
+          font-size: 18px;
+          font-weight: 600;
+          color: #fff;
+          margin: 0 0 20px;
+          padding-bottom: 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
         /* Form Section */
         .form-section {
           background: rgba(255, 255, 255, 0.02);
@@ -225,7 +280,8 @@ export default function AddToolPage() {
         }
 
         .form-input,
-        .form-textarea {
+        .form-textarea,
+        .form-select {
           padding: 10px 12px;
           font-size: 13px;
           color: #fff;
@@ -236,7 +292,8 @@ export default function AddToolPage() {
         }
 
         .form-input:focus,
-        .form-textarea:focus {
+        .form-textarea:focus,
+        .form-select:focus {
           outline: none;
           border-color: #3b82f6;
         }
@@ -251,42 +308,26 @@ export default function AddToolPage() {
           min-height: 80px;
         }
 
-        /* Flags Section */
-        .flags-section {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          padding: 16px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 8px;
+        .form-select option {
+          background: #1a1d24;
+          color: #fff;
         }
 
-        .checkbox-row {
+        /* Section Actions */
+        .section-actions {
           display: flex;
+          justify-content: flex-end;
           align-items: center;
           gap: 12px;
-          cursor: pointer;
-          padding: 8px 0;
+          margin-top: 20px;
+          padding-top: 16px;
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
         }
 
-        .checkbox-row input[type="checkbox"] {
-          width: 18px;
-          height: 18px;
-          accent-color: #3b82f6;
-          cursor: pointer;
-        }
-
-        .checkbox-label {
-          font-size: 14px;
-          font-weight: 500;
-          color: #fff;
-          min-width: 160px;
-        }
-
-        .checkbox-hint {
+        .saved-text {
           font-size: 12px;
-          color: rgba(255, 255, 255, 0.4);
+          color: #22c55e;
+          font-style: italic;
         }
 
         /* Form Actions */
