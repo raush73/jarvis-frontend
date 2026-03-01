@@ -57,9 +57,9 @@ export default function TradesPage() {
           </p>
         </div>
         <div className="header-actions">
-          <button className="btn-add" type="button">
+          <Link href="/admin/trades/new" className="btn-add">
             + Add Trade
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -161,6 +161,7 @@ export default function TradesPage() {
         }
 
         .btn-add {
+          display: inline-block;
           padding: 10px 20px;
           font-size: 14px;
           font-weight: 600;
@@ -169,6 +170,7 @@ export default function TradesPage() {
           border: none;
           border-radius: 8px;
           cursor: pointer;
+          text-decoration: none;
           transition: all 0.15s ease;
         }
 
