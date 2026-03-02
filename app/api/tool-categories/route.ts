@@ -1,45 +1,30 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export async function GET(req: Request) {
-  const token = req.headers.get("authorization") || "";
+const BACKEND_BASE = "http://127.0.0.1:3000";
 
-  const url = new URL(req.url);
-  const backendUrl = new URL("http://127.0.0.1:3000/tool-categories");
-  backendUrl.search = url.search;
-
-  const res = await fetch(backendUrl.toString(), {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: token } : {}),
-    },
-    cache: "no-store",
-  });
-
-  const text = await res.text();
-  return new NextResponse(text, {
-    status: res.status,
-    headers: { "Content-Type": "application/json" },
-  });
+function getAuthHeader(req: NextRequest) {
+  const auth = req.headers.get("authorization");
+  return auth ? { Authorization: auth } : {};
 }
 
-export async function POST(req: Request) {
-  const token = req.headers.get("authorization") || "";
-  const body = await req.text();
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const qs = url.search ? url.search : "";
+  const upstream = `${BACKEND_BASE}/tool-categories${qs}`;
 
-  const res = await fetch("http://127.0.0.1:3000/tool-categories", {
-    method: "POST",
+  const res = await fetch(upstream, {
+    method: "GET",
     headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: token } : {}),
+      ...getAuthHeader(req),
     },
-    body,
     cache: "no-store",
   });
 
   const text = await res.text();
   return new NextResponse(text, {
     status: res.status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "content-type": res.headers.get("content-type") || "application/json",
+    },
   });
 }
