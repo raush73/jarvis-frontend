@@ -17,15 +17,18 @@ type Tool = {
   isActive: boolean;
 };
 
-type ToolsBaselineResponse = {
-  tradeId: string;
-  toolIds: string[];
+type CustomerToolsBaselineResponse = {
+  customerId: string;
+  baselines: Array<{ tradeId: string; toolIds: string[] }>;
 };
 
-export default function TradeToolsTemplatePage() {
-  const params = useParams<{ id: string }>();
-  const tradeId = params?.id;
+export default function CustomerTradeToolsBaselinePage() {
+  const params = useParams<{ id: string; tradeId: string }>();
+  const customerId = params?.id;
+  const tradeId = params?.tradeId;
   const router = useRouter();
+
+  const [customerName, setCustomerName] = useState<string>("Customer");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -34,8 +37,12 @@ export default function TradeToolsTemplatePage() {
 
   const [categories, setCategories] = useState<ToolCategory[]>([]);
   const [toolsByCategory, setToolsByCategory] = useState<Record<string, Tool[]>>({});
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [initialSelectedIds, setInitialSelectedIds] = useState<Set<string>>(new Set());
+
+  // full customer baseline map (so PUT stays replace-all)
+  const [baselineMap, setBaselineMap] = useState<Record<string, string[]>>({});
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showSelectedOnly, setShowSelectedOnly] = useState(false);
@@ -51,7 +58,7 @@ export default function TradeToolsTemplatePage() {
   }, [selectedIds, initialSelectedIds]);
 
   useEffect(() => {
-    if (!tradeId) return;
+    if (!customerId || !tradeId) return;
 
     let cancelled = false;
 
@@ -60,30 +67,42 @@ export default function TradeToolsTemplatePage() {
       setError(null);
 
       try {
+        // Customer header
+        const cust = await apiFetch<any>(`/customers/${customerId}`);
+        if (cancelled) return;
+        setCustomerName(cust?.name || "Customer");
+
+        // Tool dictionary
         const cats = await apiFetch<ToolCategory[]>("/tool-categories?activeOnly=true");
         if (cancelled) return;
         setCategories(cats);
 
         const toolMap: Record<string, Tool[]> = {};
         for (const c of cats) {
-          const tools = await apiFetch<Tool[]>(
-            `/tools?activeOnly=true&categoryId=${c.id}`
-          );
+          const tools = await apiFetch<Tool[]>(`/tools?activeOnly=true&categoryId=${c.id}`);
           toolMap[c.id] = tools;
         }
         if (cancelled) return;
         setToolsByCategory(toolMap);
 
-        const baseline = await apiFetch<ToolsBaselineResponse>(
-          `/trades/${tradeId}/tools-baseline`
+        // Customer baseline (replace-all model)
+        const baseline = await apiFetch<CustomerToolsBaselineResponse>(
+          `/customers/${customerId}/tools-baseline`
         );
         if (cancelled) return;
 
-        const nextSelected = new Set<string>(baseline.toolIds || []);
-        setSelectedIds(nextSelected);
-        setInitialSelectedIds(new Set(nextSelected));
+        const map: Record<string, string[]> = {};
+        for (const b of baseline.baselines || []) {
+          map[b.tradeId] = b.toolIds || [];
+        }
+        setBaselineMap(map);
+
+        const currentTradeIds = new Set<string>((map[tradeId] || []) as string[]);
+        setSelectedIds(currentTradeIds);
+        setInitialSelectedIds(new Set(currentTradeIds));
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : "Failed to load trade tools baseline.";
+        const msg =
+          e instanceof Error ? e.message : "Failed to load customer tools baseline.";
         setError(msg);
       } finally {
         if (!cancelled) setLoading(false);
@@ -94,7 +113,7 @@ export default function TradeToolsTemplatePage() {
     return () => {
       cancelled = true;
     };
-  }, [tradeId]);
+  }, [customerId, tradeId]);
 
   const filteredCategories = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -130,19 +149,28 @@ export default function TradeToolsTemplatePage() {
   }
 
   async function save() {
-    if (!tradeId) return;
+    if (!customerId || !tradeId) return;
 
     setSaving(true);
     setError(null);
     setSaveSuccess(false);
 
     try {
-      await apiFetch(`/trades/${tradeId}/tools-baseline`, {
+      const nextMap: Record<string, string[]> = { ...(baselineMap || {}) };
+      nextMap[tradeId] = Array.from(selectedIds);
+
+      const baselines = Object.entries(nextMap).map(([tId, toolIds]) => ({
+        tradeId: tId,
+        toolIds: toolIds || [],
+      }));
+
+      await apiFetch(`/customers/${customerId}/tools-baseline`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ toolIds: Array.from(selectedIds) }),
+        body: JSON.stringify({ baselines }),
       });
 
+      setBaselineMap(nextMap);
       setInitialSelectedIds(new Set(selectedIds));
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
@@ -154,10 +182,10 @@ export default function TradeToolsTemplatePage() {
     }
   }
 
-  if (!tradeId) {
+  if (!customerId || !tradeId) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-600">Missing trade id.</div>
+        <div className="text-gray-600">Missing customer id or trade id.</div>
       </div>
     );
   }
@@ -168,7 +196,9 @@ export default function TradeToolsTemplatePage() {
         <div className="max-w-5xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h1 className="text-xl font-semibold text-gray-900">MW4H Minimal Tool List</h1>
+              <h1 className="text-xl font-semibold text-gray-900">
+                {customerName} — Tool Baseline
+              </h1>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-xs text-gray-500">
                   Trade:{" "}
@@ -317,3 +347,7 @@ export default function TradeToolsTemplatePage() {
     </div>
   );
 }
+
+
+
+

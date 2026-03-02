@@ -1,104 +1,144 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
-// Types
 type ToolStatus = "Active" | "Inactive";
+type CategoryStatus = "Active" | "Inactive";
 
 type Tool = {
   id: string;
   name: string;
-  flags: {
-    calibrationRequired: boolean;
-    heavyEquipment: boolean;
-    precisionTool: boolean;
-  };
   status: ToolStatus;
 };
 
-// Mock data
-const MOCK_TOOLS: Tool[] = [
-  {
-    id: "TOOL-001",
-    name: "Pipe Wrench 24\"",
-    flags: { calibrationRequired: false, heavyEquipment: false, precisionTool: false },
-    status: "Active",
-  },
-  {
-    id: "TOOL-002",
-    name: "Digital Multimeter",
-    flags: { calibrationRequired: true, heavyEquipment: false, precisionTool: true },
-    status: "Active",
-  },
-  {
-    id: "TOOL-003",
-    name: "Hydraulic Press",
-    flags: { calibrationRequired: true, heavyEquipment: true, precisionTool: false },
-    status: "Active",
-  },
-  {
-    id: "TOOL-004",
-    name: "Torque Wrench",
-    flags: { calibrationRequired: true, heavyEquipment: false, precisionTool: true },
-    status: "Active",
-  },
-  {
-    id: "TOOL-005",
-    name: "Hammer Drill",
-    flags: { calibrationRequired: false, heavyEquipment: false, precisionTool: false },
-    status: "Inactive",
-  },
-  {
-    id: "TOOL-006",
-    name: "Laser Level",
-    flags: { calibrationRequired: true, heavyEquipment: false, precisionTool: true },
-    status: "Active",
-  },
-  {
-    id: "TOOL-007",
-    name: "Forklift",
-    flags: { calibrationRequired: false, heavyEquipment: true, precisionTool: false },
-    status: "Active",
-  },
-  {
-    id: "TOOL-008",
-    name: "Oscilloscope",
-    flags: { calibrationRequired: true, heavyEquipment: false, precisionTool: true },
-    status: "Inactive",
-  },
-];
+type ToolCategory = {
+  id: string;
+  name: string;
+  status: CategoryStatus;
+  tools: Tool[];
+};
 
 export default function ToolCatalogPage() {
-  // Filter state
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [categories, setCategories] = useState<ToolCategory[]>([]);
 
-  // Filter logic
-  const filteredTools = MOCK_TOOLS.filter((tool) => {
-    if (statusFilter !== "All" && tool.status !== statusFilter) {
-      return false;
+
+  
+  const [refreshKey, setRefreshKey] = useState(0);
+useEffect(() => {
+    async function load() {
+      const token = window.localStorage.getItem("jp_accessToken");
+      if (!token) return;
+
+      const [catsRes, toolsRes] = await Promise.all([
+        fetch("/api/tool-categories", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/tools", { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+
+      const cats = await catsRes.json();
+      const tools = await toolsRes.json();
+
+      const catNameById: Record<string, string> = {};
+      const catActiveById: Record<string, boolean> = {};
+
+      (cats || []).forEach((c: any) => {
+        catNameById[c.id] = c.name;
+        catActiveById[c.id] = !!c.isActive;
+      });
+
+      const grouped: Record<string, ToolCategory> = {};
+
+      (tools || []).forEach((t: any) => {
+        const catId = t.categoryId;
+
+        if (!grouped[catId]) {
+          grouped[catId] = {
+            id: catId,
+            name: catNameById[catId] ?? "UNMAPPED CATEGORY",
+            status: catActiveById[catId] ? "Active" : "Inactive",
+            tools: [],
+          };
+        }
+
+        grouped[catId].tools.push({
+          id: t.id,
+          name: t.name,
+          status: t.isActive ? "Active" : "Inactive",
+        });
+      });
+
+      const nextCats = Object.values(grouped).sort((a, b) => a.name.localeCompare(b.name));
+      setCategories(nextCats);
+
+      const initial = new Set<string>();
+      nextCats.forEach((cat) => {
+        if (cat.status === "Active") initial.add(cat.id);
+      });
+      setExpandedCategories(initial);
     }
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      if (!tool.name.toLowerCase().includes(query)) {
-        return false;
+
+    load();
+  }, [refreshKey]);
+
+  const toggleCategory = (categoryId: string, categoryStatus: CategoryStatus) => {
+    if (categoryStatus === "Inactive") return;
+    setExpandedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
+      } else {
+        next.add(categoryId);
       }
-    }
-    return true;
-  });
+      return next;
+    });
+  };
 
-  // Status badge style
-  const getStatusStyle = (status: ToolStatus) => {
+  
+  async function toggleToolActive(toolId: string, nextIsActive: boolean) {
+    const token = window.localStorage.getItem("jp_accessToken");
+    if (!token) return;
+
+    await fetch(`/api/tools/${toolId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ isActive: nextIsActive }),
+      cache: "no-store",
+    });
+
+    setRefreshKey((k) => k + 1);
+  }
+const getFilteredTools = (tools: Tool[]) => {
+    return tools
+      .filter((tool) => {
+        if (statusFilter === "Active Only" && tool.status !== "Active") return false;
+        if (statusFilter === "Inactive Only" && tool.status !== "Inactive") return false;
+        if (!searchQuery) return true;
+        return tool.name.toLowerCase().includes(searchQuery.toLowerCase());
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  const filteredCategories = categories
+    .map((cat) => ({
+      ...cat,
+      tools: getFilteredTools(cat.tools),
+    }))
+    .filter((cat) => cat.tools.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const totalTools = filteredCategories.reduce((sum, cat) => sum + cat.tools.length, 0);
+
+  const getStatusStyle = (status: ToolStatus | CategoryStatus) => {
     if (status === "Active") {
       return { bg: "rgba(34, 197, 94, 0.12)", color: "#22c55e", border: "rgba(34, 197, 94, 0.25)" };
     }
     return { bg: "rgba(107, 114, 128, 0.12)", color: "#6b7280", border: "rgba(107, 114, 128, 0.25)" };
-  };
-
-  // Flag badge style
-  const getFlagStyle = () => {
-    return { bg: "rgba(59, 130, 246, 0.12)", color: "#3b82f6", border: "rgba(59, 130, 246, 0.25)" };
   };
 
   return (
@@ -121,7 +161,7 @@ export default function ToolCatalogPage() {
         </div>
         <div className="header-actions">
           <Link href="/admin/tools/new" className="btn-add">
-            + Add Tool
+            + Add Category
           </Link>
         </div>
       </div>
@@ -135,9 +175,9 @@ export default function ToolCatalogPage() {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
-            <option value="All">All Statuses</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
+            <option value="All">All</option>
+            <option value="Active Only">Active Only</option>
+            <option value="Inactive Only">Inactive Only</option>
           </select>
         </div>
 
@@ -153,104 +193,79 @@ export default function ToolCatalogPage() {
         </div>
 
         <div className="filter-results">
-          {filteredTools.length} tool{filteredTools.length !== 1 ? "s" : ""}
+          {filteredCategories.length} categor{filteredCategories.length !== 1 ? "ies" : "y"},{" "}
+          {totalTools} tool{totalTools !== 1 ? "s" : ""}
         </div>
       </div>
 
-      {/* Tools Table */}
-      <div className="table-section">
-        <div className="table-wrap">
-          <table className="tools-table">
-            <thead>
-              <tr>
-                <th>Tool Name</th>
-                <th>Flags</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredTools.map((tool) => (
-                <tr key={tool.id}>
-                  <td className="cell-name">{tool.name}</td>
-                  <td className="cell-flags">
-                    <div className="flags-wrap">
-                      {tool.flags.calibrationRequired && (
-                        <span
-                          className="flag-badge"
-                          style={{
-                            backgroundColor: getFlagStyle().bg,
-                            color: getFlagStyle().color,
-                            borderColor: getFlagStyle().border,
-                          }}
-                          title="Calibration Required"
+      {/* Category Accordions */}
+      <div className="categories-section">
+        {filteredCategories.map((category) => {
+          const isExpanded = expandedCategories.has(category.id);
+          const isInactive = category.status === "Inactive";
+          const tools = getFilteredTools(category.tools);
+
+          return (
+            <div key={category.id} className="category-accordion">
+              <div className={`category-header-row ${isInactive ? "category-header-row--inactive" : ""}`}>
+                <button
+                  type="button"
+                  className="category-toggle"
+                  onClick={() => toggleCategory(category.id, category.status)}
+                  disabled={isInactive}
+                >
+                  <span className={`chevron ${isExpanded && !isInactive ? "chevron--open" : ""}`}>
+                    ▶
+                  </span>
+                  <span className="category-name">{category.name}</span>
+                  
+                  <span className="tool-count">
+                    {tools.length} tool{tools.length !== 1 ? "s" : ""}
+                  </span>
+                </button>
+                {!isInactive && (
+                  <Link
+                    href={`/admin/tools/new?categoryId=${category.id}`}
+                    className="btn-add-tool"
+                  >
+                    + Add Tool
+                  </Link>
+                )}
+              </div>
+
+              {isExpanded && !isInactive && (
+                <div className="category-body">
+                  {tools.length > 0 ? (
+                    <div className="tools-grid">
+                      {tools.map((tool) => (
+                        <Link
+                          key={tool.id}
+                          href={`/admin/tools/${tool.id}`}
+                          className="tool-cell"
                         >
-                          CAL
-                        </span>
-                      )}
-                      {tool.flags.heavyEquipment && (
-                        <span
-                          className="flag-badge"
-                          style={{
-                            backgroundColor: "rgba(245, 158, 11, 0.12)",
-                            color: "#f59e0b",
-                            borderColor: "rgba(245, 158, 11, 0.25)",
-                          }}
-                          title="Heavy Equipment"
-                        >
-                          HEAVY
-                        </span>
-                      )}
-                      {tool.flags.precisionTool && (
-                        <span
-                          className="flag-badge"
-                          style={{
-                            backgroundColor: "rgba(168, 85, 247, 0.12)",
-                            color: "#a855f7",
-                            borderColor: "rgba(168, 85, 247, 0.25)",
-                          }}
-                          title="Precision Tool"
-                        >
-                          PREC
-                        </span>
-                      )}
-                      {!tool.flags.calibrationRequired && !tool.flags.heavyEquipment && !tool.flags.precisionTool && (
-                        <span className="no-flags">—</span>
-                      )}
+                          <span className="tool-cell-name">{tool.name}</span>
+                          <span className="status-badge" onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleToolActive(tool.id, tool.status !== "Active"); }} style={{ cursor: "pointer",
+                              backgroundColor: getStatusStyle(tool.status).bg,
+                              color: getStatusStyle(tool.status).color,
+                              borderColor: getStatusStyle(tool.status).border,
+                            }}>{tool.status}</span>
+                        </Link>
+                      ))}
                     </div>
-                  </td>
-                  <td className="cell-status">
-                    <span
-                      className="status-badge"
-                      style={{
-                        backgroundColor: getStatusStyle(tool.status).bg,
-                        color: getStatusStyle(tool.status).color,
-                        borderColor: getStatusStyle(tool.status).border,
-                      }}
-                    >
-                      {tool.status}
-                    </span>
-                  </td>
-                  <td className="cell-actions">
-                    <Link href={`/admin/tools/${tool.id}`} className="action-btn">
-                      View
-                    </Link>
-                    <Link href={`/admin/tools/${tool.id}`} className="action-btn">
-                      Edit
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-              {filteredTools.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="empty-row">
-                    No tools match your filters
-                  </td>
-                </tr>
+                  ) : (
+                    <div className="empty-category">
+                      No tools match your search in this category
+                    </div>
+                  )}
+                </div>
               )}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          );
+        })}
+
+        {filteredCategories.length === 0 && (
+          <div className="empty-state">No categories match your filters</div>
+        )}
       </div>
 
       <style jsx>{`
@@ -393,81 +408,92 @@ export default function ToolCatalogPage() {
           padding-bottom: 8px;
         }
 
-        /* Table */
-        .table-section {
+        /* Categories */
+        .categories-section {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .category-accordion {
           background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 12px;
           overflow: hidden;
         }
 
-        .table-wrap {
-          overflow-x: auto;
-        }
-
-        .tools-table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-
-        .tools-table thead {
-          background: rgba(255, 255, 255, 0.03);
-        }
-
-        .tools-table th {
-          padding: 14px 16px;
-          text-align: left;
-          font-size: 11px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
-          text-transform: uppercase;
-          letter-spacing: 0.4px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        .tools-table td {
-          padding: 14px 16px;
-          font-size: 13px;
-          color: rgba(255, 255, 255, 0.85);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-        }
-
-        .tools-table tr:last-child td {
-          border-bottom: none;
-        }
-
-        .tools-table tbody tr:hover {
-          background: rgba(59, 130, 246, 0.04);
-        }
-
-        .cell-name {
-          font-weight: 500;
-          color: #fff !important;
-        }
-
-        .cell-flags {
-          min-width: 180px;
-        }
-
-        .flags-wrap {
+        .category-header-row {
           display: flex;
-          gap: 6px;
-          flex-wrap: wrap;
+          align-items: center;
+          background: rgba(255, 255, 255, 0.03);
+          transition: background 0.15s ease;
         }
 
-        .flag-badge {
-          display: inline-block;
-          padding: 3px 8px;
+        .category-header-row:hover:not(.category-header-row--inactive) {
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        .category-header-row--inactive {
+          opacity: 0.6;
+        }
+
+        .category-toggle {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 16px 20px;
+          background: none;
+          border: none;
+          cursor: pointer;
+          text-align: left;
+        }
+
+        .category-header-row--inactive .category-toggle {
+          cursor: not-allowed;
+        }
+
+        .chevron {
           font-size: 10px;
-          font-weight: 600;
-          border-radius: 4px;
-          border: 1px solid;
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
+          color: rgba(255, 255, 255, 0.4);
+          transition: transform 0.2s ease;
+          display: inline-block;
+          flex-shrink: 0;
         }
 
-        .no-flags {
-          color: rgba(255, 255, 255, 0.3);
+        .chevron--open {
+          transform: rotate(90deg);
+        }
+
+        .category-name {
+          font-size: 15px;
+          font-weight: 600;
+          color: #fff;
+        }
+
+        .tool-count {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.4);
+          margin-left: auto;
+        }
+
+        .btn-add-tool {
+          flex-shrink: 0;
+          padding: 6px 14px;
+          margin-right: 16px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #3b82f6;
+          background: rgba(59, 130, 246, 0.1);
+          border: 1px solid rgba(59, 130, 246, 0.25);
+          border-radius: 6px;
+          text-decoration: none;
+          transition: all 0.15s ease;
+        }
+
+        .btn-add-tool:hover {
+          background: rgba(59, 130, 246, 0.18);
+          border-color: rgba(59, 130, 246, 0.4);
         }
 
         .status-badge {
@@ -477,42 +503,86 @@ export default function ToolCatalogPage() {
           font-weight: 600;
           border-radius: 4px;
           border: 1px solid;
+          flex-shrink: 0;
         }
 
-        .cell-actions {
+        .category-body {
+          padding: 16px 20px 20px;
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .tools-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 10px;
+        }
+
+        @media (max-width: 1024px) {
+          .tools-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+
+        @media (max-width: 480px) {
+          .tools-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .tool-cell {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 10px 14px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 8px;
+          text-decoration: none;
+          transition: all 0.15s ease;
+          cursor: pointer;
+        }
+
+        .tool-cell:hover {
+          border-color: rgba(59, 130, 246, 0.3);
+          background: rgba(59, 130, 246, 0.04);
+        }
+
+        .tool-cell-name {
+          font-size: 13px;
+          font-weight: 500;
+          color: #fff;
+          overflow: hidden;
+          text-overflow: ellipsis;
           white-space: nowrap;
         }
 
-        .action-btn {
-          display: inline-block;
-          padding: 6px 12px;
-          font-size: 12px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.7);
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 5px;
-          text-decoration: none;
-          transition: all 0.15s ease;
-          margin-right: 8px;
-        }
-
-        .action-btn:last-child {
-          margin-right: 0;
-        }
-
-        .action-btn:hover {
-          color: #fff;
-          background: rgba(255, 255, 255, 0.08);
-          border-color: rgba(255, 255, 255, 0.2);
-        }
-
-        .empty-row {
+        .empty-category {
           text-align: center;
-          color: rgba(255, 255, 255, 0.4) !important;
-          padding: 32px 16px !important;
+          color: rgba(255, 255, 255, 0.4);
+          padding: 24px 16px;
+          font-size: 13px;
+        }
+
+        .empty-state {
+          text-align: center;
+          color: rgba(255, 255, 255, 0.4);
+          padding: 40px 16px;
+          font-size: 14px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 12px;
         }
       `}</style>
     </div>
   );
 }
+
+
+
+
+
+
+
+
+

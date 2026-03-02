@@ -267,7 +267,7 @@ const AVAILABLE_TRADES = [
 const OT_MULTIPLIER_MIN = 1.47;
 const OT_MULTIPLIER_DEFAULT = 1.5;
 
-type TabKey = "contacts" | "tools" | "ppe" | "orders" | "quotes" | "invoices";
+type TabKey = "contacts" | "tools" | "toolsByTrade" | "ppe" | "orders" | "quotes" | "invoices";
 
 // Tool list item shape (UI-only, trade-scoped)
 type ToolLike = { id: string; name: string; notes: string };
@@ -362,6 +362,37 @@ export default function CustomerDetailPage() {
   const params = useParams();
   const customerId = params.id as string;
 
+
+  const [toolNameById, setToolNameById] = useState<Record<string, string>>({});
+
+  // Tools dictionary (id -> name) for inline summary on "Tools [by trade]"
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const cats = await apiFetch<any[]>("/tool-categories?activeOnly=true");
+        const map: Record<string, string> = {};
+
+        for (const c of cats) {
+          const tools = await apiFetch<any[]>(
+            `/tools?activeOnly=true&categoryId=${c.id}`
+          );
+          for (const t of tools) {
+            if (t?.id && t?.name) map[t.id] = (t.name ?? t.label ?? t.displayName ?? t.title ?? t.toolName ?? "").toString();
+          }
+        }
+
+        if (!cancelled) setToolNameById(map);
+      } catch (e) {
+        if (!cancelled) setToolNameById({});
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [headerLoading, setHeaderLoading] = useState(true);
   const [headerError, setHeaderError] = useState("");
   const [liveCustomer, setLiveCustomer] = useState<any>(null);
@@ -436,22 +467,12 @@ export default function CustomerDetailPage() {
 
   // CustomerToolType API state (persisted — Capsule 2)
   const [customerToolTrades, setCustomerToolTrades] = useState<CustomerToolTrade[]>([]);
-  // Customer Tool Baseline (persisted) — modal state (Capsule 3B)
-  const [showCustomerToolBaselineModal, setShowCustomerToolBaselineModal] = useState(false);
-  const [baselineTrades, setBaselineTrades] = useState<{ id: string; name: string }[]>([]);
-  const [baselineToolTypes, setBaselineToolTypes] = useState<{ id: string; name: string; isActive?: boolean }[]>([]);
-  const [baselineLoading, setBaselineLoading] = useState(false);
-  const [baselineError, setBaselineError] = useState("");
-
-  const [baselineForm, setBaselineForm] = useState({
-    tradeId: "",
-    toolTypeId: "",
-    isDefault: false,
-    notes: "",
-  });
-
-
   const [customerToolsLoaded, setCustomerToolsLoaded] = useState(false);
+
+  // Tool Types dictionary + Customer Trade Baselines (Layer 2, Phase 1 — read-only)
+  const [toolTypes, setToolTypes] = useState<Array<{ id: string; name: string; isActive: boolean }>>([]);
+  const [baselineTrades, setBaselineTrades] = useState<Array<{ id: string; name: string }>>([]);
+  const [customerTradeBaselines, setCustomerTradeBaselines] = useState<Record<string, string[]>>({});
 
   // PPE dictionary (Layer 1: Admin PPE types loaded from backend)
   const [ppeTypes, setPpeTypes] = useState<Array<{ id: string; name: string; active?: boolean }>>([]);
@@ -520,6 +541,46 @@ export default function CustomerDetailPage() {
 
   useEffect(() => {
     loadCustomerToolTypes();
+  }, [customerId]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [tt, tr] = await Promise.all([
+          apiFetch<Array<{ id: string; name: string; isActive: boolean }>>("/tool-types"),
+          apiFetch<Array<{ id: string; name: string }>>("/trades"),
+        ]);
+        if (!alive) return;
+        setToolTypes(tt ?? []);
+        setBaselineTrades(tr ?? []);
+      } catch (e: any) {
+        console.error("Failed to load tool types / trades:", e);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const data = await apiFetch<{
+          customerId: string;
+          baselines: Array<{ tradeId: string; toolIds: string[] }>;
+        }>(`/customers/${customerId}/tools-baseline`);
+        if (!alive) return;
+        const map: Record<string, string[]> = {};
+        for (const b of data.baselines ?? []) {
+          map[b.tradeId] = b.toolIds;
+        }
+        setCustomerTradeBaselines(map);
+      } catch (e: any) {
+        console.error("Failed to load customer trade baselines:", e);
+        if (alive) setCustomerTradeBaselines({});
+      }
+    })();
+    return () => { alive = false; };
   }, [customerId]);
 
   const [showAddContactModal, setShowAddContactModal] = useState(false);
@@ -658,6 +719,7 @@ export default function CustomerDetailPage() {
   const tabs: { key: TabKey; label: string }[] = [
     { key: "contacts", label: "Contacts" },
     { key: "tools", label: "Tools" },
+    { key: "toolsByTrade", label: "Tools [by trade]" },
     { key: "ppe", label: "PPE" },
     { key: "orders", label: "Orders" },
     { key: "quotes", label: "Quotes" },
@@ -872,69 +934,6 @@ export default function CustomerDetailPage() {
 
   // ========== TOOLS HANDLERS ==========
 
-  // Customer tool baseline (persisted) — handlers (Capsule 3C)
-  const handleOpenCustomerToolBaselineModal = async () => {
-    setBaselineError("");
-    setBaselineLoading(true);
-
-    // reset form each open (trade + tool required)
-    setBaselineForm({ tradeId: "", toolTypeId: "", isDefault: false, notes: "" });
-
-    try {
-      const [trades, toolTypes] = await Promise.all([
-        apiFetch<{ id: string; name: string }[]>(`/trades`),
-        apiFetch<{ id: string; name: string; isActive?: boolean }[]>(`/tool-types?activeOnly=true`),
-      ]);
-
-      setBaselineTrades(trades ?? []);
-      setBaselineToolTypes(toolTypes ?? []);
-      setShowCustomerToolBaselineModal(true);
-    } catch (e: any) {
-      console.error("Failed to load baseline modal data:", e);
-      setBaselineError(e?.message ?? "Failed to load trades/tool types.");
-      setShowCustomerToolBaselineModal(true);
-    } finally {
-      setBaselineLoading(false);
-    }
-  };
-
-
-  const handleSaveCustomerToolBaseline = async () => {
-    setBaselineError("");
-
-    if (!baselineForm.tradeId || !baselineForm.toolTypeId) {
-      setBaselineError("Trade and Tool Type are required.");
-      return;
-    }
-
-    try {
-      setBaselineLoading(true);
-
-      await apiFetch<any>(`/customers/${customerId}/tool-types`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tradeId: baselineForm.tradeId,
-          toolTypeId: baselineForm.toolTypeId,
-          isDefault: !!baselineForm.isDefault,
-          notes: baselineForm.notes?.trim() || null,
-        }),
-      });
-
-      // refresh persisted list
-      await loadCustomerToolTypes();
-
-      setShowCustomerToolBaselineModal(false);
-    } catch (e: any) {
-      console.error("Failed to save customer tool baseline:", e);
-      setBaselineError(e?.message ?? "Failed to save baseline.");
-    } finally {
-      setBaselineLoading(false);
-    }
-  };
-  const handleCloseCustomerToolBaselineModal = () => {
-    setShowCustomerToolBaselineModal(false);
-  };
   // Add Tool handlers
   const handleOpenAddToolModal = (tradeId: string) => {
     setAddToolForTrade(tradeId);
@@ -1525,131 +1524,20 @@ export default function CustomerDetailPage() {
           </div>
         )}
 
-        {showCustomerToolBaselineModal && (
-          <div className="modal-backdrop" onClick={handleCloseCustomerToolBaselineModal}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h3>Add Trade Baseline (Customer Tools)</h3>
-                <button type="button" className="modal-close" onClick={handleCloseCustomerToolBaselineModal}>
-                  ×
-                </button>
-              </div>
-
-              <div className="modal-body">
-                {baselineError && (
-                  <div style={{ marginBottom: 12, color: "#ff8b8b", fontSize: 13 }}>
-                    {baselineError}
-                  </div>
-                )}
-
-                {baselineLoading ? (
-                  <div style={{ color: "rgba(255,255,255,0.6)", fontStyle: "italic" }}>
-                    Loading trades and tool catalog…
-                  </div>
-                ) : (
-                  <div style={{ display: "grid", gap: 12 }}>
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <label style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>Trade</label>
-                      <select
-                        value={baselineForm.tradeId}
-                        onChange={(e) => setBaselineForm((p) => ({ ...p, tradeId: e.target.value }))}
-                        className="input" style={{ backgroundColor: "#0f172a", color: "#ffffff", border: "1px solid #334155" }}
-                      >
-                        <option value="">Select trade…</option>
-                        {baselineTrades.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <label style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>Tool Type</label>
-                      <select
-                        value={baselineForm.toolTypeId}
-                        onChange={(e) => setBaselineForm((p) => ({ ...p, toolTypeId: e.target.value }))}
-                        className="input" style={{ backgroundColor: "#0f172a", color: "#ffffff", border: "1px solid #334155" }}
-                      >
-                        <option value="">Select tool type…</option>
-                        {baselineToolTypes.map((tt) => (
-                          <option key={tt.id} value={tt.id}>
-                            {tt.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                      <input
-                        type="checkbox"
-                        checked={baselineForm.isDefault}
-                        onChange={(e) => setBaselineForm((p) => ({ ...p, isDefault: e.target.checked }))}
-                      />
-                      Default tool for this trade baseline
-                    </label>
-
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <label style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>Notes</label>
-                      <textarea
-                        value={baselineForm.notes}
-                        onChange={(e) => setBaselineForm((p) => ({ ...p, notes: e.target.value }))}
-                        className="input" style={{ backgroundColor: "#0f172a", color: "#ffffff", border: "1px solid #334155" }}
-                        rows={3}
-                        placeholder="Optional notes…"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                <button type="button" className="btn-secondary" onClick={handleCloseCustomerToolBaselineModal}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={handleSaveCustomerToolBaseline}
-                  disabled={baselineLoading}
-                >
-                  {baselineLoading ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
         {/* Tools Tab — trade-grouped */}
-{activeTab === "tools" && (
+        {activeTab === "tools" && (
           <div className="tools-panel">
             <div className="panel-header">
-              <div>
-                <h2>Customer Tools by Trade</h2>
-                <span className="panel-note">Tools commonly required at this customer&apos;s sites, grouped by trade</span>
-              </div>
-
-              <button type="button" className="add-tool-btn" onClick={handleOpenCustomerToolBaselineModal}>
-                + Add Trade Baseline
-              </button>
+              <h2>Customer Tools by Trade</h2>
+              <span className="panel-note">Tools commonly required at this customer&apos;s sites, grouped by trade</span>
             </div>
             {!customerToolsLoaded ? (
                 <div style={{ textAlign: "center", padding: "24px 16px", color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}>
                   Loading tool types…
                 </div>
               ) : customerToolTrades.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "24px 16px" }}>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}>
-                    No customer tool types configured yet.
-                  </div>
-                  <div style={{ marginTop: 12 }}>
-                    <button
-                      type="button"
-                      className="add-tool-btn"
-                      onClick={handleOpenCustomerToolBaselineModal}
-                    >
-                      + Add Trade Baseline
-                    </button>
-                  </div>
+                <div style={{ textAlign: "center", padding: "24px 16px", color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}>
+                  No customer tool types configured yet.
                 </div>
               ) : customerToolTrades.map(({ trade, items }) => {
               const defaultCount = items.filter((i) => i.isDefault).length;
@@ -1714,8 +1602,91 @@ export default function CustomerDetailPage() {
           </div>
         )}
 
-        {/* PPE Tab */}
-        {activeTab === "ppe" && (
+        {/* Tools [by trade] Tab — Phase 1 read-only baseline wiring */}
+        {activeTab === "toolsByTrade" && (
+          <div className="tools-panel">
+            <div className="panel-header">
+              <div>
+                <h2>Tools by Trade</h2>
+                <span className="panel-note">
+                  Customer tool baselines grouped by trade
+                </span>
+              </div>
+            </div>
+
+            {baselineTrades.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "24px 16px", color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}>
+                Loading trades…
+              </div>
+            ) : (
+              baselineTrades.map((trade) => {
+                const tools = customerTradeBaselines[trade.id] ?? [];
+                const hasTools = tools.length > 0;
+
+                return (
+                  <details
+                    key={trade.id}
+                    className="tools-trade-section"
+                    open={hasTools}
+                  >
+                    <summary className="tools-trade-section-header" style={{ cursor: "pointer" }}>
+                      <div className="tools-trade-header-left">
+                        <h3 className="tools-trade-title">{trade.name}</h3>
+                      </div>
+                      <div className="tools-trade-header-right">
+                        <span className="tools-trade-counts">
+                          {tools.length} tool{tools.length !== 1 ? "s" : ""}
+                        </span>
+                        <button
+                          type="button"
+                          className="tool-action-link"
+                          style={{ marginLeft: 12 }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            router.push(`/customers/${customerId}/tools-baseline/${trade.id}`);
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    </summary>
+
+                    {hasTools && (
+                      <div style={{ padding: "12px 0 0 0", color: "rgba(255,255,255,0.6)" }}>
+                        Tools configured for this trade.
+<div style={{ marginTop: 8, opacity: 0.95 }}>
+  <ul style={{ margin: 0, paddingLeft: 18 }}>
+    {(tools || []).slice(0, 12).map((toolId) => (
+      <li key={toolId} style={{ margin: "2px 0" }}>
+        {toolNameById[toolId] ?? toolId}
+      </li>
+    ))}
+  </ul>
+  {tools.length > 12 && (
+    <div style={{ marginTop: 6, opacity: 0.7, fontStyle: "italic" }}>
+      +{tools.length - 12} more…
+    </div>
+  )}
+</div>
+                      <div style={{ marginTop: 8, opacity: 0.95 }}>
+                        
+                        {tools.length > 12 && (
+                          <div style={{ marginTop: 6, fontStyle: "italic", opacity: 0.75 }}>
+                            +{tools.length - 12} more
+                          </div>
+                        )}
+                      </div>
+                      </div>
+                    )}
+                  </details>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* PPE Tab */}{activeTab === "ppe" && (
           <div className="ppe-panel">
             <div className="panel-header">
               <h2>Customer-Level PPE</h2>
@@ -4610,6 +4581,19 @@ export default function CustomerDetailPage() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

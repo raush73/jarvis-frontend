@@ -1,226 +1,294 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { apiFetch } from "@/lib/api";
 import { useParams } from "next/navigation";
 
-// Mock trades data (same as list page for consistency)
-const MOCK_TRADES = [
-  {
-    id: "TRD-001",
-    name: "Millwright",
-    code: "MILLWRIGHT",
-    category: "Mechanical",
-    description: "Industrial machinery installation, maintenance, and repair. Alignment and precision work.",
-    status: "Active",
-    notes: "Core MW4H trade. High demand across all regions.",
-    wcClassCode: "3724",
-    createdAt: "2025-01-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-002",
-    name: "Welder",
-    code: "WELDER",
-    category: "Mechanical",
-    description: "Metal fabrication and joining using various welding processes (MIG, TIG, Stick, Flux-Core).",
-    status: "Active",
-    notes: "Certifications tracked separately (6G, etc.).",
-    wcClassCode: "3620",
-    createdAt: "2025-01-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-003",
-    name: "Pipefitter",
-    code: "PIPEFITTER",
-    category: "Mechanical",
-    description: "Industrial piping systems installation and maintenance. Process piping and steam systems.",
-    status: "Active",
-    notes: "",
-    wcClassCode: "5183",
-    createdAt: "2025-01-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-004",
-    name: "Electrician",
-    code: "ELECTRICIAN",
-    category: "Electrical",
-    description: "Electrical systems installation, maintenance, and troubleshooting. Industrial controls.",
-    status: "Active",
-    notes: "Requires state licensure verification.",
-    wcClassCode: "5190",
-    createdAt: "2025-01-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-005",
-    name: "Crane Operator",
-    code: "CRANE_OP",
-    category: "Mechanical",
-    description: "Operation of mobile and overhead cranes for lifting and rigging operations.",
-    status: "Active",
-    notes: "NCCCO certification required.",
-    wcClassCode: "7219",
-    createdAt: "2025-03-01",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-006",
-    name: "Ironworker",
-    code: "IRONWORKER",
-    category: "Structural",
-    description: "Structural steel erection, reinforcing steel placement, and metal decking installation.",
-    status: "Active",
-    notes: "",
-    wcClassCode: "5040",
-    createdAt: "2025-03-01",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-007",
-    name: "Rigger",
-    code: "RIGGER",
-    category: "Structural",
-    description: "Load calculation, rigging equipment selection, and safe lifting operations.",
-    status: "Active",
-    notes: "Often combined with Millwright or Ironworker skills.",
-    wcClassCode: "5057",
-    createdAt: "2025-03-01",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-008",
-    name: "Instrument Technician",
-    code: "INST_TECH",
-    category: "Electrical",
-    description: "Calibration and maintenance of process control instruments and PLCs.",
-    status: "Active",
-    notes: "",
-    wcClassCode: "3681",
-    createdAt: "2025-06-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-009",
-    name: "Boilermaker",
-    code: "BOILERMAKER",
-    category: "Mechanical",
-    description: "Fabrication, assembly, and repair of boilers, tanks, and pressure vessels.",
-    status: "Active",
-    notes: "",
-    wcClassCode: "3620",
-    createdAt: "2025-06-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-010",
-    name: "Carpenter",
-    code: "CARPENTER",
-    category: "Structural",
-    description: "Forming, framing, and general carpentry for industrial construction.",
-    status: "Inactive",
-    notes: "Low demand. Kept for historical orders.",
-    wcClassCode: "5403",
-    createdAt: "2025-01-15",
-    updatedAt: "2025-12-01",
-  },
-];
-
-// UI-only mock data: Tool Catalog
-const TOOL_CATALOG_MOCK = [
-  { id: "TOOL-001", name: "Dial Indicator Set", flags: { cal: true, prec: true } },
-  { id: "TOOL-002", name: "Laser Alignment System", flags: { cal: true, prec: true } },
-  { id: "TOOL-003", name: "Hydraulic Torque Wrench", flags: { cal: true, heavy: true } },
-  { id: "TOOL-004", name: "Chain Hoist (2-ton)", flags: { heavy: true } },
-  { id: "TOOL-005", name: "Digital Multimeter", flags: { cal: true } },
-  { id: "TOOL-006", name: "Pipe Threader Set", flags: { heavy: true } },
-  { id: "TOOL-007", name: "Precision Level (Machinist)", flags: { prec: true } },
-  { id: "TOOL-008", name: "Micrometer Set (0-6\")", flags: { cal: true, prec: true } },
-  { id: "TOOL-009", name: "Come-Along (3-ton)", flags: { heavy: true } },
-  { id: "TOOL-010", name: "Feeler Gauge Set", flags: { prec: true } },
-  { id: "TOOL-011", name: "Portable Band Saw", flags: {} },
-  { id: "TOOL-012", name: "Magnetic Drill Press", flags: { heavy: true } },
-  { id: "TOOL-013", name: "Infrared Thermometer", flags: { cal: true } },
-  { id: "TOOL-014", name: "Rigging Shackle Set", flags: { heavy: true } },
-];
+interface Trade {
+  id: string;
+  name: string;
+  wcClassCode: string;
+  description: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export default function TradeDetailPage() {
   const params = useParams();
   const tradeId = params.id as string;
 
-  // Find the trade from mock data
-  const trade = MOCK_TRADES.find((t) => t.id === tradeId);
+  const [trade, setTrade] = useState<Trade | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<{
+    type: "auth" | "notfound" | "other";
+    message: string;
+  } | null>(null);
 
-  // MW4H Minimal Tool List state (UI-only)
-  const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
-  const [toolSearchQuery, setToolSearchQuery] = useState("");
+  const [draftName, setDraftName] = useState("");
+  const [draftWcClassCode, setDraftWcClassCode] = useState("");
+  const [draftDescription, setDraftDescription] = useState("");
+  const [draftIsActive, setDraftIsActive] = useState(true);
 
-  // Filter tools by search query
-  const filteredTools = useMemo(() => {
-    if (!toolSearchQuery.trim()) return TOOL_CATALOG_MOCK;
-    const query = toolSearchQuery.toLowerCase();
-    return TOOL_CATALOG_MOCK.filter((tool) =>
-      tool.name.toLowerCase().includes(query)
-    );
-  }, [toolSearchQuery]);
+  const [submitting, setSubmitting] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
-  // Toggle tool selection
-  const handleToggleTool = (toolId: string) => {
-    setSelectedToolIds((prev) =>
-      prev.includes(toolId)
-        ? prev.filter((id) => id !== toolId)
-        : [...prev, toolId]
-    );
+  const [baselineToolIds, setBaselineToolIds] = useState<string[]>([]);
+  const [baselineTools, setBaselineTools] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [baselineLoading, setBaselineLoading] = useState(false);
+  const [baselineError, setBaselineError] = useState("");
+
+  const syncDraft = (t: Trade) => {
+    setDraftName(t.name);
+    setDraftWcClassCode(t.wcClassCode);
+    setDraftDescription(t.description ?? "");
+    setDraftIsActive(t.isActive);
   };
 
-  // Remove selected tool
-  const handleRemoveTool = (toolId: string) => {
-    setSelectedToolIds((prev) => prev.filter((id) => id !== toolId));
-  };
+  useEffect(() => {
+    if (!tradeId) return;
+    let cancelled = false;
 
-  // Get selected tools for pills display
-  const selectedTools = TOOL_CATALOG_MOCK.filter((tool) =>
-    selectedToolIds.includes(tool.id)
-  );
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await apiFetch<Trade>(`/trades/${tradeId}`);
+        if (!cancelled) {
+          setTrade(data);
+          syncDraft(data);
+        }
+      } catch (e: any) {
+        if (cancelled) return;
+        const msg = e?.message ?? String(e);
+        if (
+          msg.includes("no access token") ||
+          msg.includes("authentication") ||
+          msg.includes("401") ||
+          msg.includes("403")
+        ) {
+          setError({
+            type: "auth",
+            message: "Not authenticated. Please log in again.",
+          });
+        } else if (msg.includes("404")) {
+          setError({
+            type: "notfound",
+            message: `Trade with ID "${tradeId}" not found.`,
+          });
+        } else {
+          setError({ type: "other", message: msg });
+        }
+        setTrade(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
 
-  // Category badge style
-  const getCategoryStyle = (category: string) => {
-    switch (category) {
-      case "Mechanical":
-        return { bg: "rgba(59, 130, 246, 0.12)", color: "#3b82f6", border: "rgba(59, 130, 246, 0.25)" };
-      case "Electrical":
-        return { bg: "rgba(245, 158, 11, 0.12)", color: "#f59e0b", border: "rgba(245, 158, 11, 0.25)" };
-      case "Structural":
-        return { bg: "rgba(139, 92, 246, 0.12)", color: "#8b5cf6", border: "rgba(139, 92, 246, 0.25)" };
-      case "Other":
-        return { bg: "rgba(148, 163, 184, 0.12)", color: "#94a3b8", border: "rgba(148, 163, 184, 0.25)" };
-      default:
-        return { bg: "rgba(148, 163, 184, 0.12)", color: "#94a3b8", border: "rgba(148, 163, 184, 0.25)" };
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeId]);
+
+  useEffect(() => {
+    if (!tradeId || !trade) return;
+    let cancelled = false;
+
+    (async () => {
+      setBaselineLoading(true);
+      setBaselineError("");
+      try {
+        const baseline = await apiFetch<{ tradeId: string; toolIds: string[] }>(
+          `/trades/${tradeId}/tools-baseline`
+        );
+        if (cancelled) return;
+        const toolIds = baseline.toolIds ?? [];
+        setBaselineToolIds(toolIds);
+
+        const allTools = await apiFetch<{ id: string; name: string }[]>(
+          "/tools?activeOnly=true"
+        );
+        if (cancelled) return;
+        const idSet = new Set(toolIds);
+        const filtered = (allTools ?? []).filter((t) => idSet.has(t.id));
+        setBaselineTools(filtered);
+      } catch (e: any) {
+        if (!cancelled) {
+          setBaselineError(e?.message ?? "Failed to load tool list.");
+        }
+      } finally {
+        if (!cancelled) setBaselineLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeId, trade]);
+
+  const canSave =
+    draftName.trim() !== "" && draftWcClassCode.trim() !== "" && !submitting;
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSubmitting(true);
+    setSaveError("");
+    try {
+      const updated = await apiFetch<Trade>(`/trades/${tradeId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: draftName.trim(),
+          wcClassCode: draftWcClassCode.trim(),
+          description: draftDescription.trim() || null,
+          isActive: draftIsActive,
+        }),
+      });
+      setTrade(updated);
+      syncDraft(updated);
+    } catch (e: any) {
+      setSaveError(e?.message ?? "Failed to save trade.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  // Status badge style
-  const getStatusStyle = (status: string) => {
-    if (status === "Active") {
-      return { bg: "rgba(34, 197, 94, 0.12)", color: "#22c55e", border: "rgba(34, 197, 94, 0.25)" };
-    }
-    return { bg: "rgba(107, 114, 128, 0.12)", color: "#6b7280", border: "rgba(107, 114, 128, 0.25)" };
+  const handleReset = () => {
+    if (trade) syncDraft(trade);
+    setSaveError("");
   };
 
-  // Not found state
+  const formatDate = (iso: string) => {
+    if (!iso) return "\u2014";
+    try {
+      return new Date(iso).toLocaleDateString();
+    } catch {
+      return iso;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="trade-detail-container">
+        <div className="page-header">
+          <Link href="/admin/trades" className="back-link">
+            &larr; Back to Trades
+          </Link>
+          <h1>Loading&hellip;</h1>
+        </div>
+        <style jsx>{`
+          .trade-detail-container {
+            padding: 24px 40px 60px;
+            max-width: 900px;
+            margin: 0 auto;
+          }
+          .page-header {
+            margin-bottom: 24px;
+          }
+          .back-link {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.5);
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 12px;
+          }
+          .back-link:hover {
+            color: #3b82f6;
+          }
+          h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: #fff;
+            margin: 0;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (error) {
+    const title =
+      error.type === "auth"
+        ? "Authentication Required"
+        : error.type === "notfound"
+          ? "Trade Not Found"
+          : "Error";
+    return (
+      <div className="trade-detail-container">
+        <div className="page-header">
+          <Link href="/admin/trades" className="back-link">
+            &larr; Back to Trades
+          </Link>
+          <h1>{title}</h1>
+          <p className="subtitle">{error.message}</p>
+          {error.type === "auth" && (
+            <Link href="/auth/login" className="login-link">
+              Go to Login
+            </Link>
+          )}
+        </div>
+        <style jsx>{`
+          .trade-detail-container {
+            padding: 24px 40px 60px;
+            max-width: 900px;
+            margin: 0 auto;
+          }
+          .page-header {
+            margin-bottom: 24px;
+          }
+          .back-link {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.5);
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 12px;
+          }
+          .back-link:hover {
+            color: #3b82f6;
+          }
+          h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: #fff;
+            margin: 0 0 8px;
+          }
+          .subtitle {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.55);
+            margin: 0;
+          }
+          .login-link {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 10px 20px;
+            background: #3b82f6;
+            color: #fff;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 14px;
+          }
+          .login-link:hover {
+            background: #2563eb;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   if (!trade) {
     return (
       <div className="trade-detail-container">
         <div className="page-header">
           <Link href="/admin/trades" className="back-link">
-            ← Back to Trades
+            &larr; Back to Trades
           </Link>
           <h1>Trade Not Found</h1>
-          <p className="subtitle">The trade with ID &quot;{tradeId}&quot; could not be found.</p>
+          <p className="subtitle">
+            The trade with ID &quot;{tradeId}&quot; could not be found.
+          </p>
         </div>
-
         <style jsx>{`
           .trade-detail-container {
             padding: 24px 40px 60px;
@@ -260,160 +328,158 @@ export default function TradeDetailPage() {
 
   return (
     <div className="trade-detail-container">
-      {/* Header with back link */}
       <div className="page-header">
         <Link href="/admin/trades" className="back-link">
-          ← Back to Trades
+          &larr; Back to Trades
         </Link>
         <h1>{trade.name}</h1>
-        <p className="subtitle">Trade details and configuration</p>
+        <p className="subtitle">View and edit trade details</p>
       </div>
 
-      {/* Trade Details Card */}
+      {saveError && <div className="error-banner">{saveError}</div>}
+
+      {/* Editable Trade Details Card */}
       <div className="detail-card">
         <div className="card-header">
           <h2>Trade Details</h2>
         </div>
         <div className="card-body">
-          <div className="detail-grid">
-            <div className="detail-item">
-              <span className="detail-label">Trade Name</span>
-              <span className="detail-value">{trade.name}</span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Trade Code</span>
-              <span className="detail-value code">{trade.code}</span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">WC Class Code</span>
-              <span className="detail-value wc-code">{trade.wcClassCode || "—"}</span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Category</span>
-              <span
-                className="category-badge"
-                style={{
-                  backgroundColor: getCategoryStyle(trade.category).bg,
-                  color: getCategoryStyle(trade.category).color,
-                  borderColor: getCategoryStyle(trade.category).border,
-                }}
-              >
-                {trade.category}
-              </span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Status</span>
+          <div className="info-row">
+            <span className="info-label">
+              Trade Name <span className="required">*</span>
+            </span>
+            <input
+              type="text"
+              className="edit-input"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              placeholder="Trade name"
+            />
+          </div>
+          <div className="info-row">
+            <span className="info-label">
+              WC Class Code <span className="required">*</span>
+            </span>
+            <input
+              type="text"
+              className="edit-input mono"
+              value={draftWcClassCode}
+              onChange={(e) => setDraftWcClassCode(e.target.value)}
+              placeholder="e.g., 5183"
+            />
+          </div>
+          <div className="info-row">
+            <span className="info-label">Status</span>
+            <span className="toggle-value">
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={draftIsActive}
+                  onChange={() => setDraftIsActive(!draftIsActive)}
+                />
+                <span className="toggle-slider"></span>
+              </label>
               <span
                 className="status-badge"
                 style={{
-                  backgroundColor: getStatusStyle(trade.status).bg,
-                  color: getStatusStyle(trade.status).color,
-                  borderColor: getStatusStyle(trade.status).border,
+                  backgroundColor: draftIsActive
+                    ? "rgba(34, 197, 94, 0.12)"
+                    : "rgba(107, 114, 128, 0.12)",
+                  color: draftIsActive ? "#22c55e" : "#6b7280",
+                  borderColor: draftIsActive
+                    ? "rgba(34, 197, 94, 0.25)"
+                    : "rgba(107, 114, 128, 0.25)",
                 }}
               >
-                {trade.status}
+                {draftIsActive ? "Active" : "Inactive"}
               </span>
-            </div>
+            </span>
           </div>
-
-          <div className="detail-item full-width">
-            <span className="detail-label">Description</span>
-            <span className="detail-value">{trade.description || "—"}</span>
+          <div className="info-row desc-row">
+            <span className="info-label">Description</span>
+            <textarea
+              className="edit-textarea"
+              value={draftDescription}
+              onChange={(e) => setDraftDescription(e.target.value)}
+              placeholder="Optional description"
+              rows={3}
+            />
           </div>
-
-          {trade.notes && (
-            <div className="detail-item full-width">
-              <span className="detail-label">Notes</span>
-              <span className="detail-value">{trade.notes}</span>
-            </div>
-          )}
 
           <div className="audit-section">
             <div className="audit-title">Audit Information</div>
             <div className="audit-grid">
               <div className="audit-item">
                 <span className="audit-label">Created</span>
-                <span className="audit-value">{trade.createdAt}</span>
+                <span className="audit-value">
+                  {formatDate(trade.createdAt)}
+                </span>
               </div>
               <div className="audit-item">
                 <span className="audit-label">Updated</span>
-                <span className="audit-value">{trade.updatedAt}</span>
+                <span className="audit-value">
+                  {formatDate(trade.updatedAt)}
+                </span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* MW4H Minimal Tool List Section */}
+      {/* Save / Reset actions */}
+      <div className="form-actions">
+        <div />
+        <div className="action-buttons">
+          <button type="button" className="reset-btn" onClick={handleReset}>
+            Reset
+          </button>
+          <button
+            type="button"
+            className="save-btn"
+            onClick={handleSave}
+            disabled={!canSave}
+          >
+            {submitting ? "Saving\u2026" : "Save Changes"}
+          </button>
+        </div>
+      </div>
+
+      {/* MW4H Minimal Tool List — shell only */}
       <div className="detail-card tool-list-card">
         <div className="card-header">
           <h2>MW4H Minimal Tool List</h2>
         </div>
         <div className="card-body">
-          <p className="section-intro">
-            Company-required minimum tools for this trade. Tools are selected from the Tool Catalog.
+          <p className="baseline-summary">
+            {baselineToolIds.length} selected
           </p>
-
-          {/* Search input */}
-          <div className="tool-search">
-            <input
-              type="text"
-              placeholder="Search Tool Catalog…"
-              value={toolSearchQuery}
-              onChange={(e) => setToolSearchQuery(e.target.value)}
-            />
-          </div>
-
-          {/* Scrollable tool list */}
-          <div className="tool-list-scroll">
-            {filteredTools.map((tool) => (
-              <label key={tool.id} className="tool-row">
-                <input
-                  type="checkbox"
-                  checked={selectedToolIds.includes(tool.id)}
-                  onChange={() => handleToggleTool(tool.id)}
-                />
-                <span className="tool-name">{tool.name}</span>
-                <span className="tool-flags">
-                  {tool.flags.cal && <span className="flag-badge cal">CAL</span>}
-                  {tool.flags.heavy && <span className="flag-badge heavy">HEAVY</span>}
-                  {tool.flags.prec && <span className="flag-badge prec">PREC</span>}
-                </span>
-              </label>
-            ))}
-            {filteredTools.length === 0 && (
-              <div className="tool-empty-search">No tools match your search</div>
+          {baselineLoading && (
+            <div className="empty-state">Loading tool list…</div>
+          )}
+          {!baselineLoading && baselineError && (
+            <div className="baseline-error">{baselineError}</div>
+          )}
+          {!baselineLoading && !baselineError && baselineTools.length > 0 && (
+            <ul className="baseline-preview">
+              {baselineTools.slice(0, 12).map((t) => (
+                <li key={t.id}>{t.name}</li>
+              ))}
+            </ul>
+          )}
+          {!baselineLoading &&
+            !baselineError &&
+            baselineTools.length > 12 && (
+              <p className="baseline-more">
+                +{baselineTools.length - 12} more
+              </p>
             )}
-          </div>
-
-          {/* Selected tools pills */}
-          <div className="selected-tools-section">
-            <span className="selected-label">Selected Tools:</span>
-            {selectedTools.length > 0 ? (
-              <div className="selected-pills">
-                {selectedTools.map((tool) => (
-                  <span key={tool.id} className="tool-pill">
-                    {tool.name}
-                    <button
-                      type="button"
-                      className="pill-remove"
-                      onClick={() => handleRemoveTool(tool.id)}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state">
-                No MW4H minimum tools selected yet. (UI-only)
-              </div>
-            )}
-          </div>
-
-          {/* Footer note */}
-          <div className="tool-footer-note">
-            This selection references the Tool Catalog. Orders snapshot required tools at creation.
+          <div style={{ marginTop: 12, textAlign: "center" }}>
+            <Link
+              href={`/admin/trades/${tradeId}/tools`}
+              className="tools-link"
+            >
+              Go to Tools Template &rarr;
+            </Link>
           </div>
         </div>
       </div>
@@ -425,7 +491,6 @@ export default function TradeDetailPage() {
           margin: 0 auto;
         }
 
-        /* Header */
         .page-header {
           margin-bottom: 24px;
         }
@@ -457,7 +522,17 @@ export default function TradeDetailPage() {
           margin: 0;
         }
 
-        /* Detail Card */
+        .error-banner {
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid rgba(239, 68, 68, 0.3);
+          border-radius: 8px;
+          padding: 10px 16px;
+          font-size: 13px;
+          color: #ef4444;
+          margin-bottom: 20px;
+        }
+
+        /* Card */
         .detail-card {
           background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.06);
@@ -481,51 +556,134 @@ export default function TradeDetailPage() {
           padding: 20px;
         }
 
-        .detail-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-          gap: 20px;
-          margin-bottom: 20px;
-        }
-
-        .detail-item {
+        /* Info rows (inline edit) */
+        .info-row {
           display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 10px 0;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .info-row:last-child {
+          border-bottom: none;
+        }
+
+        .info-row.desc-row {
           flex-direction: column;
-          gap: 6px;
+          align-items: stretch;
+          gap: 8px;
         }
 
-        .detail-item.full-width {
-          grid-column: 1 / -1;
-          margin-bottom: 12px;
-        }
-
-        .detail-label {
-          font-size: 11px;
-          font-weight: 600;
+        .info-label {
+          font-size: 12px;
           color: rgba(255, 255, 255, 0.5);
-          text-transform: uppercase;
-          letter-spacing: 0.4px;
+          flex-shrink: 0;
+          margin-right: 16px;
         }
 
-        .detail-value {
-          font-size: 14px;
-          color: rgba(255, 255, 255, 0.9);
-          line-height: 1.5;
+        .required {
+          color: #ef4444;
         }
 
-        .detail-value.code {
-          font-family: var(--font-geist-mono), monospace;
+        .edit-input {
+          padding: 6px 10px;
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.7);
+          color: #fff;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 6px;
+          transition: border-color 0.15s ease;
+          text-align: right;
+          max-width: 260px;
+          width: 100%;
         }
 
-        .detail-value.wc-code {
+        .edit-input.mono {
           font-family: var(--font-geist-mono), monospace;
-          font-size: 13px;
-          color: rgba(139, 92, 246, 0.9);
         }
 
-        .category-badge,
+        .edit-input:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+
+        .edit-textarea {
+          padding: 8px 10px;
+          font-size: 13px;
+          color: #fff;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 6px;
+          transition: border-color 0.15s ease;
+          resize: vertical;
+          min-height: 60px;
+          width: 100%;
+        }
+
+        .edit-textarea:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+
+        .edit-textarea::placeholder,
+        .edit-input::placeholder {
+          color: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Toggle */
+        .toggle-value {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .toggle {
+          position: relative;
+          display: inline-block;
+          width: 44px;
+          height: 24px;
+          flex-shrink: 0;
+        }
+
+        .toggle input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+
+        .toggle-slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 24px;
+          transition: 0.2s;
+        }
+
+        .toggle-slider:before {
+          position: absolute;
+          content: "";
+          height: 18px;
+          width: 18px;
+          left: 3px;
+          bottom: 3px;
+          background: #fff;
+          border-radius: 50%;
+          transition: 0.2s;
+        }
+
+        .toggle input:checked + .toggle-slider {
+          background: #22c55e;
+        }
+
+        .toggle input:checked + .toggle-slider:before {
+          transform: translateX(20px);
+        }
+
         .status-badge {
           display: inline-block;
           padding: 4px 10px;
@@ -533,17 +691,15 @@ export default function TradeDetailPage() {
           font-weight: 600;
           border-radius: 4px;
           border: 1px solid;
-          letter-spacing: 0.3px;
-          width: fit-content;
         }
 
-        /* Audit Section */
+        /* Audit */
         .audit-section {
           padding: 16px;
           background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 10px;
-          margin-top: 8px;
+          margin-top: 16px;
         }
 
         .audit-title {
@@ -577,170 +733,63 @@ export default function TradeDetailPage() {
           color: rgba(255, 255, 255, 0.8);
         }
 
-        /* MW4H Minimal Tool List Section */
-        .tool-list-card {
-          margin-top: 24px;
+        /* Form actions */
+        .form-actions {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding-top: 4px;
+          padding-bottom: 28px;
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
+          margin-bottom: 0;
         }
 
-        .section-intro {
-          font-size: 13px;
-          color: rgba(255, 255, 255, 0.6);
-          margin: 0 0 16px;
-          line-height: 1.5;
+        .action-buttons {
+          display: flex;
+          gap: 12px;
         }
 
-        .tool-search {
-          margin-bottom: 12px;
-        }
-
-        .tool-search input {
-          width: 100%;
-          padding: 10px 14px;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 6px;
+        .reset-btn {
+          padding: 10px 20px;
           font-size: 14px;
-          color: #fff;
-        }
-
-        .tool-search input:focus {
-          outline: none;
-          border-color: #3b82f6;
-        }
-
-        .tool-search input::placeholder {
-          color: rgba(255, 255, 255, 0.35);
-        }
-
-        .tool-list-scroll {
-          max-height: 280px;
-          overflow-y: auto;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 8px;
-          background: rgba(0, 0, 0, 0.15);
-        }
-
-        .tool-row {
-          display: flex;
-          align-items: center;
-          padding: 10px 14px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-          cursor: pointer;
-          transition: background 0.15s ease;
-        }
-
-        .tool-row:last-child {
-          border-bottom: none;
-        }
-
-        .tool-row:hover {
-          background: rgba(59, 130, 246, 0.06);
-        }
-
-        .tool-row input[type="checkbox"] {
-          width: 16px;
-          height: 16px;
-          margin-right: 12px;
-          accent-color: #3b82f6;
-          cursor: pointer;
-        }
-
-        .tool-name {
-          flex: 1;
-          font-size: 13px;
-          color: rgba(255, 255, 255, 0.85);
-        }
-
-        .tool-flags {
-          display: flex;
-          gap: 6px;
-        }
-
-        .flag-badge {
-          padding: 2px 6px;
-          font-size: 9px;
-          font-weight: 700;
-          border-radius: 3px;
-          letter-spacing: 0.3px;
-        }
-
-        .flag-badge.cal {
-          background: rgba(34, 197, 94, 0.15);
-          color: #22c55e;
-          border: 1px solid rgba(34, 197, 94, 0.3);
-        }
-
-        .flag-badge.heavy {
-          background: rgba(245, 158, 11, 0.15);
-          color: #f59e0b;
-          border: 1px solid rgba(245, 158, 11, 0.3);
-        }
-
-        .flag-badge.prec {
-          background: rgba(59, 130, 246, 0.15);
-          color: #3b82f6;
-          border: 1px solid rgba(59, 130, 246, 0.3);
-        }
-
-        .tool-empty-search {
-          padding: 24px;
-          text-align: center;
-          color: rgba(255, 255, 255, 0.4);
-          font-size: 13px;
-        }
-
-        /* Selected tools pills */
-        .selected-tools-section {
-          margin-top: 16px;
-        }
-
-        .selected-label {
-          display: block;
-          font-size: 11px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
-          text-transform: uppercase;
-          letter-spacing: 0.4px;
-          margin-bottom: 10px;
-        }
-
-        .selected-pills {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
-        .tool-pill {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 10px;
-          background: rgba(59, 130, 246, 0.12);
-          border: 1px solid rgba(59, 130, 246, 0.25);
-          border-radius: 16px;
-          font-size: 12px;
-          color: #3b82f6;
-        }
-
-        .pill-remove {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 16px;
-          height: 16px;
-          padding: 0;
-          font-size: 14px;
-          color: rgba(59, 130, 246, 0.7);
+          font-weight: 500;
+          color: rgba(255, 255, 255, 0.7);
           background: transparent;
-          border: none;
-          border-radius: 50%;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 8px;
           cursor: pointer;
           transition: all 0.15s ease;
         }
 
-        .pill-remove:hover {
+        .reset-btn:hover {
           color: #fff;
-          background: rgba(59, 130, 246, 0.3);
+          border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .save-btn {
+          padding: 10px 20px;
+          font-size: 14px;
+          font-weight: 600;
+          color: #fff;
+          background: #3b82f6;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .save-btn:hover:not(:disabled) {
+          background: #2563eb;
+        }
+
+        .save-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        /* Tools shell card */
+        .tool-list-card {
+          margin-top: 0;
         }
 
         .empty-state {
@@ -754,16 +803,43 @@ export default function TradeDetailPage() {
           border-radius: 8px;
         }
 
-        /* Footer note */
-        .tool-footer-note {
-          margin-top: 16px;
-          padding: 12px 14px;
-          background: rgba(139, 92, 246, 0.08);
-          border: 1px solid rgba(139, 92, 246, 0.15);
-          border-radius: 6px;
+        .tools-link {
+          font-size: 13px;
+          color: #3b82f6;
+          text-decoration: none;
+        }
+
+        .tools-link:hover {
+          text-decoration: underline;
+        }
+
+        .baseline-summary {
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.7);
+          margin: 0 0 12px;
+        }
+
+        .baseline-error {
+          font-size: 13px;
+          color: #ef4444;
+          margin-bottom: 12px;
+        }
+
+        .baseline-preview {
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.8);
+          margin: 0 0 4px;
+          padding-left: 20px;
+        }
+
+        .baseline-preview li {
+          margin-bottom: 4px;
+        }
+
+        .baseline-more {
           font-size: 12px;
-          color: rgba(139, 92, 246, 0.9);
-          line-height: 1.5;
+          color: rgba(255, 255, 255, 0.5);
+          margin: 0 0 12px;
         }
       `}</style>
     </div>

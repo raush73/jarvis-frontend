@@ -1,213 +1,47 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-
-// Types
-type TradeStatus = "Active" | "Inactive";
-type TradeCategory = "Mechanical" | "Electrical" | "Structural" | "Other";
+import { apiFetch } from "@/lib/api";
 
 type Trade = {
   id: string;
   name: string;
-  code: string;
-  category: TradeCategory;
-  description: string;
-  status: TradeStatus;
-  notes: string;
-  wcClassCode: string; // WC Class Code (Trade metadata) — UI shell only
-  createdAt: string;
-  updatedAt: string;
+  wcClassCode: string;
+  description?: string;
+  isActive: boolean;
 };
 
-// Deterministic mock data — MW4H-relevant trades
-const CATEGORIES: TradeCategory[] = ["Mechanical", "Electrical", "Structural", "Other"];
-
-const MOCK_TRADES: Trade[] = [
-  {
-    id: "TRD-001",
-    name: "Millwright",
-    code: "MILLWRIGHT",
-    category: "Mechanical",
-    description: "Industrial machinery installation, maintenance, and repair. Alignment and precision work.",
-    status: "Active",
-    notes: "Core MW4H trade. High demand across all regions.",
-    wcClassCode: "3724",
-    createdAt: "2025-01-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-002",
-    name: "Welder",
-    code: "WELDER",
-    category: "Mechanical",
-    description: "Metal fabrication and joining using various welding processes (MIG, TIG, Stick, Flux-Core).",
-    status: "Active",
-    notes: "Certifications tracked separately (6G, etc.).",
-    wcClassCode: "3620",
-    createdAt: "2025-01-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-003",
-    name: "Pipefitter",
-    code: "PIPEFITTER",
-    category: "Mechanical",
-    description: "Industrial piping systems installation and maintenance. Process piping and steam systems.",
-    status: "Active",
-    notes: "",
-    wcClassCode: "5183",
-    createdAt: "2025-01-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-004",
-    name: "Electrician",
-    code: "ELECTRICIAN",
-    category: "Electrical",
-    description: "Electrical systems installation, maintenance, and troubleshooting. Industrial controls.",
-    status: "Active",
-    notes: "Requires state licensure verification.",
-    wcClassCode: "5190",
-    createdAt: "2025-01-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-005",
-    name: "Crane Operator",
-    code: "CRANE_OP",
-    category: "Mechanical",
-    description: "Operation of mobile and overhead cranes for lifting and rigging operations.",
-    status: "Active",
-    notes: "NCCCO certification required.",
-    wcClassCode: "7219",
-    createdAt: "2025-03-01",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-006",
-    name: "Ironworker",
-    code: "IRONWORKER",
-    category: "Structural",
-    description: "Structural steel erection, reinforcing steel placement, and metal decking installation.",
-    status: "Active",
-    notes: "",
-    wcClassCode: "5040",
-    createdAt: "2025-03-01",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-007",
-    name: "Rigger",
-    code: "RIGGER",
-    category: "Structural",
-    description: "Load calculation, rigging equipment selection, and safe lifting operations.",
-    status: "Active",
-    notes: "Often combined with Millwright or Ironworker skills.",
-    wcClassCode: "5057",
-    createdAt: "2025-03-01",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-008",
-    name: "Instrument Technician",
-    code: "INST_TECH",
-    category: "Electrical",
-    description: "Calibration and maintenance of process control instruments and PLCs.",
-    status: "Active",
-    notes: "",
-    wcClassCode: "3681",
-    createdAt: "2025-06-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-009",
-    name: "Boilermaker",
-    code: "BOILERMAKER",
-    category: "Mechanical",
-    description: "Fabrication, assembly, and repair of boilers, tanks, and pressure vessels.",
-    status: "Active",
-    notes: "",
-    wcClassCode: "3620",
-    createdAt: "2025-06-15",
-    updatedAt: "2026-01-20",
-  },
-  {
-    id: "TRD-010",
-    name: "Carpenter",
-    code: "CARPENTER",
-    category: "Structural",
-    description: "Forming, framing, and general carpentry for industrial construction.",
-    status: "Inactive",
-    notes: "Low demand. Kept for historical orders.",
-    wcClassCode: "5403",
-    createdAt: "2025-01-15",
-    updatedAt: "2025-12-01",
-  },
-];
-
 export default function TradesPage() {
-  // Filter state
-  const [categoryFilter, setCategoryFilter] = useState<string>("All");
-  const [statusFilter, setStatusFilter] = useState<string>("All");
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Modal state
-  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
-  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
 
-  // Filter logic
-  const filteredTrades = MOCK_TRADES.filter((trade) => {
-    if (categoryFilter !== "All" && trade.category !== categoryFilter) return false;
-    if (statusFilter !== "All" && trade.status !== statusFilter) return false;
-    if (searchQuery.trim() !== "") {
-      const query = searchQuery.toLowerCase();
-      if (
-        !trade.name.toLowerCase().includes(query) &&
-        !trade.code.toLowerCase().includes(query)
-      ) {
-        return false;
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await apiFetch<Trade[]>("/trades");
+        if (!cancelled) {
+          setTrades(Array.isArray(data) ? data : []);
+        }
+      } catch (e: any) {
+        if (cancelled) return;
+        const msg = e?.message ?? String(e);
+        setError(msg);
+        setTrades([]);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    }
-    return true;
-  });
+    })();
 
-  // Category badge style
-  const getCategoryStyle = (category: TradeCategory) => {
-    switch (category) {
-      case "Mechanical":
-        return { bg: "rgba(59, 130, 246, 0.12)", color: "#3b82f6", border: "rgba(59, 130, 246, 0.25)" };
-      case "Electrical":
-        return { bg: "rgba(245, 158, 11, 0.12)", color: "#f59e0b", border: "rgba(245, 158, 11, 0.25)" };
-      case "Structural":
-        return { bg: "rgba(139, 92, 246, 0.12)", color: "#8b5cf6", border: "rgba(139, 92, 246, 0.25)" };
-      case "Other":
-        return { bg: "rgba(148, 163, 184, 0.12)", color: "#94a3b8", border: "rgba(148, 163, 184, 0.25)" };
-      default:
-        return { bg: "rgba(148, 163, 184, 0.12)", color: "#94a3b8", border: "rgba(148, 163, 184, 0.25)" };
-    }
-  };
-
-  // Status badge style
-  const getStatusStyle = (status: TradeStatus) => {
-    if (status === "Active") {
-      return { bg: "rgba(34, 197, 94, 0.12)", color: "#22c55e", border: "rgba(34, 197, 94, 0.25)" };
-    }
-    return { bg: "rgba(107, 114, 128, 0.12)", color: "#6b7280", border: "rgba(107, 114, 128, 0.25)" };
-  };
-
-  // Open view/edit modal
-  const handleViewTrade = (trade: Trade) => {
-    setSelectedTrade(trade);
-    setIsViewModalOpen(true);
-  };
-
-  // Close view modal
-  const handleCloseViewModal = () => {
-    setIsViewModalOpen(false);
-    setTimeout(() => setSelectedTrade(null), 200);
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="trades-container">
@@ -223,56 +57,9 @@ export default function TradesPage() {
           </p>
         </div>
         <div className="header-actions">
-          <button className="btn-add" onClick={() => setIsAddModalOpen(true)}>
+          <Link href="/admin/trades/new" className="btn-add">
             + Add Trade
-          </button>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="filters-section">
-        <div className="filter-group">
-          <label htmlFor="categoryFilter">Category</label>
-          <select
-            id="categoryFilter"
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-          >
-            <option value="All">All Categories</option>
-            {CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="filter-group">
-          <label htmlFor="statusFilter">Status</label>
-          <select
-            id="statusFilter"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="All">All Statuses</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-        </div>
-
-        <div className="filter-group search-group">
-          <label htmlFor="searchInput">Search</label>
-          <input
-            id="searchInput"
-            type="text"
-            placeholder="Search by name or code..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-
-        <div className="filter-results">
-          {filteredTrades.length} trade{filteredTrades.length !== 1 ? "s" : ""}
+          </Link>
         </div>
       </div>
 
@@ -283,267 +70,47 @@ export default function TradesPage() {
             <thead>
               <tr>
                 <th>Trade Name</th>
-                <th>Trade Code</th>
                 <th>WC Class Code</th>
-                <th>Category</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th>Active</th>
               </tr>
             </thead>
             <tbody>
-              {filteredTrades.map((trade) => (
-                <tr key={trade.id}>
-                  <td className="cell-name">{trade.name}</td>
-                  <td className="cell-code">{trade.code}</td>
-                  <td className="cell-wc-code">{trade.wcClassCode || "—"}</td>
-                  <td className="cell-category">
-                    <span
-                      className="category-badge"
-                      style={{
-                        backgroundColor: getCategoryStyle(trade.category).bg,
-                        color: getCategoryStyle(trade.category).color,
-                        borderColor: getCategoryStyle(trade.category).border,
-                      }}
-                    >
-                      {trade.category}
-                    </span>
-                  </td>
-                  <td className="cell-status">
-                    <span
-                      className="status-badge"
-                      style={{
-                        backgroundColor: getStatusStyle(trade.status).bg,
-                        color: getStatusStyle(trade.status).color,
-                        borderColor: getStatusStyle(trade.status).border,
-                      }}
-                    >
-                      {trade.status}
-                    </span>
-                  </td>
-                  <td className="cell-actions">
-                    <Link
-                      href={`/admin/trades/${trade.id}`}
-                      className="action-btn"
-                    >
-                      View
-                    </Link>
-                    <button
-                      className="action-btn"
-                      onClick={() => handleViewTrade(trade)}
-                    >
-                      View/Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {filteredTrades.length === 0 && (
+              {loading && (
                 <tr>
-                  <td colSpan={6} className="empty-row">
-                    No trades match your filters
+                  <td colSpan={3} className="empty-row">
+                    Loading trades…
                   </td>
                 </tr>
               )}
+              {!loading && error && (
+                <tr>
+                  <td colSpan={3} className="empty-row">
+                    Failed to load trades: {error}
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && trades.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="empty-row">
+                    No trades found
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && trades.map((trade) => (
+                <tr key={trade.id}>
+                  <td>
+                    <Link href={`/admin/trades/${trade.id}`} className="cell-name trade-link">
+                      {trade.name}
+                    </Link>
+                  </td>
+                  <td className="cell-name">{trade.wcClassCode || "—"}</td>
+                  <td>{trade.isActive ? "Yes" : "No"}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       </div>
-
-      {/* View/Edit Modal */}
-      {isViewModalOpen && selectedTrade && (
-        <div className="modal-overlay" onClick={handleCloseViewModal}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Trade Details</h2>
-              <button className="modal-close" onClick={handleCloseViewModal}>
-                ×
-              </button>
-            </div>
-
-            <div className="modal-body">
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Trade Name</label>
-                  <input type="text" defaultValue={selectedTrade.name} />
-                </div>
-
-                <div className="form-field">
-                  <label>Trade Code / Slug</label>
-                  <input type="text" defaultValue={selectedTrade.code} />
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Category</label>
-                  <select defaultValue={selectedTrade.category}>
-                    {CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-field">
-                  <label>WC Class Code (Trade metadata)</label>
-                  <input type="text" defaultValue={selectedTrade.wcClassCode} placeholder="e.g. 3724" />
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Status</label>
-                  <div className="toggle-group">
-                    <button
-                      className={`toggle-btn ${selectedTrade.status === "Active" ? "active" : ""}`}
-                      type="button"
-                    >
-                      Active
-                    </button>
-                    <button
-                      className={`toggle-btn ${selectedTrade.status === "Inactive" ? "active" : ""}`}
-                      type="button"
-                    >
-                      Inactive
-                    </button>
-                  </div>
-                </div>
-                <div className="form-field" />
-              </div>
-
-              <div className="form-field">
-                <label>Description</label>
-                <textarea
-                  placeholder="Trade description..."
-                  rows={2}
-                  defaultValue={selectedTrade.description}
-                />
-              </div>
-
-              <div className="form-field">
-                <label>Notes</label>
-                <textarea
-                  placeholder="Optional internal notes..."
-                  rows={2}
-                  defaultValue={selectedTrade.notes}
-                />
-              </div>
-
-              <div className="audit-section">
-                <div className="audit-title">Audit Information</div>
-                <div className="audit-grid">
-                  <div className="audit-item">
-                    <span className="audit-label">Created</span>
-                    <span className="audit-value">{selectedTrade.createdAt}</span>
-                  </div>
-                  <div className="audit-item">
-                    <span className="audit-label">Updated</span>
-                    <span className="audit-value">{selectedTrade.updatedAt}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button className="btn-cancel" onClick={handleCloseViewModal}>
-                Cancel
-              </button>
-              <button className="btn-save" onClick={handleCloseViewModal}>
-                Save Changes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Trade Modal (UI shell only) */}
-      {isAddModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsAddModalOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Add Trade</h2>
-              <button className="modal-close" onClick={() => setIsAddModalOpen(false)}>
-                ×
-              </button>
-            </div>
-
-            <div className="modal-body">
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Trade Name</label>
-                  <input type="text" placeholder="e.g., Millwright" />
-                </div>
-
-                <div className="form-field">
-                  <label>Trade Code / Slug</label>
-                  <input type="text" placeholder="e.g., MILLWRIGHT" />
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Category</label>
-                  <select defaultValue="">
-                    <option value="" disabled>
-                      Select Category
-                    </option>
-                    {CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-field">
-                  <label>WC Class Code (Trade metadata)</label>
-                  <input type="text" placeholder="e.g. 3724" />
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Status</label>
-                  <div className="toggle-group">
-                    <button className="toggle-btn active" type="button">
-                      Active
-                    </button>
-                    <button className="toggle-btn" type="button">
-                      Inactive
-                    </button>
-                  </div>
-                </div>
-                <div className="form-field" />
-              </div>
-
-              <div className="form-field">
-                <label>Description</label>
-                <textarea
-                  placeholder="Trade description..."
-                  rows={2}
-                />
-              </div>
-
-              <div className="form-field">
-                <label>Notes</label>
-                <textarea
-                  placeholder="Optional internal notes..."
-                  rows={2}
-                />
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button className="btn-cancel" onClick={() => setIsAddModalOpen(false)}>
-                Cancel
-              </button>
-              <button className="btn-save" onClick={() => setIsAddModalOpen(false)}>
-                Add Trade
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <style jsx>{`
         .trades-container {
@@ -594,6 +161,7 @@ export default function TradesPage() {
         }
 
         .btn-add {
+          display: inline-block;
           padding: 10px 20px;
           font-size: 14px;
           font-weight: 600;
@@ -602,6 +170,7 @@ export default function TradesPage() {
           border: none;
           border-radius: 8px;
           cursor: pointer;
+          text-decoration: none;
           transition: all 0.15s ease;
         }
 
@@ -722,6 +291,15 @@ export default function TradesPage() {
         .cell-name {
           font-weight: 500;
           color: #fff !important;
+        }
+
+        .trade-link {
+          color: inherit;
+          text-decoration: none;
+        }
+
+        .trade-link:hover {
+          text-decoration: underline;
         }
 
         .cell-code {

@@ -1,59 +1,177 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+
+type Category = { id: string; name: string };
 
 export default function AddToolPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const preselectedCategoryId = searchParams.get("categoryId") || "";
 
-  // Form state
+  const [categories, setCategories] = useState<Category[]>([]);
+
+  const [categoryName, setCategoryName] = useState("");
+  const [categoryStatus, setCategoryStatus] = useState<"Active" | "Inactive">("Active");
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [categoryError, setCategoryError] = useState("");
+  const [categorySaved, setCategorySaved] = useState(false);
+
   const [toolName, setToolName] = useState("");
-  const [description, setDescription] = useState("");
-  const [calibrationRequired, setCalibrationRequired] = useState(false);
-  const [heavyEquipment, setHeavyEquipment] = useState(false);
-  const [precisionTool, setPrecisionTool] = useState(false);
+  const [toolDescription, setToolDescription] = useState("");
+  const [toolCategory, setToolCategory] = useState(preselectedCategoryId);
+  const [toolSaving, setToolSaving] = useState(false);
+  const [toolError, setToolError] = useState("");
 
-  // Validation - Tool Name is required
-  const canSubmit = toolName.trim() !== "";
+  useEffect(() => {
+    async function loadCategories() {
+      const token = window.localStorage.getItem("jp_accessToken");
+      if (!token) return;
 
-  // Handle save
-  const handleSave = () => {
-    if (!canSubmit) return;
+      const res = await fetch("/api/tool-categories", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-    // Generate mock id
-    const mockId = `TOOL-${Date.now()}`;
+      if (res.ok) {
+        const cats = await res.json();
+        setCategories(cats ?? []);
+      }
+    }
 
-    // Navigate to detail page (no persistence)
-    router.push(`/admin/tools/${mockId}`);
-  };
+    loadCategories();
+  }, []);
 
-  const handleCancel = () => {
+  const canSaveCategory = categoryName.trim() !== "";
+  const canSaveTool = toolName.trim() !== "" && toolCategory !== "";
+
+  async function handleSaveCategory() {
+    if (!canSaveCategory || categorySaving) return;
+    setCategorySaving(true);
+    setCategoryError("");
+
+    const token = window.localStorage.getItem("jp_accessToken");
+    if (!token) { setCategorySaving(false); return; }
+
+    const res = await fetch("/api/tool-categories", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name: categoryName.trim(),
+      }),
+    });
+
+    if (!res.ok) {
+      setCategoryError("Failed to save category.");
+      setCategorySaving(false);
+      return;
+    }
+
+    const created = await res.json();
+    setCategories((prev) => [...prev, { id: created.id, name: created.name }].sort((a, b) => a.name.localeCompare(b.name)));
+    setCategorySaved(true);
+    setCategoryName("");
+    setCategorySaving(false);
+    setTimeout(() => setCategorySaved(false), 3000);
+  }
+
+  async function handleSaveTool() {
+    if (!canSaveTool || toolSaving) return;
+    setToolSaving(true);
+    setToolError("");
+
+    const token = window.localStorage.getItem("jp_accessToken");
+    if (!token) { setToolSaving(false); return; }
+
+    const res = await fetch("/api/tools", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name: toolName.trim(),
+        categoryId: toolCategory,
+        description: toolDescription.trim() || undefined,
+      }),
+    });
+
+    if (!res.ok) {
+      setToolError("Failed to save tool.");
+      setToolSaving(false);
+      return;
+    }
+
     router.push("/admin/tools");
-  };
+  }
 
   return (
     <div className="add-tool-container">
-      {/* UI Shell Banner */}
-      <div className="shell-banner">
-        UI shell (mocked) — Internal management view — not visible to field roles.
-      </div>
-
-      {/* Header */}
       <div className="page-header">
         <Link href="/admin/tools" className="back-link">
           ← Back to Tool Catalog
         </Link>
-        <h1>Add Tool</h1>
+        <h1>Add Category / Tool</h1>
         <p className="subtitle">
-          Add a new tool to the catalog.
+          Create a new category or add a tool to an existing category.
         </p>
       </div>
 
-      {/* Form Section */}
+      {/* Add Category Section */}
       <div className="form-section">
+        <h2 className="section-title">Add Category</h2>
+        {categoryError && <div className="error-banner">{categoryError}</div>}
         <div className="form-grid">
-          {/* Tool Name */}
+          <div className="form-row full-width">
+            <label className="form-label">
+              Category Name <span className="required">*</span>
+            </label>
+            <input
+              type="text"
+              className="form-input"
+              value={categoryName}
+              onChange={(e) => setCategoryName(e.target.value)}
+              placeholder="e.g., Welding Equipment"
+            />
+          </div>
+
+          <div className="form-row full-width">
+            <label className="form-label">Status</label>
+            <select
+              className="form-select"
+              value={categoryStatus}
+              onChange={(e) => setCategoryStatus(e.target.value as "Active" | "Inactive")}
+            >
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="section-actions">
+          {categorySaved && (
+            <span className="saved-text">Category created!</span>
+          )}
+          <button
+            type="button"
+            className="save-btn"
+            onClick={handleSaveCategory}
+            disabled={!canSaveCategory || categorySaving}
+          >
+            {categorySaving ? "Saving…" : "Save Category"}
+          </button>
+        </div>
+      </div>
+
+      {/* Add Tool Section */}
+      <div className="form-section">
+        <h2 className="section-title">Add Tool</h2>
+        {toolError && <div className="error-banner">{toolError}</div>}
+        <div className="form-grid">
           <div className="form-row full-width">
             <label className="form-label">
               Tool Name <span className="required">*</span>
@@ -67,70 +185,57 @@ export default function AddToolPage() {
             />
           </div>
 
-          {/* Description */}
           <div className="form-row full-width">
             <label className="form-label">Description</label>
             <textarea
               className="form-textarea"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              value={toolDescription}
+              onChange={(e) => setToolDescription(e.target.value)}
               placeholder="Optional description of the tool..."
               rows={3}
             />
           </div>
 
-          {/* Flags Section */}
           <div className="form-row full-width">
-            <label className="form-label">Flags</label>
-            <div className="flags-section">
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={calibrationRequired}
-                  onChange={() => setCalibrationRequired(!calibrationRequired)}
-                />
-                <span className="checkbox-label">Calibration Required</span>
-                <span className="checkbox-hint">Tool requires periodic calibration</span>
-              </label>
-
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={heavyEquipment}
-                  onChange={() => setHeavyEquipment(!heavyEquipment)}
-                />
-                <span className="checkbox-label">Heavy Equipment</span>
-                <span className="checkbox-hint">Requires special handling or certification</span>
-              </label>
-
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={precisionTool}
-                  onChange={() => setPrecisionTool(!precisionTool)}
-                />
-                <span className="checkbox-label">Precision Tool</span>
-                <span className="checkbox-hint">High-accuracy measurement or operation</span>
-              </label>
-            </div>
+            <label className="form-label">
+              Category <span className="required">*</span>
+            </label>
+            <select
+              className="form-select"
+              value={toolCategory}
+              onChange={(e) => setToolCategory(e.target.value)}
+            >
+              <option value="">Select a category…</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
-      </div>
 
-      {/* Form Actions */}
-      <div className="form-actions">
-        <p className="helper-text">UI-only: saving will be wired later.</p>
-        <div className="action-buttons">
-          <button type="button" className="cancel-btn" onClick={handleCancel}>
-            Cancel
-          </button>
+        <div className="section-actions">
           <button
             type="button"
             className="save-btn"
-            onClick={handleSave}
-            disabled={!canSubmit}
+            onClick={handleSaveTool}
+            disabled={!canSaveTool || toolSaving}
           >
-            Save
+            {toolSaving ? "Saving…" : "Save Tool"}
+          </button>
+        </div>
+      </div>
+
+      {/* Bottom Actions */}
+      <div className="form-actions">
+        <div className="action-buttons">
+          <button
+            type="button"
+            className="cancel-btn"
+            onClick={() => router.push("/admin/tools")}
+          >
+            Cancel
           </button>
         </div>
       </div>
@@ -142,20 +247,6 @@ export default function AddToolPage() {
           margin: 0 auto;
         }
 
-        /* Shell Banner */
-        .shell-banner {
-          background: rgba(245, 158, 11, 0.1);
-          border: 1px solid rgba(245, 158, 11, 0.3);
-          border-radius: 8px;
-          padding: 10px 16px;
-          font-size: 12px;
-          font-weight: 500;
-          color: #f59e0b;
-          text-align: center;
-          margin-bottom: 24px;
-        }
-
-        /* Header */
         .page-header {
           margin-bottom: 28px;
         }
@@ -187,7 +278,25 @@ export default function AddToolPage() {
           margin: 0;
         }
 
-        /* Form Section */
+        .section-title {
+          font-size: 18px;
+          font-weight: 600;
+          color: #fff;
+          margin: 0 0 20px;
+          padding-bottom: 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .error-banner {
+          background: rgba(239,68,68,0.1);
+          border: 1px solid rgba(239,68,68,0.3);
+          border-radius: 8px;
+          padding: 10px 16px;
+          font-size: 13px;
+          color: #ef4444;
+          margin-bottom: 16px;
+        }
+
         .form-section {
           background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.06);
@@ -225,7 +334,8 @@ export default function AddToolPage() {
         }
 
         .form-input,
-        .form-textarea {
+        .form-textarea,
+        .form-select {
           padding: 10px 12px;
           font-size: 13px;
           color: #fff;
@@ -236,7 +346,8 @@ export default function AddToolPage() {
         }
 
         .form-input:focus,
-        .form-textarea:focus {
+        .form-textarea:focus,
+        .form-select:focus {
           outline: none;
           border-color: #3b82f6;
         }
@@ -251,58 +362,32 @@ export default function AddToolPage() {
           min-height: 80px;
         }
 
-        /* Flags Section */
-        .flags-section {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          padding: 16px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 8px;
-        }
-
-        .checkbox-row {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          cursor: pointer;
-          padding: 8px 0;
-        }
-
-        .checkbox-row input[type="checkbox"] {
-          width: 18px;
-          height: 18px;
-          accent-color: #3b82f6;
-          cursor: pointer;
-        }
-
-        .checkbox-label {
-          font-size: 14px;
-          font-weight: 500;
+        .form-select option {
+          background: #1a1d24;
           color: #fff;
-          min-width: 160px;
         }
 
-        .checkbox-hint {
-          font-size: 12px;
-          color: rgba(255, 255, 255, 0.4);
-        }
-
-        /* Form Actions */
-        .form-actions {
+        .section-actions {
           display: flex;
-          justify-content: space-between;
+          justify-content: flex-end;
           align-items: center;
-          padding-top: 20px;
+          gap: 12px;
+          margin-top: 20px;
+          padding-top: 16px;
           border-top: 1px solid rgba(255, 255, 255, 0.06);
         }
 
-        .helper-text {
+        .saved-text {
           font-size: 12px;
-          color: rgba(255, 255, 255, 0.4);
+          color: #22c55e;
           font-style: italic;
-          margin: 0;
+        }
+
+        .form-actions {
+          display: flex;
+          justify-content: flex-end;
+          padding-top: 20px;
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
         }
 
         .action-buttons {

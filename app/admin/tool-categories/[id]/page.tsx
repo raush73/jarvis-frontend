@@ -4,55 +4,43 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
-type Category = { id: string; name: string };
-
-export default function ToolDetailPage() {
+export default function CategoryEditPage() {
   const params = useParams();
   const router = useRouter();
-  const toolId = params.id as string;
+  const categoryId = params.id as string;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const [name, setName] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const [description, setDescription] = useState("");
   const [isActive, setIsActive] = useState(true);
-
-  const [categories, setCategories] = useState<Category[]>([]);
 
   useEffect(() => {
     async function load() {
       const token = window.localStorage.getItem("jp_accessToken");
       if (!token) return;
 
-      const [toolRes, catsRes] = await Promise.all([
-        fetch(`/api/tools/${toolId}`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/tool-categories", { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
+      const res = await fetch(`/api/tool-categories/${categoryId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-      if (!toolRes.ok) {
-        setError("Failed to load tool.");
+      if (!res.ok) {
+        setError("Failed to load category.");
         setLoading(false);
         return;
       }
 
-      const tool = await toolRes.json();
-      const cats = await catsRes.json();
-
-      setName(tool.name ?? "");
-      setCategoryId(tool.categoryId ?? "");
-      setDescription(tool.description ?? "");
-      setIsActive(!!tool.isActive);
-      setCategories(cats ?? []);
+      const cat = await res.json();
+      setName(cat.name ?? "");
+      setIsActive(!!cat.isActive);
       setLoading(false);
     }
 
     load();
-  }, [toolId]);
+  }, [categoryId]);
 
-  const canSave = name.trim() !== "" && categoryId !== "";
+  const canSave = name.trim() !== "";
 
   async function handleSave() {
     if (!canSave || saving) return;
@@ -62,7 +50,7 @@ export default function ToolDetailPage() {
     const token = window.localStorage.getItem("jp_accessToken");
     if (!token) { setSaving(false); return; }
 
-    const res = await fetch(`/api/tools/${toolId}`, {
+    const res = await fetch(`/api/tool-categories/${categoryId}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -70,8 +58,6 @@ export default function ToolDetailPage() {
       },
       body: JSON.stringify({
         name: name.trim(),
-        categoryId,
-        description: description.trim() || null,
         isActive,
       }),
     });
@@ -99,8 +85,8 @@ export default function ToolDetailPage() {
         <Link href="/admin/tools" className="back-link">
           ← Back to Tool Catalog
         </Link>
-        <h1>Edit Tool</h1>
-        <p className="subtitle">Update tool details and configuration.</p>
+        <h1>Edit Category</h1>
+        <p className="subtitle">Update category name and status.</p>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -116,24 +102,8 @@ export default function ToolDetailPage() {
               className="form-input"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Tool name"
+              placeholder="Category name"
             />
-          </div>
-
-          <div className="form-row">
-            <label className="form-label">
-              Category <span className="required">*</span>
-            </label>
-            <select
-              className="form-select"
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-            >
-              <option value="">Select a category…</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
           </div>
 
           <div className="form-row">
@@ -146,17 +116,6 @@ export default function ToolDetailPage() {
               <option value="Active">Active</option>
               <option value="Inactive">Inactive</option>
             </select>
-          </div>
-
-          <div className="form-row full-width">
-            <label className="form-label">Description</label>
-            <textarea
-              className="form-textarea"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional description..."
-              rows={4}
-            />
           </div>
         </div>
 
@@ -246,10 +205,6 @@ export default function ToolDetailPage() {
           gap: 8px;
         }
 
-        .form-row.full-width {
-          grid-column: 1 / -1;
-        }
-
         .form-label {
           font-size: 11px;
           font-weight: 600;
@@ -263,7 +218,6 @@ export default function ToolDetailPage() {
         }
 
         .form-input,
-        .form-textarea,
         .form-select {
           padding: 10px 12px;
           font-size: 13px;
@@ -275,20 +229,13 @@ export default function ToolDetailPage() {
         }
 
         .form-input:focus,
-        .form-textarea:focus,
         .form-select:focus {
           outline: none;
           border-color: #3b82f6;
         }
 
-        .form-input::placeholder,
-        .form-textarea::placeholder {
+        .form-input::placeholder {
           color: rgba(255,255,255,0.3);
-        }
-
-        .form-textarea {
-          resize: vertical;
-          min-height: 80px;
         }
 
         .form-select option {
