@@ -1,12 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+
+export const dynamic = "force-dynamic";
 
 type Category = { id: string; name: string };
 
 export default function AddToolPage() {
+  return (
+    <Suspense fallback={null}>
+      <NewToolFormInner />
+    </Suspense>
+  );
+}
+
+function NewToolFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedCategoryId = searchParams.get("categoryId") || "";
@@ -436,3 +446,5 @@ export default function AddToolPage() {
     </div>
   );
 }
+
+

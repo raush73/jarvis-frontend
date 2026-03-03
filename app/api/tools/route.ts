@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND_BASE = "http://127.0.0.1:3000";
 
-function getAuthHeader(req: NextRequest) {
+function getAuthHeader(req: NextRequest): HeadersInit {
   const auth = req.headers.get("authorization");
-  return auth ? { Authorization: auth } : {};
+  if (!auth) return {};
+  return { Authorization: auth };
 }
-
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const qs = url.search ? url.search : "";
@@ -28,3 +28,4 @@ export async function GET(req: NextRequest) {
     },
   });
 }
+
