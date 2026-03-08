@@ -473,6 +473,7 @@ export default function CustomerDetailPage() {
   const [toolTypes, setToolTypes] = useState<Array<{ id: string; name: string; isActive: boolean }>>([]);
   const [baselineTrades, setBaselineTrades] = useState<Array<{ id: string; name: string }>>([]);
   const [customerTradeBaselines, setCustomerTradeBaselines] = useState<Record<string, string[]>>({});
+  const [customerPpeBaselines, setCustomerPpeBaselines] = useState<Record<string, string[]>>({});
 
   // PPE dictionary (Layer 1: Admin PPE types loaded from backend)
   const [ppeTypes, setPpeTypes] = useState<Array<{ id: string; name: string; active?: boolean }>>([]);
@@ -583,6 +584,27 @@ export default function CustomerDetailPage() {
     return () => { alive = false; };
   }, [customerId]);
 
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const data = await apiFetch<{
+          customerId: string;
+          baselines: Array<{ tradeId: string; ppeIds: string[] }>;
+        }>(`/customers/${customerId}/ppe-baseline`);
+        if (!alive) return;
+        const map: Record<string, string[]> = {};
+        for (const b of data.baselines ?? []) {
+          map[b.tradeId] = b.ppeIds ?? [];
+        }
+        setCustomerPpeBaselines(map);
+      } catch (e: any) {
+        console.error("Failed to load customer PPE baselines:", e);
+        if (alive) setCustomerPpeBaselines({});
+      }
+    })();
+    return () => { alive = false; };
+  }, [customerId]);
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [showEditContactModal, setShowEditContactModal] = useState(false);
   const [showDeleteContactModal, setShowDeleteContactModal] = useState(false);
@@ -1689,65 +1711,63 @@ export default function CustomerDetailPage() {
         {/* PPE Tab */}{activeTab === "ppe" && (
           <div className="ppe-panel">
             <div className="panel-header">
-              <h2>Customer-Level PPE</h2>
-              <span className="panel-note">Standard PPE requirements for this customer</span>
-              <button className="add-ppe-btn" onClick={handleOpenAddPpeModal}>
-                + Add PPE
-              </button>
+              <h2>PPE [by trade]</h2>
+              <span className="panel-note">PPE requirements for this customer by trade</span>
+              
             </div>
-            <div className="ppe-table-wrap">
-              <table className="ppe-table">
-                <thead>
-                  <tr>
-                    <th>PPE Name</th>
-                    <th>Notes</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {!customerPpeLoaded ? (
-                    <tr>
-                      <td colSpan={3} style={{ textAlign: "center", padding: "24px 16px", color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}>
-                        Loading customer PPE…
-                      </td>
-                    </tr>
-                  ) : renderedPpe.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} style={{ textAlign: "center", padding: "24px 16px", color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}>
-                        No PPE configured yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    renderedPpe.map((ppe) => (
-                      <tr key={ppe.reqId}>
-                        <td className="ppe-name">{ppe.name}</td>
-                        <td className="ppe-notes">{ppe.notes || "—"}</td>
-                        <td className="ppe-actions">
-                          <button
-                            className="ppe-action-link"
-                            onClick={() => handleOpenEditPpeModal(ppe.reqId, ppe.ppeTypeId, ppe.name, ppe.notes)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="ppe-action-link ppe-action-delete"
-                            onClick={() => handleOpenDeletePpeModal(ppe.reqId, ppe.ppeTypeId, ppe.name)}
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+            <div style={{ marginTop: 12 }}>
+              {baselineTrades.map((trade) => {
+                const ppeIds = customerPpeBaselines[trade.id] ?? [];
+                const hasPpe = ppeIds.length > 0;
+                return (
+                  <details key={trade.id} className="tools-trade-section" open={hasPpe}>
+                    <summary className="tools-trade-section-header" style={{ cursor: "pointer" }}>
+                      <div className="tools-trade-header-left">
+                        <h3 className="tools-trade-title">{trade.name}</h3>
+                      </div>
+                      <div className="tools-trade-header-right">
+                        <span className="tools-trade-counts">
+                          {ppeIds.length} PPE item{ppeIds.length !== 1 ? "s" : ""}
+                        </span>
+                        <button
+                          className="tool-action-link"
+                          style={{ marginLeft: 12 }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            router.push(`/customers/${customerId}/ppe-baseline/${trade.id}`);
+                          }}
+                        >
+                          Edit PPE
+                        </button>
+                      </div>
+                    </summary>
+
+                    {hasPpe && (
+                      <div style={{ padding: "12px 0 0 0", color: "rgba(255,255,255,0.6)" }}>
+                        PPE configured for this trade.
+                        <div style={{ marginTop: 8, opacity: 0.95 }}>
+                          <ul style={{ margin: 0, paddingLeft: 18 }}>
+                            {ppeIds.slice(0, 12).map((ppeId) => (
+                              <li key={ppeId} style={{ margin: "2px 0" }}>
+                                {ppeTypes.find((p) => p.id === ppeId)?.name ?? ppeId}
+                              </li>
+                            ))}
+                          </ul>
+                          {ppeIds.length > 12 && (
+                            <div style={{ marginTop: 6, opacity: 0.7, fontStyle: "italic" }}>
+                              +{ppeIds.length - 12} more…
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </details>
+                );
+              })}
             </div>
-            <div className="placeholder-note">
-              <span className="placeholder-icon">🦺</span>
-              <span>Customer-level PPE requirements live here. Site-specific PPE can be defined per Job Order.</span>
-            </div>
-          </div>
-        )}
+</div>
+)}
 
         {/* Orders Tab */}
         {activeTab === "orders" && (
@@ -4581,6 +4601,13 @@ export default function CustomerDetailPage() {
     </div>
   );
 }
+
+
+
+
+
+
+
 
 
 

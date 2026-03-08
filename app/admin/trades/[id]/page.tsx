@@ -41,6 +41,14 @@ export default function TradeDetailPage() {
   const [baselineLoading, setBaselineLoading] = useState(false);
   const [baselineError, setBaselineError] = useState("");
 
+  const [baselinePpeIds, setBaselinePpeIds] = useState<string[]>([]);
+  const [baselinePpes, setBaselinePpes] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [ppeLoading, setPpeLoading] = useState(false);
+  const [ppeError, setPpeError] = useState("");
+
+
   const syncDraft = (t: Trade) => {
     setDraftName(t.name);
     setDraftWcClassCode(t.wcClassCode);
@@ -129,6 +137,41 @@ export default function TradeDetailPage() {
     };
   }, [tradeId, trade]);
 
+  useEffect(() => {
+    if (!tradeId || !trade) return;
+    let cancelled = false;
+
+    (async () => {
+      setPpeLoading(true);
+      setPpeError("");
+      try {
+        const baseline = await apiFetch<{ tradeId: string; ppeTypeIds: string[] }>(
+          `/trades/${tradeId}/ppe-baseline`
+        );
+        if (cancelled) return;
+        const ppeTypeIds = baseline.ppeTypeIds ?? [];
+        setBaselinePpeIds(ppeTypeIds);
+
+        const allPpes = await apiFetch<{ id: string; name: string }[]>(
+          "/ppe-types?activeOnly=true"
+        );
+        if (cancelled) return;
+        const idSet = new Set(ppeTypeIds);
+        const filtered = (allPpes ?? []).filter((p) => idSet.has(p.id));
+        setBaselinePpes(filtered);
+      } catch (e: any) {
+        if (!cancelled) setPpeError(e?.message ?? "Failed to load PPE list.");
+      } finally {
+        if (!cancelled) setPpeLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeId, trade]);
+
+
   const canSave =
     draftName.trim() !== "" && draftWcClassCode.trim() !== "" && !submitting;
 
@@ -178,6 +221,7 @@ export default function TradeDetailPage() {
           </Link>
           <h1>Loading&hellip;</h1>
         </div>
+        
         <style jsx>{`
           .trade-detail-container {
             padding: 24px 40px 60px;
@@ -479,6 +523,37 @@ export default function TradeDetailPage() {
               className="tools-link"
             >
               Go to Tools Template &rarr;
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* MW4H Minimal PPE List — shell only */}
+      <div className="detail-card tool-list-card">
+        <div className="card-header">
+          <h2>MW4H Minimal PPE List</h2>
+        </div>
+        <div className="card-body">
+          <p className="baseline-summary">{baselinePpeIds.length} selected</p>
+
+          {ppeLoading && <div className="empty-state">Loading PPE list…</div>}
+          {!ppeLoading && ppeError && <div className="baseline-error">{ppeError}</div>}
+
+          {!ppeLoading && !ppeError && baselinePpes.length > 0 && (
+            <ul className="baseline-preview">
+              {baselinePpes.slice(0, 12).map((p) => (
+                <li key={p.id}>{p.name}</li>
+              ))}
+            </ul>
+          )}
+
+          {!ppeLoading && !ppeError && baselinePpes.length > 12 && (
+            <p className="baseline-more">+{baselinePpes.length - 12} more</p>
+          )}
+
+          <div style={{ marginTop: 12, textAlign: "center" }}>
+            <Link href={`/admin/trades/${tradeId}/ppe`} className="tools-link">
+              Go to PPE Template &rarr;
             </Link>
           </div>
         </div>
@@ -845,3 +920,6 @@ export default function TradeDetailPage() {
     </div>
   );
 }
+
+
+
