@@ -1,662 +1,850 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
-// Types
-type CertStatus = "Active" | "Inactive";
-type CertCategory = "Safety" | "Trade" | "Site" | "Other";
+type CertificationTypeStatus = "Active" | "Inactive";
 
-type Certification = {
+type CertificationTypeItem = {
   id: string;
+  code: string;
   name: string;
-  shortCode: string;
-  category: CertCategory;
-  expires: boolean;
-  validityPeriod: string;
-  gracePeriodDays: number | null;
-  requiresDocument: boolean;
-  status: CertStatus;
-  notes: string;
-  createdAt: string;
-  updatedAt: string;
+  status: CertificationTypeStatus;
+  categoryId: string | null;
+  description: string;
+  requiresExpiration: boolean;
+  requiresState: boolean;
+  requiresLicenseNumber: boolean;
+  sortOrder: number | null;
+  isMW4HTrainableDefault: boolean;
+  isActive: boolean;
 };
 
-// Deterministic mock data — MW4H-relevant certifications
-const CATEGORIES: CertCategory[] = ["Safety", "Trade", "Site", "Other"];
+type CertificationCategory = {
+  id: string;
+  name: string;
+  sortOrder: number | null;
+  isActive: boolean;
+  certificationTypes: CertificationTypeItem[];
+};
 
-const MOCK_CERTIFICATIONS: Certification[] = [
-  {
-    id: "CERT-001",
-    name: "OSHA 10-Hour",
-    shortCode: "OSHA10",
-    category: "Safety",
-    expires: false,
-    validityPeriod: "Never",
-    gracePeriodDays: null,
-    requiresDocument: true,
-    status: "Active",
-    notes: "Basic OSHA safety certification required for most job sites.",
-    createdAt: "2025-06-01",
-    updatedAt: "2025-12-15",
-  },
-  {
-    id: "CERT-002",
-    name: "OSHA 30-Hour",
-    shortCode: "OSHA30",
-    category: "Safety",
-    expires: false,
-    validityPeriod: "Never",
-    gracePeriodDays: null,
-    requiresDocument: true,
-    status: "Active",
-    notes: "Advanced OSHA certification. Required for supervisory roles on some sites.",
-    createdAt: "2025-06-01",
-    updatedAt: "2025-12-15",
-  },
-  {
-    id: "CERT-003",
-    name: "MSHA Part 48B",
-    shortCode: "MSHA48B",
-    category: "Safety",
-    expires: true,
-    validityPeriod: "1 year",
-    gracePeriodDays: 30,
-    requiresDocument: true,
-    status: "Active",
-    notes: "Mine Safety and Health Administration certification. Annual refresher required.",
-    createdAt: "2025-06-01",
-    updatedAt: "2025-12-15",
-  },
-  {
-    id: "CERT-004",
-    name: "Confined Space Entry",
-    shortCode: "CSE",
-    category: "Safety",
-    expires: true,
-    validityPeriod: "1 year",
-    gracePeriodDays: 14,
-    requiresDocument: true,
-    status: "Active",
-    notes: "Required for tank entry, vessel work, and confined space environments.",
-    createdAt: "2025-06-01",
-    updatedAt: "2025-12-15",
-  },
-  {
-    id: "CERT-005",
-    name: "TWIC Card",
-    shortCode: "TWIC",
-    category: "Site",
-    expires: true,
-    validityPeriod: "5 years",
-    gracePeriodDays: 60,
-    requiresDocument: true,
-    status: "Active",
-    notes: "Transportation Worker Identification Credential. Required for port/maritime facilities.",
-    createdAt: "2025-06-01",
-    updatedAt: "2025-12-15",
-  },
-  {
-    id: "CERT-006",
-    name: "NCCER Certified",
-    shortCode: "NCCER",
-    category: "Trade",
-    expires: false,
-    validityPeriod: "Never",
-    gracePeriodDays: null,
-    requiresDocument: true,
-    status: "Active",
-    notes: "National Center for Construction Education and Research certification.",
-    createdAt: "2025-06-01",
-    updatedAt: "2025-12-15",
-  },
-  {
-    id: "CERT-007",
-    name: "Forklift Operator",
-    shortCode: "FORKLIFT",
-    category: "Trade",
-    expires: true,
-    validityPeriod: "3 years",
-    gracePeriodDays: 30,
-    requiresDocument: true,
-    status: "Active",
-    notes: "Powered industrial truck operator certification per OSHA 1910.178.",
-    createdAt: "2025-06-01",
-    updatedAt: "2025-12-15",
-  },
-  {
-    id: "CERT-008",
-    name: "Rigging & Signaling",
-    shortCode: "RIGSIG",
-    category: "Trade",
-    expires: true,
-    validityPeriod: "5 years",
-    gracePeriodDays: 30,
-    requiresDocument: true,
-    status: "Active",
-    notes: "Crane rigging and signal person qualification.",
-    createdAt: "2025-08-15",
-    updatedAt: "2025-12-15",
-  },
-  {
-    id: "CERT-009",
-    name: "Fall Protection",
-    shortCode: "FALLPRO",
-    category: "Safety",
-    expires: true,
-    validityPeriod: "1 year",
-    gracePeriodDays: 14,
-    requiresDocument: true,
-    status: "Active",
-    notes: "Fall protection and rescue training certification.",
-    createdAt: "2025-08-15",
-    updatedAt: "2025-12-15",
-  },
-  {
-    id: "CERT-010",
-    name: "First Aid / CPR",
-    shortCode: "FIRSTAID",
-    category: "Safety",
-    expires: true,
-    validityPeriod: "2 years",
-    gracePeriodDays: 30,
-    requiresDocument: true,
-    status: "Active",
-    notes: "American Red Cross or equivalent first aid and CPR certification.",
-    createdAt: "2025-08-15",
-    updatedAt: "2025-12-15",
-  },
-  {
-    id: "CERT-011",
-    name: "Scaffold Builder",
-    shortCode: "SCAFFOLD",
-    category: "Trade",
-    expires: true,
-    validityPeriod: "3 years",
-    gracePeriodDays: 30,
-    requiresDocument: true,
-    status: "Inactive",
-    notes: "Legacy certification. Being phased out in favor of new scaffold competency program.",
-    createdAt: "2025-06-01",
-    updatedAt: "2026-01-10",
-  },
-  {
-    id: "CERT-012",
-    name: "Client Site Badge - Marathon",
-    shortCode: "MARATHON",
-    category: "Site",
-    expires: true,
-    validityPeriod: "1 year",
-    gracePeriodDays: 7,
-    requiresDocument: false,
-    status: "Active",
-    notes: "Site-specific badge for Marathon Petroleum facilities.",
-    createdAt: "2025-10-01",
-    updatedAt: "2025-12-15",
-  },
-];
+type ApiCertificationCategory = {
+  id: string;
+  name: string;
+  sortOrder?: number | null;
+  isActive?: boolean;
+};
+
+type ApiCertificationType = {
+  id: string;
+  code: string;
+  name: string;
+  category?: string | null;
+  categoryId?: string | null;
+  description?: string | null;
+  requiresExpiration?: boolean;
+  requiresState?: boolean;
+  requiresLicenseNumber?: boolean;
+  sortOrder?: number | null;
+  isMW4HTrainableDefault?: boolean;
+  isActive?: boolean;
+  certCategory?: ApiCertificationCategory | null;
+};
+
+type TypeFormState = {
+  id?: string;
+  code: string;
+  name: string;
+  categoryId: string;
+  description: string;
+  requiresExpiration: boolean;
+  requiresState: boolean;
+  requiresLicenseNumber: boolean;
+  sortOrder: string;
+  isMW4HTrainableDefault: boolean;
+  isActive: boolean;
+};
+
+type CategoryFormState = {
+  id?: string;
+  name: string;
+  sortOrder: string;
+  isActive: boolean;
+};
+
+const GOVERNANCE_CATEGORY_ORDER = [
+  "OSHA",
+  "MSHA",
+  "Welding",
+  "Crane",
+  "Rigging",
+  "Electrical",
+  "Medical",
+  "Security",
+] as const;
+
+function getStatusStyle(status: CertificationTypeStatus) {
+  if (status === "Active") {
+    return { bg: "rgba(34, 197, 94, 0.12)", color: "#22c55e", border: "rgba(34, 197, 94, 0.25)" };
+  }
+  return { bg: "rgba(107, 114, 128, 0.12)", color: "#6b7280", border: "rgba(107, 114, 128, 0.25)" };
+}
+
+function mapCategoriesAndTypes(
+  categories: ApiCertificationCategory[],
+  types: ApiCertificationType[],
+): CertificationCategory[] {
+  const byId = new Map<string, CertificationCategory>();
+
+  for (const c of categories) {
+    byId.set(c.id, {
+      id: c.id,
+      name: c.name,
+      sortOrder: c.sortOrder ?? null,
+      isActive: c.isActive !== false,
+      certificationTypes: [],
+    });
+  }
+
+  for (const name of GOVERNANCE_CATEGORY_ORDER) {
+    const exists = [...byId.values()].some((c) => c.name === name);
+    if (!exists) {
+      byId.set(`governance-${name.toLowerCase()}`, {
+        id: `governance-${name.toLowerCase()}`,
+        name,
+        sortOrder: null,
+        isActive: true,
+        certificationTypes: [],
+      });
+    }
+  }
+
+  for (const t of types) {
+    const mappedType: CertificationTypeItem = {
+      id: t.id,
+      code: t.code,
+      name: t.name,
+      status: t.isActive === false ? "Inactive" : "Active",
+      categoryId: t.categoryId ?? t.certCategory?.id ?? null,
+      description: t.description ?? "",
+      requiresExpiration: !!t.requiresExpiration,
+      requiresState: !!t.requiresState,
+      requiresLicenseNumber: !!t.requiresLicenseNumber,
+      sortOrder: t.sortOrder ?? null,
+      isMW4HTrainableDefault: !!t.isMW4HTrainableDefault,
+      isActive: t.isActive !== false,
+    };
+
+    if (mappedType.categoryId && byId.has(mappedType.categoryId)) {
+      byId.get(mappedType.categoryId)!.certificationTypes.push(mappedType);
+      continue;
+    }
+
+    const fallbackName = (t.certCategory?.name ?? t.category ?? "").trim();
+    if (!fallbackName) continue;
+    const fallbackCategory = [...byId.values()].find((c) => c.name === fallbackName);
+    if (fallbackCategory) {
+      fallbackCategory.certificationTypes.push(mappedType);
+    }
+  }
+
+  return [...byId.values()]
+    .sort((a, b) => {
+      const governanceA = GOVERNANCE_CATEGORY_ORDER.indexOf(a.name as (typeof GOVERNANCE_CATEGORY_ORDER)[number]);
+      const governanceB = GOVERNANCE_CATEGORY_ORDER.indexOf(b.name as (typeof GOVERNANCE_CATEGORY_ORDER)[number]);
+      const fallbackA = governanceA >= 0 ? governanceA + 1 : 1000;
+      const fallbackB = governanceB >= 0 ? governanceB + 1 : 1000;
+      const effectiveA = a.sortOrder ?? fallbackA;
+      const effectiveB = b.sortOrder ?? fallbackB;
+      if (effectiveA !== effectiveB) return effectiveA - effectiveB;
+      return a.name.localeCompare(b.name);
+    })
+    .map((category) => ({
+      ...category,
+      certificationTypes: category.certificationTypes.sort((x, y) => {
+        const sx = x.sortOrder ?? Number.MAX_SAFE_INTEGER;
+        const sy = y.sortOrder ?? Number.MAX_SAFE_INTEGER;
+        if (sx !== sy) return sx - sy;
+        return x.name.localeCompare(y.name);
+      }),
+    }));
+}
 
 export default function CertificationsPage() {
-  // Filter state
-  const [categoryFilter, setCategoryFilter] = useState<string>("All");
   const [statusFilter, setStatusFilter] = useState<string>("All");
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorState, setErrorState] = useState<string | null>(null);
+  const [categories, setCategories] = useState<CertificationCategory[]>([]);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
-  // Modal state
-  const [selectedCert, setSelectedCert] = useState<Certification | null>(null);
-  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
+  const [selectedCertification, setSelectedCertification] = useState<CertificationTypeItem | null>(null);
 
-  // Filter logic
-  const filteredCerts = MOCK_CERTIFICATIONS.filter((cert) => {
-    if (categoryFilter !== "All" && cert.category !== categoryFilter) return false;
-    if (statusFilter !== "All" && cert.status !== statusFilter) return false;
-    if (searchQuery.trim() !== "") {
-      const query = searchQuery.toLowerCase();
-      if (
-        !cert.name.toLowerCase().includes(query) &&
-        !cert.shortCode.toLowerCase().includes(query)
-      ) {
-        return false;
-      }
-    }
-    return true;
+  const [typeModalOpen, setTypeModalOpen] = useState(false);
+  const [typeCreateMode, setTypeCreateMode] = useState(false);
+  const [typeEditMode, setTypeEditMode] = useState(false);
+  const [typeSaving, setTypeSaving] = useState(false);
+  const [typeFormError, setTypeFormError] = useState<string | null>(null);
+  const [typeFormState, setTypeFormState] = useState<TypeFormState>({
+    code: "",
+    name: "",
+    categoryId: "",
+    description: "",
+    requiresExpiration: false,
+    requiresState: false,
+    requiresLicenseNumber: false,
+    sortOrder: "",
+    isMW4HTrainableDefault: false,
+    isActive: true,
   });
 
-  // Category badge style
-  const getCategoryStyle = (category: CertCategory) => {
-    switch (category) {
-      case "Safety":
-        return { bg: "rgba(239, 68, 68, 0.12)", color: "#ef4444", border: "rgba(239, 68, 68, 0.25)" };
-      case "Trade":
-        return { bg: "rgba(59, 130, 246, 0.12)", color: "#3b82f6", border: "rgba(59, 130, 246, 0.25)" };
-      case "Site":
-        return { bg: "rgba(245, 158, 11, 0.12)", color: "#f59e0b", border: "rgba(245, 158, 11, 0.25)" };
-      case "Other":
-        return { bg: "rgba(148, 163, 184, 0.12)", color: "#94a3b8", border: "rgba(148, 163, 184, 0.25)" };
-      default:
-        return { bg: "rgba(148, 163, 184, 0.12)", color: "#94a3b8", border: "rgba(148, 163, 184, 0.25)" };
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [categoryCreateMode, setCategoryCreateMode] = useState(false);
+  const [categoryEditMode, setCategoryEditMode] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<CertificationCategory | null>(null);
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [categoryFormError, setCategoryFormError] = useState<string | null>(null);
+  const [categoryFormState, setCategoryFormState] = useState<CategoryFormState>({
+    name: "",
+    sortOrder: "",
+    isActive: true,
+  });
+
+  const loadCatalog = async (preserveExpanded = false) => {
+    setIsLoading(true);
+    setErrorState(null);
+    try {
+      const token = window.localStorage.getItem("jp_accessToken");
+      if (!token) throw new Error("Missing access token.");
+
+      const [catsRes, typesRes] = await Promise.all([
+        fetch("/api/certification-categories", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        }),
+        fetch("/api/certification-types", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        }),
+      ]);
+
+      if (!catsRes.ok) {
+        const text = await catsRes.text();
+        throw new Error(`Failed to load certification categories: ${catsRes.status} ${catsRes.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      if (!typesRes.ok) {
+        const text = await typesRes.text();
+        throw new Error(`Failed to load certification types: ${typesRes.status} ${typesRes.statusText}${text ? ` - ${text}` : ""}`);
+      }
+
+      const categoriesData = (await catsRes.json()) as ApiCertificationCategory[];
+      const typesData = (await typesRes.json()) as ApiCertificationType[];
+      const nextCategories = mapCategoriesAndTypes(categoriesData, typesData);
+      setCategories(nextCategories);
+      setExpandedCategories((prev) =>
+        preserveExpanded && prev.size > 0 ? prev : new Set(nextCategories.map((category) => category.id)),
+      );
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to load certification catalog.";
+      setErrorState(message);
+      setCategories([]);
+      setExpandedCategories(new Set());
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Status badge style
-  const getStatusStyle = (status: CertStatus) => {
-    if (status === "Active") {
-      return { bg: "rgba(34, 197, 94, 0.12)", color: "#22c55e", border: "rgba(34, 197, 94, 0.25)" };
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (cancelled) return;
+      await loadCatalog(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filteredCategories = useMemo(
+    () =>
+      categories.map((category) => ({
+        ...category,
+        certificationTypes: category.certificationTypes.filter((certType) => {
+          if (statusFilter === "Active Only" && certType.status !== "Active") return false;
+          if (statusFilter === "Inactive Only" && certType.status !== "Inactive") return false;
+          if (!searchQuery.trim()) return true;
+          const query = searchQuery.toLowerCase();
+          return certType.name.toLowerCase().includes(query) || certType.code.toLowerCase().includes(query);
+        }),
+      })),
+    [categories, statusFilter, searchQuery],
+  );
+
+  const totalTypes = filteredCategories.reduce((sum, c) => sum + c.certificationTypes.length, 0);
+  const categoryOptions = useMemo(() => categories.filter((category) => !category.id.startsWith("governance-")), [categories]);
+
+  const toggleCategory = (categoryId: string) => {
+    setExpandedCategories((previous) => {
+      const next = new Set(previous);
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
+      return next;
+    });
+  };
+
+  const openTypeCreate = (category: CertificationCategory) => {
+    if (category.id.startsWith("governance-")) {
+      setErrorState(`Cannot create in ${category.name} yet: category id is not persisted.`);
+      return;
     }
-    return { bg: "rgba(107, 114, 128, 0.12)", color: "#6b7280", border: "rgba(107, 114, 128, 0.25)" };
+
+    setSelectedCategoryId(category.id);
+    setSelectedCertification(null);
+    setTypeCreateMode(true);
+    setTypeEditMode(false);
+    setTypeFormError(null);
+    setTypeFormState({
+      code: "",
+      name: "",
+      categoryId: category.id,
+      description: "",
+      requiresExpiration: false,
+      requiresState: false,
+      requiresLicenseNumber: false,
+      sortOrder: "",
+      isMW4HTrainableDefault: false,
+      isActive: true,
+    });
+    setTypeModalOpen(true);
   };
 
-  // Open view/edit modal
-  const handleViewCert = (cert: Certification) => {
-    setSelectedCert(cert);
-    setIsViewModalOpen(true);
+  const openTypeEdit = (certification: CertificationTypeItem) => {
+    setSelectedCategoryId(certification.categoryId ?? "");
+    setSelectedCertification(certification);
+    setTypeCreateMode(false);
+    setTypeEditMode(true);
+    setTypeFormError(null);
+    setTypeFormState({
+      id: certification.id,
+      code: certification.code,
+      name: certification.name,
+      categoryId: certification.categoryId ?? "",
+      description: certification.description,
+      requiresExpiration: certification.requiresExpiration,
+      requiresState: certification.requiresState,
+      requiresLicenseNumber: certification.requiresLicenseNumber,
+      sortOrder: certification.sortOrder == null ? "" : String(certification.sortOrder),
+      isMW4HTrainableDefault: certification.isMW4HTrainableDefault,
+      isActive: certification.isActive,
+    });
+    setTypeModalOpen(true);
   };
 
-  // Close view modal
-  const handleCloseViewModal = () => {
-    setIsViewModalOpen(false);
-    setTimeout(() => setSelectedCert(null), 200);
+  const saveType = async () => {
+    const token = window.localStorage.getItem("jp_accessToken");
+    if (!token) {
+      setTypeFormError("Missing access token.");
+      return;
+    }
+
+    const code = typeFormState.code.trim();
+    const name = typeFormState.name.trim();
+    const categoryId = typeFormState.categoryId.trim();
+    if (!code || !name || !categoryId) {
+      setTypeFormError("Code, Name, and Category are required.");
+      return;
+    }
+
+    let sortOrder: number | undefined;
+    const rawSortOrder = typeFormState.sortOrder.trim();
+    if (rawSortOrder) {
+      const parsed = Number(rawSortOrder);
+      if (!Number.isInteger(parsed)) {
+        setTypeFormError("Sort Order must be a whole number.");
+        return;
+      }
+      sortOrder = parsed;
+    }
+
+    const payload: Record<string, unknown> = {
+      code,
+      name,
+      categoryId,
+      description: typeFormState.description.trim() || undefined,
+      requiresExpiration: typeFormState.requiresExpiration,
+      requiresState: typeFormState.requiresState,
+      requiresLicenseNumber: typeFormState.requiresLicenseNumber,
+      isMW4HTrainableDefault: typeFormState.isMW4HTrainableDefault,
+      ...(sortOrder !== undefined ? { sortOrder } : {}),
+    };
+
+    let method: "POST" | "PATCH" = "POST";
+    let url = "/api/certification-types";
+    if (typeEditMode) {
+      if (!typeFormState.id) {
+        setTypeFormError("Missing certification id for edit.");
+        return;
+      }
+      method = "PATCH";
+      url = `/api/certification-types?id=${encodeURIComponent(typeFormState.id)}`;
+      payload.id = typeFormState.id;
+      payload.isActive = typeFormState.isActive;
+    }
+
+    setTypeSaving(true);
+    setTypeFormError(null);
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Save failed: ${response.status} ${response.statusText}${text ? ` - ${text}` : ""}`);
+      }
+
+      setTypeModalOpen(false);
+      await loadCatalog(true);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to save certification type.";
+      setTypeFormError(message);
+    } finally {
+      setTypeSaving(false);
+    }
+  };
+
+  const openCategoryCreate = () => {
+    setSelectedCategory(null);
+    setCategoryCreateMode(true);
+    setCategoryEditMode(false);
+    setCategoryFormError(null);
+    setCategoryFormState({
+      name: "",
+      sortOrder: "",
+      isActive: true,
+    });
+    setCategoryModalOpen(true);
+  };
+
+  const openCategoryEdit = (category: CertificationCategory) => {
+    if (category.id.startsWith("governance-")) {
+      setErrorState(`Cannot edit ${category.name} yet: category id is not persisted.`);
+      return;
+    }
+    setSelectedCategory(category);
+    setCategoryCreateMode(false);
+    setCategoryEditMode(true);
+    setCategoryFormError(null);
+    setCategoryFormState({
+      id: category.id,
+      name: category.name,
+      sortOrder: category.sortOrder == null ? "" : String(category.sortOrder),
+      isActive: category.isActive,
+    });
+    setCategoryModalOpen(true);
+  };
+
+  const saveCategory = async () => {
+    const token = window.localStorage.getItem("jp_accessToken");
+    if (!token) {
+      setCategoryFormError("Missing access token.");
+      return;
+    }
+
+    const name = categoryFormState.name.trim();
+    if (!name) {
+      setCategoryFormError("Name is required.");
+      return;
+    }
+
+    let sortOrder: number | undefined;
+    const rawSortOrder = categoryFormState.sortOrder.trim();
+    if (rawSortOrder) {
+      const parsed = Number(rawSortOrder);
+      if (!Number.isInteger(parsed)) {
+        setCategoryFormError("Sort Order must be a whole number.");
+        return;
+      }
+      sortOrder = parsed;
+    }
+
+    const payload: Record<string, unknown> = {
+      name,
+      ...(sortOrder !== undefined ? { sortOrder } : {}),
+      isActive: categoryFormState.isActive,
+    };
+
+    let method: "POST" | "PATCH" = "POST";
+    let url = "/api/certification-categories";
+    if (categoryEditMode) {
+      if (!categoryFormState.id) {
+        setCategoryFormError("Missing category id for edit.");
+        return;
+      }
+      method = "PATCH";
+      url = `/api/certification-categories/${encodeURIComponent(categoryFormState.id)}`;
+    }
+
+    setCategorySaving(true);
+    setCategoryFormError(null);
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Save failed: ${response.status} ${response.statusText}${text ? ` - ${text}` : ""}`);
+      }
+
+      setCategoryModalOpen(false);
+      await loadCatalog(true);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to save category.";
+      setCategoryFormError(message);
+    } finally {
+      setCategorySaving(false);
+    }
   };
 
   return (
-    <div className="cert-container">
-      {/* Header */}
+    <div className="certifications-container">
       <div className="page-header">
         <div className="header-left">
           <Link href="/admin" className="back-link">
             ← Back to Admin
           </Link>
           <h1>Certifications</h1>
-          <p className="subtitle">
-            Define and manage the certifications used across Jarvis Prime for safety, trade, and site compliance.
-          </p>
+          <p className="subtitle">Admin catalog of certification categories and certification types used across Jarvis Prime.</p>
         </div>
         <div className="header-actions">
-          <button className="btn-add" onClick={() => setIsAddModalOpen(true)}>
-            + Add Certification
+          <button type="button" className="btn-add-category" onClick={openCategoryCreate}>
+            + Add Category
           </button>
         </div>
       </div>
 
-      {/* Filters */}
       <div className="filters-section">
         <div className="filter-group">
-          <label htmlFor="categoryFilter">Category</label>
-          <select
-            id="categoryFilter"
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-          >
-            <option value="All">All Categories</option>
-            {CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="filter-group">
           <label htmlFor="statusFilter">Status</label>
-          <select
-            id="statusFilter"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="All">All Statuses</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
+          <select id="statusFilter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="All">All</option>
+            <option value="Active Only">Active Only</option>
+            <option value="Inactive Only">Inactive Only</option>
           </select>
         </div>
-
         <div className="filter-group search-group">
-          <label htmlFor="searchInput">Search</label>
+          <label htmlFor="searchInput">Search Certification Type</label>
           <input
             id="searchInput"
             type="text"
-            placeholder="Search by name or code..."
+            placeholder="Certification Type name or code..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(event) => setSearchQuery(event.target.value)}
           />
         </div>
-
         <div className="filter-results">
-          {filteredCerts.length} certification{filteredCerts.length !== 1 ? "s" : ""}
+          {filteredCategories.length} categor{filteredCategories.length !== 1 ? "ies" : "y"}, {totalTypes} certification type
+          {totalTypes !== 1 ? "s" : ""}
         </div>
       </div>
 
-      {/* Certifications Table */}
-      <div className="table-section">
-        <div className="table-wrap">
-          <table className="certs-table">
-            <thead>
-              <tr>
-                <th>Certification Name</th>
-                <th>Category</th>
-                <th>Expires?</th>
-                <th>Validity Period</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredCerts.map((cert) => (
-                <tr key={cert.id}>
-                  <td className="cell-name">
-                    <div className="name-wrap">
-                      <span className="cert-name">{cert.name}</span>
-                      <span className="cert-code">{cert.shortCode}</span>
-                    </div>
-                  </td>
-                  <td className="cell-category">
-                    <span
-                      className="category-badge"
-                      style={{
-                        backgroundColor: getCategoryStyle(cert.category).bg,
-                        color: getCategoryStyle(cert.category).color,
-                        borderColor: getCategoryStyle(cert.category).border,
-                      }}
-                    >
-                      {cert.category}
+      {isLoading ? (
+        <div className="loading-state">Loading certification catalog...</div>
+      ) : errorState ? (
+        <div className="error-state">{errorState}</div>
+      ) : (
+        <div className="categories-section">
+          {filteredCategories.map((category) => {
+            const isExpanded = expandedCategories.has(category.id);
+            const visibleTypes = category.certificationTypes;
+
+            return (
+              <div key={category.id} className="category-accordion">
+                <div className="category-header-row">
+                  <button type="button" className="category-toggle" onClick={() => toggleCategory(category.id)}>
+                    <span className={`chevron ${isExpanded ? "chevron--open" : ""}`}>▶</span>
+                    <span className="category-name">{category.name}</span>
+                    <span className="type-count">
+                      {visibleTypes.length} certification type{visibleTypes.length !== 1 ? "s" : ""}
                     </span>
-                  </td>
-                  <td className="cell-expires">
-                    {cert.expires ? (
-                      <span className="expires-yes">Yes</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-edit-category"
+                    onClick={() => openCategoryEdit(category)}
+                    aria-label={`Edit Category ${category.name}`}
+                  >
+                    Edit Category
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-add-certification"
+                    onClick={() => openTypeCreate(category)}
+                    aria-label={`Add Certification Type to ${category.name}`}
+                  >
+                    + Add Certification
+                  </button>
+                </div>
+
+                {isExpanded && (
+                  <div className="category-body">
+                    {visibleTypes.length > 0 ? (
+                      <div className="types-list">
+                        {visibleTypes.map((certType) => (
+                          <div key={certType.id} className="type-row">
+                            <button type="button" className="type-link-button" onClick={() => openTypeEdit(certType)}>
+                              <span className="type-name">{certType.name}</span>
+                            </button>
+                            <div className="type-row-right">
+                              <span
+                                className="status-badge"
+                                style={{
+                                  backgroundColor: getStatusStyle(certType.status).bg,
+                                  color: getStatusStyle(certType.status).color,
+                                  borderColor: getStatusStyle(certType.status).border,
+                                }}
+                              >
+                                {certType.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     ) : (
-                      <span className="expires-no">No</span>
+                      <div className="empty-category">No certification types yet</div>
                     )}
-                  </td>
-                  <td className="cell-validity">{cert.validityPeriod}</td>
-                  <td className="cell-status">
-                    <span
-                      className="status-badge"
-                      style={{
-                        backgroundColor: getStatusStyle(cert.status).bg,
-                        color: getStatusStyle(cert.status).color,
-                        borderColor: getStatusStyle(cert.status).border,
-                      }}
-                    >
-                      {cert.status}
-                    </span>
-                  </td>
-                  <td className="cell-actions">
-                    <button
-                      className="action-btn"
-                      onClick={() => handleViewCert(cert)}
-                    >
-                      View
-                    </button>
-                    <button
-                      className="action-btn"
-                      onClick={() => handleViewCert(cert)}
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {filteredCerts.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="empty-row">
-                    No certifications match your filters
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-      </div>
+      )}
 
-      {/* View/Edit Modal */}
-      {isViewModalOpen && selectedCert && (
-        <div className="modal-overlay" onClick={handleCloseViewModal}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+      {typeModalOpen && (
+        <div className="modal-overlay" onClick={() => !typeSaving && setTypeModalOpen(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>Certification Details</h2>
-              <button className="modal-close" onClick={handleCloseViewModal}>
+              <h2>{typeCreateMode ? "Add Certification Type" : "Edit Certification Type"}</h2>
+              <button type="button" className="modal-close" onClick={() => !typeSaving && setTypeModalOpen(false)} disabled={typeSaving}>
                 ×
               </button>
             </div>
 
             <div className="modal-body">
-              <div className="form-row">
+              <div className="form-grid">
                 <div className="form-field">
-                  <label>Certification Name</label>
-                  <input type="text" defaultValue={selectedCert.name} />
+                  <label htmlFor="type-code">Code *</label>
+                  <input
+                    id="type-code"
+                    type="text"
+                    value={typeFormState.code}
+                    onChange={(event) => setTypeFormState((prev) => ({ ...prev, code: event.target.value }))}
+                    disabled={typeSaving}
+                    placeholder="OSHA10"
+                  />
                 </div>
-
                 <div className="form-field">
-                  <label>Short Code / Slug</label>
-                  <input type="text" defaultValue={selectedCert.shortCode} />
+                  <label htmlFor="type-name">Name *</label>
+                  <input
+                    id="type-name"
+                    type="text"
+                    value={typeFormState.name}
+                    onChange={(event) => setTypeFormState((prev) => ({ ...prev, name: event.target.value }))}
+                    disabled={typeSaving}
+                    placeholder="OSHA 10-Hour"
+                  />
                 </div>
               </div>
 
-              <div className="form-row">
+              <div className="form-grid">
                 <div className="form-field">
-                  <label>Category</label>
-                  <select defaultValue={selectedCert.category}>
-                    {CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
+                  <label htmlFor="type-category">Category *</label>
+                  <select
+                    id="type-category"
+                    value={typeFormState.categoryId}
+                    onChange={(event) => {
+                      setSelectedCategoryId(event.target.value);
+                      setTypeFormState((prev) => ({ ...prev, categoryId: event.target.value }));
+                    }}
+                    disabled={typeSaving}
+                  >
+                    <option value="">Select Category</option>
+                    {categoryOptions.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
                       </option>
                     ))}
                   </select>
                 </div>
-
                 <div className="form-field">
-                  <label>Status</label>
-                  <div className="toggle-group">
-                    <button
-                      className={`toggle-btn ${selectedCert.status === "Active" ? "active" : ""}`}
-                      type="button"
-                    >
-                      Active
-                    </button>
-                    <button
-                      className={`toggle-btn ${selectedCert.status === "Inactive" ? "active" : ""}`}
-                      type="button"
-                    >
-                      Inactive
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="form-field">
-                <label>Expires?</label>
-                <div className="toggle-group">
-                  <button
-                    className={`toggle-btn ${selectedCert.expires ? "active" : ""}`}
-                    type="button"
-                  >
-                    Yes
-                  </button>
-                  <button
-                    className={`toggle-btn ${!selectedCert.expires ? "active" : ""}`}
-                    type="button"
-                  >
-                    No
-                  </button>
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Validity Period</label>
+                  <label htmlFor="type-sortOrder">Sort Order</label>
                   <input
-                    type="text"
-                    defaultValue={selectedCert.validityPeriod}
-                    placeholder="e.g., 1 year, 3 years, Never"
-                  />
-                </div>
-
-                <div className="form-field">
-                  <label>Grace Period (days)</label>
-                  <input
+                    id="type-sortOrder"
                     type="number"
-                    min="0"
-                    defaultValue={selectedCert.gracePeriodDays ?? ""}
+                    step="1"
+                    value={typeFormState.sortOrder}
+                    onChange={(event) => setTypeFormState((prev) => ({ ...prev, sortOrder: event.target.value }))}
+                    disabled={typeSaving}
                     placeholder="Optional"
                   />
                 </div>
               </div>
 
               <div className="form-field">
-                <label>Requires Document Upload?</label>
-                <div className="toggle-group">
-                  <button
-                    className={`toggle-btn ${selectedCert.requiresDocument ? "active" : ""}`}
-                    type="button"
-                  >
-                    Yes
-                  </button>
-                  <button
-                    className={`toggle-btn ${!selectedCert.requiresDocument ? "active" : ""}`}
-                    type="button"
-                  >
-                    No
-                  </button>
-                </div>
-              </div>
-
-              <div className="form-field">
-                <label>Notes</label>
+                <label htmlFor="type-description">Description</label>
                 <textarea
-                  placeholder="Optional notes..."
+                  id="type-description"
                   rows={3}
-                  defaultValue={selectedCert.notes}
+                  value={typeFormState.description}
+                  onChange={(event) => setTypeFormState((prev) => ({ ...prev, description: event.target.value }))}
+                  disabled={typeSaving}
+                  placeholder="Optional"
                 />
               </div>
 
-              <div className="audit-section">
-                <div className="audit-title">Audit Information</div>
-                <div className="audit-grid">
-                  <div className="audit-item">
-                    <span className="audit-label">Created</span>
-                    <span className="audit-value">{selectedCert.createdAt}</span>
-                  </div>
-                  <div className="audit-item">
-                    <span className="audit-label">Updated</span>
-                    <span className="audit-value">{selectedCert.updatedAt}</span>
-                  </div>
-                </div>
+              <div className="toggle-grid">
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={typeFormState.requiresExpiration}
+                    onChange={(event) => setTypeFormState((prev) => ({ ...prev, requiresExpiration: event.target.checked }))}
+                    disabled={typeSaving}
+                  />
+                  requiresExpiration
+                </label>
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={typeFormState.requiresState}
+                    onChange={(event) => setTypeFormState((prev) => ({ ...prev, requiresState: event.target.checked }))}
+                    disabled={typeSaving}
+                  />
+                  requiresState
+                </label>
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={typeFormState.requiresLicenseNumber}
+                    onChange={(event) => setTypeFormState((prev) => ({ ...prev, requiresLicenseNumber: event.target.checked }))}
+                    disabled={typeSaving}
+                  />
+                  requiresLicenseNumber
+                </label>
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={typeFormState.isMW4HTrainableDefault}
+                    onChange={(event) => setTypeFormState((prev) => ({ ...prev, isMW4HTrainableDefault: event.target.checked }))}
+                    disabled={typeSaving}
+                  />
+                  isMW4HTrainableDefault
+                </label>
+                {typeEditMode && (
+                  <label className="toggle-row">
+                    <input
+                      type="checkbox"
+                      checked={typeFormState.isActive}
+                      onChange={(event) => setTypeFormState((prev) => ({ ...prev, isActive: event.target.checked }))}
+                      disabled={typeSaving}
+                    />
+                    isActive
+                  </label>
+                )}
               </div>
+
+              {typeFormError && <div className="form-error">{typeFormError}</div>}
             </div>
 
             <div className="modal-footer">
-              <button className="btn-cancel" onClick={handleCloseViewModal}>
+              <button type="button" className="btn-cancel" onClick={() => !typeSaving && setTypeModalOpen(false)} disabled={typeSaving}>
                 Cancel
               </button>
-              <button className="btn-save" onClick={handleCloseViewModal}>
-                Save Changes
+              <button type="button" className="btn-save" onClick={saveType} disabled={typeSaving}>
+                {typeSaving ? "Saving..." : typeCreateMode ? "Create Certification Type" : "Save Changes"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add Certification Modal (UI shell only) */}
-      {isAddModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsAddModalOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+      {categoryModalOpen && (
+        <div className="modal-overlay" onClick={() => !categorySaving && setCategoryModalOpen(false)}>
+          <div className="modal modal--small" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>Add Certification</h2>
-              <button className="modal-close" onClick={() => setIsAddModalOpen(false)}>
+              <h2>{categoryCreateMode ? "Add Category" : "Edit Category"}</h2>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => !categorySaving && setCategoryModalOpen(false)}
+                disabled={categorySaving}
+              >
                 ×
               </button>
             </div>
 
             <div className="modal-body">
-              <div className="form-row">
+              <div className="form-grid form-grid--single">
                 <div className="form-field">
-                  <label>Certification Name</label>
-                  <input type="text" placeholder="e.g., OSHA 10-Hour" />
+                  <label htmlFor="category-name">Name *</label>
+                  <input
+                    id="category-name"
+                    type="text"
+                    value={categoryFormState.name}
+                    onChange={(event) => setCategoryFormState((prev) => ({ ...prev, name: event.target.value }))}
+                    disabled={categorySaving}
+                    placeholder="OSHA"
+                  />
                 </div>
-
                 <div className="form-field">
-                  <label>Short Code / Slug</label>
-                  <input type="text" placeholder="e.g., OSHA10" />
+                  <label htmlFor="category-sortOrder">Sort Order</label>
+                  <input
+                    id="category-sortOrder"
+                    type="number"
+                    step="1"
+                    value={categoryFormState.sortOrder}
+                    onChange={(event) => setCategoryFormState((prev) => ({ ...prev, sortOrder: event.target.value }))}
+                    disabled={categorySaving}
+                    placeholder="Optional"
+                  />
                 </div>
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={categoryFormState.isActive}
+                    onChange={(event) => setCategoryFormState((prev) => ({ ...prev, isActive: event.target.checked }))}
+                    disabled={categorySaving}
+                  />
+                  isActive
+                </label>
               </div>
 
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Category</label>
-                  <select defaultValue="">
-                    <option value="" disabled>
-                      Select Category
-                    </option>
-                    {CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-field">
-                  <label>Status</label>
-                  <div className="toggle-group">
-                    <button className="toggle-btn active" type="button">
-                      Active
-                    </button>
-                    <button className="toggle-btn" type="button">
-                      Inactive
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="form-field">
-                <label>Expires?</label>
-                <div className="toggle-group">
-                  <button className="toggle-btn" type="button">
-                    Yes
-                  </button>
-                  <button className="toggle-btn active" type="button">
-                    No
-                  </button>
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Validity Period</label>
-                  <input type="text" placeholder="e.g., 1 year, 3 years, Never" />
-                </div>
-
-                <div className="form-field">
-                  <label>Grace Period (days)</label>
-                  <input type="number" min="0" placeholder="Optional" />
-                </div>
-              </div>
-
-              <div className="form-field">
-                <label>Requires Document Upload?</label>
-                <div className="toggle-group">
-                  <button className="toggle-btn active" type="button">
-                    Yes
-                  </button>
-                  <button className="toggle-btn" type="button">
-                    No
-                  </button>
-                </div>
-              </div>
-
-              <div className="form-field">
-                <label>Notes</label>
-                <textarea placeholder="Optional notes..." rows={3} />
-              </div>
+              {categoryFormError && <div className="form-error">{categoryFormError}</div>}
             </div>
 
             <div className="modal-footer">
-              <button className="btn-cancel" onClick={() => setIsAddModalOpen(false)}>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => !categorySaving && setCategoryModalOpen(false)}
+                disabled={categorySaving}
+              >
                 Cancel
               </button>
-              <button className="btn-save" onClick={() => setIsAddModalOpen(false)}>
-                Add Certification
+              <button type="button" className="btn-save" onClick={saveCategory} disabled={categorySaving}>
+                {categorySaving ? "Saving..." : categoryCreateMode ? "Create Category" : "Save Category"}
               </button>
             </div>
           </div>
@@ -664,20 +852,17 @@ export default function CertificationsPage() {
       )}
 
       <style jsx>{`
-        .cert-container {
+        .certifications-container {
           padding: 24px 40px 60px;
           max-width: 1200px;
           margin: 0 auto;
         }
-
-        /* Header */
         .page-header {
           display: flex;
           align-items: flex-start;
           justify-content: space-between;
           margin-bottom: 24px;
         }
-
         .back-link {
           font-size: 13px;
           color: rgba(255, 255, 255, 0.5);
@@ -686,11 +871,9 @@ export default function CertificationsPage() {
           display: inline-block;
           margin-bottom: 12px;
         }
-
         .back-link:hover {
           color: #3b82f6;
         }
-
         h1 {
           font-size: 28px;
           font-weight: 600;
@@ -698,20 +881,18 @@ export default function CertificationsPage() {
           margin: 0 0 8px;
           letter-spacing: -0.5px;
         }
-
         .subtitle {
           font-size: 14px;
           color: rgba(255, 255, 255, 0.55);
           margin: 0;
-          max-width: 520px;
+          max-width: 620px;
           line-height: 1.5;
         }
-
         .header-actions {
           padding-top: 28px;
         }
-
-        .btn-add {
+        .btn-add-category {
+          display: inline-block;
           padding: 10px 20px;
           font-size: 14px;
           font-weight: 600;
@@ -720,14 +901,7 @@ export default function CertificationsPage() {
           border: none;
           border-radius: 8px;
           cursor: pointer;
-          transition: all 0.15s ease;
         }
-
-        .btn-add:hover {
-          background: #2563eb;
-        }
-
-        /* Filters */
         .filters-section {
           display: flex;
           align-items: flex-end;
@@ -738,13 +912,11 @@ export default function CertificationsPage() {
           border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 12px;
         }
-
         .filter-group {
           display: flex;
           flex-direction: column;
           gap: 6px;
         }
-
         .filter-group label {
           font-size: 11px;
           font-weight: 600;
@@ -752,7 +924,6 @@ export default function CertificationsPage() {
           text-transform: uppercase;
           letter-spacing: 0.4px;
         }
-
         .filter-group select,
         .filter-group input {
           padding: 8px 12px;
@@ -763,124 +934,145 @@ export default function CertificationsPage() {
           color: #fff;
           min-width: 140px;
         }
-
-        .filter-group select:focus,
-        .filter-group input:focus {
-          outline: none;
-          border-color: #3b82f6;
-        }
-
         .filter-group select option {
           background: #1a1d24;
           color: #fff;
         }
-
-        .filter-group input::placeholder {
-          color: rgba(255, 255, 255, 0.35);
-        }
-
         .search-group input {
-          min-width: 220px;
+          min-width: 240px;
         }
-
         .filter-results {
           margin-left: auto;
           font-size: 13px;
           color: rgba(255, 255, 255, 0.5);
           padding-bottom: 8px;
         }
-
-        /* Table */
-        .table-section {
+        .loading-state,
+        .error-state {
+          text-align: center;
+          padding: 32px 16px;
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: rgba(255, 255, 255, 0.02);
+          font-size: 14px;
+        }
+        .loading-state {
+          color: rgba(255, 255, 255, 0.65);
+        }
+        .error-state {
+          color: #fca5a5;
+          border-color: rgba(239, 68, 68, 0.3);
+          background: rgba(239, 68, 68, 0.08);
+        }
+        .categories-section {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .category-accordion {
           background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 12px;
           overflow: hidden;
         }
-
-        .table-wrap {
-          overflow-x: auto;
-        }
-
-        .certs-table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-
-        .certs-table thead {
+        .category-header-row {
+          display: flex;
+          align-items: center;
           background: rgba(255, 255, 255, 0.03);
         }
-
-        .certs-table th {
-          padding: 14px 16px;
-          text-align: left;
-          font-size: 11px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
-          text-transform: uppercase;
-          letter-spacing: 0.4px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        .certs-table td {
-          padding: 14px 16px;
-          font-size: 13px;
-          color: rgba(255, 255, 255, 0.85);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-        }
-
-        .certs-table tr:last-child td {
-          border-bottom: none;
-        }
-
-        .certs-table tbody tr:hover {
-          background: rgba(59, 130, 246, 0.04);
-        }
-
-        .cell-name {
-          min-width: 200px;
-        }
-
-        .name-wrap {
+        .category-toggle {
+          flex: 1;
           display: flex;
-          flex-direction: column;
-          gap: 4px;
+          align-items: center;
+          gap: 12px;
+          padding: 16px 20px;
+          background: none;
+          border: none;
+          cursor: pointer;
+          text-align: left;
         }
-
-        .cert-name {
-          font-weight: 500;
+        .chevron {
+          font-size: 10px;
+          color: rgba(255, 255, 255, 0.4);
+          transition: transform 0.2s ease;
+          display: inline-block;
+          flex-shrink: 0;
+        }
+        .chevron--open {
+          transform: rotate(90deg);
+        }
+        .category-name {
+          font-size: 15px;
+          font-weight: 600;
           color: #fff;
         }
-
-        .cert-code {
-          font-size: 11px;
-          font-family: var(--font-geist-mono), monospace;
-          color: rgba(255, 255, 255, 0.45);
+        .type-count {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.4);
+          margin-left: auto;
         }
-
-        .category-badge {
-          display: inline-block;
-          padding: 4px 10px;
-          font-size: 11px;
+        .btn-edit-category,
+        .btn-add-certification {
+          flex-shrink: 0;
+          padding: 6px 12px;
+          font-size: 12px;
           font-weight: 600;
-          border-radius: 4px;
-          border: 1px solid;
-          letter-spacing: 0.3px;
+          border-radius: 6px;
+          cursor: pointer;
         }
-
-        .expires-yes {
-          color: #f59e0b;
+        .btn-edit-category {
+          color: rgba(255, 255, 255, 0.85);
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          margin-right: 8px;
         }
-
-        .expires-no {
-          color: rgba(255, 255, 255, 0.5);
+        .btn-add-certification {
+          color: #3b82f6;
+          background: rgba(59, 130, 246, 0.1);
+          border: 1px solid rgba(59, 130, 246, 0.25);
+          margin-right: 16px;
         }
-
-        .cell-validity {
-          font-size: 12px !important;
-          color: rgba(255, 255, 255, 0.7) !important;
+        .category-body {
+          padding: 16px 20px 20px;
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
         }
-
+        .types-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0;
+        }
+        .type-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 12px;
+          background: rgba(255, 255, 255, 0.02);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .type-row:last-child {
+          border-bottom: none;
+        }
+        .type-link-button {
+          border: none;
+          background: transparent;
+          padding: 0;
+          margin: 0;
+          cursor: pointer;
+          text-align: left;
+        }
+        .type-name {
+          font-size: 13px;
+          font-weight: 500;
+          color: #fff;
+          text-decoration: underline;
+          text-decoration-color: rgba(255, 255, 255, 0.25);
+          text-underline-offset: 3px;
+        }
+        .type-row-right {
+          display: inline-flex;
+          align-items: center;
+        }
         .status-badge {
           display: inline-block;
           padding: 4px 10px;
@@ -888,286 +1080,146 @@ export default function CertificationsPage() {
           font-weight: 600;
           border-radius: 4px;
           border: 1px solid;
+          flex-shrink: 0;
         }
-
-        .cell-actions {
-          white-space: nowrap;
-        }
-
-        .action-btn {
-          padding: 6px 12px;
-          margin-right: 8px;
-          font-size: 12px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.7);
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 5px;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-
-        .action-btn:hover {
-          color: #fff;
-          background: rgba(255, 255, 255, 0.08);
-          border-color: rgba(255, 255, 255, 0.2);
-        }
-
-        .action-btn:last-child {
-          margin-right: 0;
-        }
-
-        .empty-row {
+        .empty-category {
           text-align: center;
-          color: rgba(255, 255, 255, 0.4) !important;
-          padding: 32px 16px !important;
+          color: rgba(255, 255, 255, 0.4);
+          padding: 24px 16px;
+          font-size: 13px;
         }
-
-        /* Modal */
         .modal-overlay {
           position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
+          inset: 0;
           background: rgba(0, 0, 0, 0.7);
           z-index: 1000;
           display: flex;
           align-items: center;
           justify-content: center;
+          padding: 20px;
         }
-
         .modal {
-          width: 560px;
-          max-width: 90%;
+          width: 640px;
+          max-width: 100%;
           max-height: 90vh;
           background: #12151b;
           border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 16px;
+          border-radius: 12px;
           display: flex;
           flex-direction: column;
-          animation: fadeIn 0.2s ease;
         }
-
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: scale(0.95);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1);
-          }
+        .modal--small {
+          width: 520px;
         }
-
         .modal-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 20px 24px;
+          padding: 16px 20px;
           border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         }
-
         .modal-header h2 {
-          font-size: 18px;
-          font-weight: 600;
-          color: #fff;
           margin: 0;
-        }
-
-        .modal-close {
-          width: 32px;
-          height: 32px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 24px;
-          color: rgba(255, 255, 255, 0.5);
-          background: transparent;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-
-        .modal-close:hover {
+          font-size: 18px;
           color: #fff;
-          background: rgba(255, 255, 255, 0.08);
         }
-
+        .modal-close {
+          border: none;
+          background: transparent;
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 22px;
+          cursor: pointer;
+        }
         .modal-body {
-          flex: 1;
-          overflow-y: auto;
-          padding: 24px;
+          padding: 18px 20px;
+          overflow: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
         }
-
-        .form-row {
+        .form-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 16px;
+          gap: 12px;
         }
-
+        .form-grid--single {
+          grid-template-columns: 1fr;
+        }
         .form-field {
-          margin-bottom: 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
         }
-
         .form-field label {
-          display: block;
           font-size: 12px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.7);
-          margin-bottom: 8px;
+          color: rgba(255, 255, 255, 0.75);
         }
-
         .form-field input,
         .form-field select,
         .form-field textarea {
-          width: 100%;
-          padding: 10px 12px;
           background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.14);
           border-radius: 6px;
-          font-size: 14px;
           color: #fff;
+          padding: 9px 10px;
+          font-size: 13px;
         }
-
-        .form-field input:focus,
-        .form-field select:focus,
-        .form-field textarea:focus {
-          outline: none;
-          border-color: #3b82f6;
-        }
-
-        .form-field input::placeholder,
-        .form-field textarea::placeholder {
-          color: rgba(255, 255, 255, 0.3);
-        }
-
         .form-field select option {
           background: #1a1d24;
           color: #fff;
         }
-
-        .form-field textarea {
-          resize: vertical;
-          min-height: 80px;
-        }
-
-        .toggle-group {
-          display: flex;
-          gap: 0;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 6px;
-          overflow: hidden;
-        }
-
-        .toggle-btn {
-          flex: 1;
-          padding: 10px 16px;
-          font-size: 13px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.5);
-          background: transparent;
-          border: none;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-
-        .toggle-btn:first-child {
-          border-right: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .toggle-btn:hover {
-          color: rgba(255, 255, 255, 0.8);
-        }
-
-        .toggle-btn.active {
-          color: #fff;
-          background: rgba(34, 197, 94, 0.15);
-        }
-
-        .audit-section {
-          padding: 16px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 10px;
-          margin-top: 8px;
-        }
-
-        .audit-title {
-          font-size: 11px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.45);
-          text-transform: uppercase;
-          letter-spacing: 0.4px;
-          margin-bottom: 14px;
-        }
-
-        .audit-grid {
+        .toggle-grid {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 12px;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
         }
-
-        .audit-item {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
+        .toggle-row {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.85);
         }
-
-        .audit-label {
-          font-size: 10px;
-          color: rgba(255, 255, 255, 0.4);
-        }
-
-        .audit-value {
+        .form-error {
+          margin-top: 4px;
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: 1px solid rgba(239, 68, 68, 0.28);
+          background: rgba(239, 68, 68, 0.09);
+          color: #fecaca;
           font-size: 12px;
-          color: rgba(255, 255, 255, 0.8);
         }
-
         .modal-footer {
           display: flex;
           justify-content: flex-end;
-          gap: 12px;
-          padding: 16px 24px;
+          gap: 10px;
+          padding: 14px 20px;
           border-top: 1px solid rgba(255, 255, 255, 0.08);
         }
-
         .btn-cancel {
-          padding: 10px 20px;
-          font-size: 14px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.7);
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 8px;
+          padding: 8px 14px;
+          border-radius: 6px;
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          background: rgba(255, 255, 255, 0.04);
+          color: rgba(255, 255, 255, 0.85);
           cursor: pointer;
-          transition: all 0.15s ease;
         }
-
-        .btn-cancel:hover {
-          color: #fff;
-          background: rgba(255, 255, 255, 0.1);
-        }
-
         .btn-save {
-          padding: 10px 20px;
-          font-size: 14px;
-          font-weight: 600;
-          color: #fff;
-          background: #3b82f6;
+          padding: 8px 14px;
+          border-radius: 6px;
           border: none;
-          border-radius: 8px;
+          background: #3b82f6;
+          color: #fff;
+          font-weight: 600;
           cursor: pointer;
-          transition: all 0.15s ease;
         }
-
-        .btn-save:hover {
-          background: #2563eb;
+        .btn-cancel:disabled,
+        .btn-save:disabled,
+        .modal-close:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
       `}</style>
     </div>
   );
 }
-
