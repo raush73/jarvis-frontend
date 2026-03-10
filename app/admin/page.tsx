@@ -67,6 +67,20 @@ export default function AdminPage() {
           </div>
         </Link>
 
+        {/* Compliance Catalog Card - Active */}
+        <Link href="/admin/compliance" className="admin-card active">
+          <div className="card-header">
+            <div className="card-title">Compliance Catalog</div>
+            <span className="badge active">ACTIVE</span>
+          </div>
+          <div className="card-desc">
+            Define compliance categories, requirement types, and variants for drug testing, background checks, site badging, and other site eligibility requirements.
+          </div>
+          <div className="card-footer">
+            <span className="link-hint">Open Compliance Catalog →</span>
+          </div>
+        </Link>
+
         {/* Safety / Certifications Card - Active */}
         <Link href="/admin/safety/certifications" className="admin-card active">
           <div className="card-header">
