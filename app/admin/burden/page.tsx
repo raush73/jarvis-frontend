@@ -1,10 +1,22 @@
 "use client";
 
-import { useState } from "react";
+const BURDEN_LABELS: Record<string,string> = {
+  FICA: "FICA",
+  FUTA: "FUTA",
+  ADMIN: "Admin / PEO",
+  GL: "General Liability",
+  INT_W: "Bank Time Value of Money",
+  INT_PD: "Late Payment Carrying Cost",
+  WC: "Workers Compensation",
+  SUTA: "SUTA"
+}
+
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 // Types
-type BurdenScope = "Global" | "State" | "State×Trade";
+type BurdenScope = "GLOBAL" | "STATE" | "SITE" | "WORKER";
 type BurdenBasis = "Total wages" | "Base wage only";
 
 type BurdenComponent = {
@@ -20,154 +32,146 @@ type BurdenComponent = {
 };
 
 type SUTARate = {
+  id: string;
   state: string;
   ratePct: number;
 };
 
-// Deterministic mock data - Burden Model v1.0 components
-const MOCK_BURDEN_COMPONENTS: BurdenComponent[] = [
-  {
-    id: "BURDEN-001",
-    name: "FICA (Employer)",
-    scope: "Global",
-    basis: "Total wages",
-    followsPremium: true,
-    includedInGM: true,
-    ratePct: 7.65,
-    editable: true,
-    notes: "Social Security (6.2%) + Medicare (1.45%)",
-  },
-  {
-    id: "BURDEN-002",
-    name: "FUTA",
-    scope: "Global",
-    basis: "Total wages",
-    followsPremium: true,
-    includedInGM: true,
-    ratePct: 0.6,
-    editable: true,
-    notes: "Federal Unemployment Tax (0.6% after state credit)",
-  },
-  {
-    id: "BURDEN-003",
-    name: "SUTA",
-    scope: "State",
-    basis: "Total wages",
-    followsPremium: true,
-    includedInGM: true,
-    ratePct: null, // State-specific
-    editable: false, // Managed in SUTA table below
-    notes: "State Unemployment Tax — see state rates below",
-  },
-  {
-    id: "BURDEN-004",
-    name: "Workers' Comp",
-    scope: "State×Trade",
-    basis: "Base wage only",
-    followsPremium: false,
-    includedInGM: true,
-    ratePct: null, // State×Trade specific
-    editable: false, // Managed in Work Comp Rates page
-    notes: "Managed in Work Comp Rates",
-  },
-  {
-    id: "BURDEN-005",
-    name: "Admin / PEO",
-    scope: "Global",
-    basis: "Total wages",
-    followsPremium: true,
-    includedInGM: true,
-    ratePct: 2.5,
-    editable: true,
-    notes: "Administrative overhead / PEO fees",
-  },
-  {
-    id: "BURDEN-006",
-    name: "GL / Overhead",
-    scope: "Global",
-    basis: "Total wages",
-    followsPremium: true,
-    includedInGM: true,
-    ratePct: 1.5,
-    editable: true,
-    notes: "General liability / operational overhead",
-  },
-  {
-    id: "BURDEN-007",
-    name: "Bank / Time Value of Money",
-    scope: "Global",
-    basis: "Total wages",
-    followsPremium: true,
-    includedInGM: true,
-    ratePct: 0.75,
-    editable: true,
-    notes: "Financing cost / payment timing adjustment",
-  },
-];
+type BackendBurdenRate = {
+  id: string;
+  level: BurdenScope;
+  category: string;
+  ratePercent: number;
+  stateCode?: string | null;
+  effectiveDate?: string | null;
+};
 
-// Mock SUTA rates by state
-const MOCK_SUTA_RATES: SUTARate[] = [
-  { state: "KY", ratePct: 2.7 },
-  { state: "TN", ratePct: 2.5 },
-  { state: "IN", ratePct: 2.5 },
-  { state: "OH", ratePct: 2.7 },
-  { state: "TX", ratePct: 2.7 },
-  { state: "CA", ratePct: 3.4 },
-  { state: "FL", ratePct: 2.7 },
-  { state: "GA", ratePct: 2.64 },
-  { state: "NC", ratePct: 1.0 },
-  { state: "PA", ratePct: 3.6 },
-  { state: "IL", ratePct: 3.175 },
-  { state: "MI", ratePct: 2.7 },
-];
+
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = window.localStorage.getItem("jp_accessToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 export default function BurdenSettingsPage() {
-  // Local state for editable rates (UI shell only)
-  const [editingRates, setEditingRates] = useState<Record<string, number | null>>(() => {
-    const initial: Record<string, number | null> = {};
-    MOCK_BURDEN_COMPONENTS.forEach((c) => {
-      initial[c.id] = c.ratePct;
-    });
-    return initial;
-  });
-
-  // SUTA state
-  const [sutaRates, setSutaRates] = useState<SUTARate[]>(MOCK_SUTA_RATES);
+  const [components, setComponents] = useState<BurdenComponent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [editingRates, setEditingRates] = useState<Record<string, number | null>>({});
+  const [savedRates, setSavedRates] = useState<Record<string, number | null>>({});
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [sutaRates, setSutaRates] = useState<SUTARate[]>([]);
   const [sutaSearch, setSutaSearch] = useState("");
+
+  // Load all burden rows from API on mount; derives both component table and SUTA grid
+  useEffect(() => {
+    const load = async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch("/api/payroll-burden-rates", {
+          headers: { ...getAuthHeaders() },
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        const data = (await res.json()) as BackendBurdenRate[];
+
+        // Map all rows into the component table — SUTA is excluded here; it appears in the state grid below
+        const mapped: BurdenComponent[] = data.filter((row) => row.category !== "SUTA").map((row) => ({
+          id: row.id,
+          name: BURDEN_LABELS[row.category] ?? row.category,
+          scope: row.level,
+          basis: "Total wages",
+          followsPremium: true,
+          includedInGM: true,
+          ratePct: row.ratePercent,
+          editable: true,
+          notes: "",
+        }));
+        setComponents(mapped);
+        const rates: Record<string, number | null> = {};
+        mapped.forEach((c) => { rates[c.id] = c.ratePct; });
+
+        // Derive SUTA grid: category=SUTA, level=STATE, stateCode present
+        // If multiple rows exist for the same state, prefer the most recent effectiveDate
+        const sutaRows = data.filter(
+          (r) => r.category === "SUTA" && r.level === "STATE" && r.stateCode
+        );
+        const bestByState = new Map<string, BackendBurdenRate>();
+        for (const row of sutaRows) {
+          const code = row.stateCode!;
+          const existing = bestByState.get(code);
+          if (
+            !existing ||
+            (row.effectiveDate ?? "") > (existing.effectiveDate ?? "")
+          ) {
+            bestByState.set(code, row);
+          }
+        }
+        const sutaMapped: SUTARate[] = Array.from(bestByState.values())
+          .sort((a, b) => a.stateCode!.localeCompare(b.stateCode!))
+          .map((r) => ({ id: r.id, state: r.stateCode!, ratePct: r.ratePercent }));
+        setSutaRates(sutaMapped);
+
+        // Merge SUTA rates into the shared rates map so both tables use the same state
+        sutaMapped.forEach((s) => { rates[s.id] = s.ratePct; });
+        setEditingRates(rates);
+        setSavedRates(rates);
+      } catch (e) {
+        console.error("Failed to load burden rates:", e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    load();
+  }, []);
 
   // Filtered SUTA rates
   const filteredSutaRates = sutaRates.filter((s) =>
     s.state.toLowerCase().includes(sutaSearch.toLowerCase())
   );
 
-  // Handle burden rate change (UI shell only)
+  // Updates local editing state only — does not persist until Save is clicked
   const handleRateChange = (id: string, value: string) => {
     const parsed = parseFloat(value);
-    setEditingRates((prev) => ({
-      ...prev,
-      [id]: isNaN(parsed) ? null : parsed,
-    }));
+    setEditingRates((prev) => ({ ...prev, [id]: isNaN(parsed) ? null : parsed }));
   };
 
-  // Handle SUTA rate change (UI shell only)
-  const handleSutaChange = (state: string, value: string) => {
+  // Explicit save: persists the pending edited rate for a single row via PATCH
+  const handleSaveRate = async (id: string) => {
+    const newRate = editingRates[id];
+    if (newRate === null || newRate === undefined) return;
+    setSavingIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch(`/api/payroll-burden-rates/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ ratePercent: newRate }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      setSavedRates((prev) => ({ ...prev, [id]: newRate }));
+    } catch (e) {
+      console.error("Failed to save burden rate:", e);
+    } finally {
+      setSavingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
+  };
+
+  // Updates SUTA editing state by row id — does not persist until Save is clicked
+  const handleSutaChange = (id: string, value: string) => {
     const parsed = parseFloat(value);
-    setSutaRates((prev) =>
-      prev.map((s) =>
-        s.state === state ? { ...s, ratePct: isNaN(parsed) ? 0 : parsed } : s
-      )
-    );
+    setEditingRates((prev) => ({ ...prev, [id]: isNaN(parsed) ? null : parsed }));
   };
 
   // Scope badge style
   const getScopeStyle = (scope: BurdenScope) => {
     switch (scope) {
-      case "Global":
+      case "GLOBAL":
         return { bg: "rgba(59, 130, 246, 0.12)", color: "#3b82f6", border: "rgba(59, 130, 246, 0.25)" };
-      case "State":
+      case "STATE":
         return { bg: "rgba(245, 158, 11, 0.12)", color: "#f59e0b", border: "rgba(245, 158, 11, 0.25)" };
-      case "State×Trade":
+      case "SITE":
         return { bg: "rgba(139, 92, 246, 0.12)", color: "#8b5cf6", border: "rgba(139, 92, 246, 0.25)" };
+      case "WORKER":
+        return { bg: "rgba(34, 197, 94, 0.12)", color: "#22c55e", border: "rgba(34, 197, 94, 0.25)" };
       default:
         return { bg: "rgba(148, 163, 184, 0.12)", color: "#94a3b8", border: "rgba(148, 163, 184, 0.25)" };
     }
@@ -193,17 +197,13 @@ export default function BurdenSettingsPage() {
         </div>
       </div>
 
-      {/* UI Shell Notice */}
-      <div className="shell-notice">
-        <span className="shell-icon">ℹ</span>
-        <span>UI shell (mocked) — Changes are not persisted. Burden Model v1.0</span>
-      </div>
-
       {/* Burden Components Registry */}
       <div className="section">
         <div className="section-header">
           <h2>Burden Components</h2>
-          <span className="section-count">{MOCK_BURDEN_COMPONENTS.length} components</span>
+          <span className="section-count">
+            {isLoading ? "Loading…" : `${components.length} components`}
+          </span>
         </div>
 
         <div className="table-section">
@@ -220,62 +220,89 @@ export default function BurdenSettingsPage() {
                 </tr>
               </thead>
               <tbody>
-                {MOCK_BURDEN_COMPONENTS.map((component) => (
-                  <tr key={component.id} className={component.name === "Workers' Comp" ? "wc-row" : ""}>
-                    <td className="cell-name">
-                      <div className="name-col">
-                        <span className="component-name">{component.name}</span>
-                        {component.notes && (
-                          <span className="component-notes">{component.notes}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="cell-scope">
-                      <span
-                        className="scope-badge"
-                        style={{
-                          backgroundColor: getScopeStyle(component.scope).bg,
-                          color: getScopeStyle(component.scope).color,
-                          borderColor: getScopeStyle(component.scope).border,
-                        }}
-                      >
-                        {component.scope}
-                      </span>
-                    </td>
-                    <td className="cell-basis">{component.basis}</td>
-                    <td className="cell-premium">
-                      <span className={`premium-badge ${component.followsPremium ? "yes" : "no"}`}>
-                        {component.followsPremium ? "Yes" : "No"}
-                      </span>
-                    </td>
-                    <td className="cell-gm">
-                      <span className="gm-badge">Yes</span>
-                    </td>
-                    <td className="cell-rate">
-                      {component.name === "Workers' Comp" ? (
-                        <Link href="/admin/safety/work-comp" className="wc-link">
-                          Manage in Work Comp Rates →
-                        </Link>
-                      ) : component.name === "SUTA" ? (
-                        <span className="rate-hint">See SUTA table below</span>
-                      ) : component.editable ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max="100"
-                          className="rate-input"
-                          value={editingRates[component.id] ?? ""}
-                          onChange={(e) => handleRateChange(component.id, e.target.value)}
-                        />
-                      ) : (
-                        <span className="rate-value">
-                          {editingRates[component.id]?.toFixed(2) ?? "—"}%
-                        </span>
-                      )}
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: "center", padding: "28px 16px", color: "rgba(255,255,255,0.4)" }}>
+                      Loading burden rates…
                     </td>
                   </tr>
-                ))}
+                ) : components.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: "center", padding: "28px 16px", color: "rgba(255,255,255,0.4)" }}>
+                      No burden rates configured yet.
+                    </td>
+                  </tr>
+                ) : (
+                  components.map((component) => (
+                    <tr key={component.id} className={component.name === "WC" ? "wc-row" : ""}>
+                      <td className="cell-name">
+                        <div className="name-col">
+                          <span className="component-name">{component.name}</span>
+                          {component.notes && (
+                            <span className="component-notes">{component.notes}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="cell-scope">
+                        <span
+                          className="scope-badge"
+                          style={{
+                            backgroundColor: getScopeStyle(component.scope).bg,
+                            color: getScopeStyle(component.scope).color,
+                            borderColor: getScopeStyle(component.scope).border,
+                          }}
+                        >
+                          {component.scope}
+                        </span>
+                      </td>
+                      <td className="cell-basis">{component.basis}</td>
+                      <td className="cell-premium">
+                        <span className={`premium-badge ${component.followsPremium ? "yes" : "no"}`}>
+                          {component.followsPremium ? "Yes" : "No"}
+                        </span>
+                      </td>
+                      <td className="cell-gm">
+                        <span className="gm-badge">Yes</span>
+                      </td>
+                      <td className="cell-rate">
+                        {component.name === "WC" ? (
+                          <Link href="/admin/safety/work-comp" className="wc-link">
+                            Manage in Work Comp Rates →
+                          </Link>
+                        ) : component.name === "SUTA" ? (
+                          <span className="rate-hint">See SUTA table below</span>
+                        ) : component.editable ? (
+                          <div className="rate-cell-edit">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              className="rate-input"
+                              value={editingRates[component.id] ?? ""}
+                              onChange={(e) => handleRateChange(component.id, e.target.value)}
+                            />
+                            <button
+                              type="button"
+                              className="btn-save-rate"
+                              disabled={
+                                editingRates[component.id] === savedRates[component.id] ||
+                                savingIds.has(component.id)
+                              }
+                              onClick={() => handleSaveRate(component.id)}
+                            >
+                              {savingIds.has(component.id) ? "…" : "Save"}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="rate-value">
+                            {editingRates[component.id]?.toFixed(2) ?? "—"}%
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -311,10 +338,21 @@ export default function BurdenSettingsPage() {
                   step="0.01"
                   min="0"
                   max="20"
-                  value={suta.ratePct}
-                  onChange={(e) => handleSutaChange(suta.state, e.target.value)}
+                  value={editingRates[suta.id] ?? suta.ratePct}
+                  onChange={(e) => handleSutaChange(suta.id, e.target.value)}
                 />
               </div>
+              <button
+                type="button"
+                className="suta-save-btn"
+                disabled={
+                  editingRates[suta.id] === savedRates[suta.id] ||
+                  savingIds.has(suta.id)
+                }
+                onClick={() => handleSaveRate(suta.id)}
+              >
+                {savingIds.has(suta.id) ? "…" : "Save"}
+              </button>
             </div>
           ))}
           {filteredSutaRates.length === 0 && (
@@ -560,6 +598,12 @@ export default function BurdenSettingsPage() {
           border: 1px solid rgba(34, 197, 94, 0.25);
         }
 
+        .rate-cell-edit {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
         .rate-input {
           width: 80px;
           padding: 6px 10px;
@@ -575,6 +619,29 @@ export default function BurdenSettingsPage() {
         .rate-input:focus {
           outline: none;
           border-color: #3b82f6;
+        }
+
+        .btn-save-rate {
+          padding: 5px 11px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #fff;
+          background: #3b82f6;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+          white-space: nowrap;
+          transition: background 0.15s ease;
+        }
+
+        .btn-save-rate:hover:not(:disabled) {
+          background: #2563eb;
+        }
+
+        .btn-save-rate:disabled {
+          background: rgba(255, 255, 255, 0.08);
+          color: rgba(255, 255, 255, 0.3);
+          cursor: not-allowed;
         }
 
         .rate-value {
@@ -622,6 +689,7 @@ export default function BurdenSettingsPage() {
           border-radius: 6px;
           font-size: 13px;
           color: #fff;
+
         }
 
         .suta-filter input:focus {
@@ -681,6 +749,30 @@ export default function BurdenSettingsPage() {
           border-color: #f59e0b;
         }
 
+        .suta-save-btn {
+          margin-top: 8px;
+          width: 100%;
+          padding: 5px 0;
+          font-size: 11px;
+          font-weight: 600;
+          color: #fff;
+          background: #3b82f6;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+
+        .suta-save-btn:hover:not(:disabled) {
+          background: #2563eb;
+        }
+
+        .suta-save-btn:disabled {
+          background: rgba(255, 255, 255, 0.07);
+          color: rgba(255, 255, 255, 0.28);
+          cursor: not-allowed;
+        }
+
         .suta-empty {
           grid-column: 1 / -1;
           text-align: center;
@@ -720,4 +812,6 @@ export default function BurdenSettingsPage() {
     </div>
   );
 }
+
+
 
