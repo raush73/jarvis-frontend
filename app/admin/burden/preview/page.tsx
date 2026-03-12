@@ -1,128 +1,119 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
-// Mock data (same as Burden Settings for consistency)
-const STATES = ["KY", "TN", "IN", "OH", "TX", "CA", "FL", "GA", "NC", "PA", "IL", "MI"] as const;
-const TRADES = ["Millwright", "Welder", "Pipefitter", "Electrician", "Crane Operator", "Ironworker"] as const;
+const STATES = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
+  "HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+  "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
+  "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+] as const;
 
-// Mock burden rates (v1.0)
-const MOCK_GLOBAL_BURDENS = {
-  fica: 7.65,
-  futa: 0.6,
-  admin: 2.5,
-  gl: 1.5,
-  bank: 0.75,
+type Trade = {
+  id: string;
+  name: string;
+  wcClassCode: string;
+  isActive: boolean;
 };
 
-// Mock SUTA rates by state
-const MOCK_SUTA: Record<string, number> = {
-  KY: 2.7,
-  TN: 2.5,
-  IN: 2.5,
-  OH: 2.7,
-  TX: 2.7,
-  CA: 3.4,
-  FL: 2.7,
-  GA: 2.64,
-  NC: 1.0,
-  PA: 3.6,
-  IL: 3.175,
-  MI: 2.7,
+type BurdenPreviewResult = {
+  payRate: number;
+  stateCode: string;
+  tradeName: string;
+  wcClassCode: string;
+  wcSource: "CLASS_CODE_RATE" | "PAYROLL_BURDEN_RATE";
+  burdenBreakdown: Record<string, number>;
+  totalBurdenPercent: number;
+  fullBaseBurdenPercent: number;
+  premiumBurdenPercent: number;
+  wcPercent: number;
+  regCost: number;
+  otCost: number;
+  dtCost: number;
+  regMultiplier: number;
+  otMultiplier: number;
+  dtMultiplier: number;
 };
 
-// Mock WC rates by State×Trade (subset)
-const MOCK_WC: Record<string, Record<string, number>> = {
-  KY: { Millwright: 4.25, Welder: 5.10, Pipefitter: 4.75, Electrician: 3.85, "Crane Operator": 5.50, Ironworker: 6.20 },
-  TN: { Millwright: 3.90, Welder: 4.65, Pipefitter: 4.30, Electrician: 3.50, "Crane Operator": 5.20, Ironworker: 5.80 },
-  IN: { Millwright: 4.00, Welder: 4.85, Pipefitter: 4.50, Electrician: 3.65, "Crane Operator": 5.30, Ironworker: 5.90 },
-  OH: { Millwright: 4.40, Welder: 5.25, Pipefitter: 4.90, Electrician: 3.95, "Crane Operator": 5.60, Ironworker: 6.40 },
-  TX: { Millwright: 3.80, Welder: 4.55, Pipefitter: 4.20, Electrician: 3.40, "Crane Operator": 5.00, Ironworker: 5.60 },
-  CA: { Millwright: 5.00, Welder: 5.80, Pipefitter: 5.40, Electrician: 4.50, "Crane Operator": 6.20, Ironworker: 7.00 },
-  FL: { Millwright: 3.70, Welder: 4.45, Pipefitter: 4.10, Electrician: 3.30, "Crane Operator": 4.90, Ironworker: 5.50 },
-  GA: { Millwright: 3.85, Welder: 4.60, Pipefitter: 4.25, Electrician: 3.45, "Crane Operator": 5.10, Ironworker: 5.70 },
-  NC: { Millwright: 3.75, Welder: 4.50, Pipefitter: 4.15, Electrician: 3.35, "Crane Operator": 4.95, Ironworker: 5.55 },
-  PA: { Millwright: 4.60, Welder: 5.45, Pipefitter: 5.10, Electrician: 4.15, "Crane Operator": 5.80, Ironworker: 6.60 },
-  IL: { Millwright: 4.30, Welder: 5.15, Pipefitter: 4.80, Electrician: 3.90, "Crane Operator": 5.50, Ironworker: 6.30 },
-  MI: { Millwright: 4.20, Welder: 5.05, Pipefitter: 4.70, Electrician: 3.80, "Crane Operator": 5.40, Ironworker: 6.10 },
-};
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = window.localStorage.getItem("jp_accessToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
-type CalculationResult = {
-  reg: number;
-  ot: number;
-  dt: number;
-  breakdown: {
-    payRate: number;
-    totalWageBurdenPct: number;
-    wcPct: number;
-    regMultiplier: number;
-    otMultiplier: number;
-    dtMultiplier: number;
-  };
-};
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
 
 export default function BurdenPreviewPage() {
-  // Input state
-  const [state, setState] = useState<string>("");
-  const [trade, setTrade] = useState<string>("");
-  const [payRate, setPayRate] = useState<string>("");
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [tradesLoading, setTradesLoading] = useState(true);
 
-  // Calculate burden (mocked calculation per v1.0 rules)
-  const result = useMemo<CalculationResult | null>(() => {
-    if (!state || !trade || !payRate) return null;
+  const [stateCode, setStateCode] = useState("");
+  const [tradeId, setTradeId] = useState("");
+  const [payRate, setPayRate] = useState("");
 
-    const baseRate = parseFloat(payRate);
-    if (isNaN(baseRate) || baseRate <= 0) return null;
+  const [result, setResult] = useState<BurdenPreviewResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [computing, setComputing] = useState(false);
 
-    // Get rates
-    const sutaPct = MOCK_SUTA[state] ?? 2.7;
-    const wcPct = MOCK_WC[state]?.[trade] ?? 4.0;
-    const globalBurdenPct =
-      MOCK_GLOBAL_BURDENS.fica +
-      MOCK_GLOBAL_BURDENS.futa +
-      MOCK_GLOBAL_BURDENS.admin +
-      MOCK_GLOBAL_BURDENS.gl +
-      MOCK_GLOBAL_BURDENS.bank;
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/trades", {
+          headers: getAuthHeaders(),
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error("Failed to load trades");
+        const data: Trade[] = await res.json();
+        setTrades(data.filter((t) => t.isActive));
+      } catch {
+        setTrades([]);
+      } finally {
+        setTradesLoading(false);
+      }
+    })();
+  }, []);
 
-    // Total-wage burden (follows OT/DT premium): FICA + FUTA + SUTA + Admin + GL + Bank
-    const totalWageBurdenPct = globalBurdenPct + sutaPct;
+  const computePreview = useCallback(async () => {
+    const rate = parseFloat(payRate);
+    if (!stateCode || !tradeId || isNaN(rate) || rate <= 0) return;
 
-    // v1.0 Burden Formulas:
-    // REG = payRate * (1 + totalWageBurden% + WC%)
-    // OT = (payRate * 1.5) * (1 + totalWageBurden%) + (payRate * WC%)  // WC base-only
-    // DT = (payRate * 2.0) * (1 + totalWageBurden%) + (payRate * WC%)  // WC base-only
+    setComputing(true);
+    setError(null);
+    setResult(null);
 
-    const totalWageFactor = 1 + totalWageBurdenPct / 100;
-    const wcFactor = wcPct / 100;
+    try {
+      const res = await fetch("/api/payroll-burden-rates/preview", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ payRate: rate, stateCode, tradeId }),
+      });
 
-    const reg = baseRate * (totalWageFactor + wcFactor);
-    const ot = baseRate * 1.5 * totalWageFactor + baseRate * wcFactor;
-    const dt = baseRate * 2.0 * totalWageFactor + baseRate * wcFactor;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Preview failed (${res.status})`);
+      }
 
-    return {
-      reg,
-      ot,
-      dt,
-      breakdown: {
-        payRate: baseRate,
-        totalWageBurdenPct,
-        wcPct,
-        regMultiplier: totalWageFactor + wcFactor,
-        otMultiplier: ot / baseRate,
-        dtMultiplier: dt / baseRate,
-      },
-    };
-  }, [state, trade, payRate]);
+      setResult(await res.json());
+    } catch (err: any) {
+      setError(err.message ?? "Preview request failed");
+    } finally {
+      setComputing(false);
+    }
+  }, [stateCode, tradeId, payRate]);
 
-  // Format currency
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
+  const selectedTrade = trades.find((t) => t.id === tradeId);
+  const canCompute = stateCode && tradeId && payRate && parseFloat(payRate) > 0;
 
   return (
     <div className="preview-container">
@@ -130,19 +121,13 @@ export default function BurdenPreviewPage() {
       <div className="page-header">
         <div className="header-left">
           <Link href="/admin/burden" className="back-link">
-            ← Back to Burden Settings
+            &larr; Back to Burden Settings
           </Link>
           <h1>Burden Preview</h1>
           <p className="subtitle">
             Utility preview for burden calculations. Not for quoting — use Quote Builder for actual quotes.
           </p>
         </div>
-      </div>
-
-      {/* UI Shell Notice */}
-      <div className="shell-notice">
-        <span className="shell-icon">⚠</span>
-        <span>Mocked calculation (UI shell) — Burden Model v1.0 rules applied</span>
       </div>
 
       {/* Input Section */}
@@ -153,14 +138,12 @@ export default function BurdenPreviewPage() {
             <label htmlFor="stateSelect">State</label>
             <select
               id="stateSelect"
-              value={state}
-              onChange={(e) => setState(e.target.value)}
+              value={stateCode}
+              onChange={(e) => setStateCode(e.target.value)}
             >
               <option value="">Select State</option>
               {STATES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
+                <option key={s} value={s}>{s}</option>
               ))}
             </select>
           </div>
@@ -169,13 +152,16 @@ export default function BurdenPreviewPage() {
             <label htmlFor="tradeSelect">Trade</label>
             <select
               id="tradeSelect"
-              value={trade}
-              onChange={(e) => setTrade(e.target.value)}
+              value={tradeId}
+              onChange={(e) => setTradeId(e.target.value)}
+              disabled={tradesLoading}
             >
-              <option value="">Select Trade</option>
-              {TRADES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+              <option value="">
+                {tradesLoading ? "Loading trades…" : "Select Trade"}
+              </option>
+              {trades.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} ({t.wcClassCode})
                 </option>
               ))}
             </select>
@@ -194,7 +180,30 @@ export default function BurdenPreviewPage() {
             />
           </div>
         </div>
+
+        <div className="compute-row">
+          <button
+            className="compute-btn"
+            disabled={!canCompute || computing}
+            onClick={computePreview}
+          >
+            {computing ? "Computing…" : "Compute Preview"}
+          </button>
+          {selectedTrade && (
+            <span className="trade-hint">
+              WC Class Code: {selectedTrade.wcClassCode}
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="error-notice">
+          <span className="error-icon">!</span>
+          <span>{error}</span>
+        </div>
+      )}
 
       {/* Results Section */}
       <div className="results-section">
@@ -202,28 +211,35 @@ export default function BurdenPreviewPage() {
 
         {result ? (
           <>
+            {/* WC Source Indicator */}
+            <div className={`wc-source-badge ${result.wcSource === "CLASS_CODE_RATE" ? "primary" : "fallback"}`}>
+              WC Source: {result.wcSource === "CLASS_CODE_RATE"
+                ? `Class Code Rate (${result.stateCode} × ${result.wcClassCode})`
+                : "Payroll Burden Rate (fallback)"}
+            </div>
+
             <div className="results-grid">
               <div className="result-card reg">
                 <div className="result-label">REG</div>
-                <div className="result-value">{formatCurrency(result.reg)}</div>
+                <div className="result-value">{formatCurrency(result.regCost)}</div>
                 <div className="result-multiplier">
-                  {result.breakdown.regMultiplier.toFixed(4)}× base
+                  {result.regMultiplier.toFixed(4)}&times; base
                 </div>
               </div>
 
               <div className="result-card ot">
-                <div className="result-label">OT (1.5×)</div>
-                <div className="result-value">{formatCurrency(result.ot)}</div>
+                <div className="result-label">OT (1.5&times;)</div>
+                <div className="result-value">{formatCurrency(result.otCost)}</div>
                 <div className="result-multiplier">
-                  {result.breakdown.otMultiplier.toFixed(4)}× base
+                  {result.otMultiplier.toFixed(4)}&times; base
                 </div>
               </div>
 
               <div className="result-card dt">
-                <div className="result-label">DT (2.0×)</div>
-                <div className="result-value">{formatCurrency(result.dt)}</div>
+                <div className="result-label">DT (2.0&times;)</div>
+                <div className="result-value">{formatCurrency(result.dtCost)}</div>
                 <div className="result-multiplier">
-                  {result.breakdown.dtMultiplier.toFixed(4)}× base
+                  {result.dtMultiplier.toFixed(4)}&times; base
                 </div>
               </div>
             </div>
@@ -234,39 +250,52 @@ export default function BurdenPreviewPage() {
               <div className="breakdown-grid">
                 <div className="breakdown-item">
                   <span className="breakdown-label">Base Pay Rate</span>
-                  <span className="breakdown-value">{formatCurrency(result.breakdown.payRate)}/hr</span>
+                  <span className="breakdown-value">{formatCurrency(result.payRate)}/hr</span>
                 </div>
                 <div className="breakdown-item">
-                  <span className="breakdown-label">Total-Wage Burden %</span>
-                  <span className="breakdown-value">{result.breakdown.totalWageBurdenPct.toFixed(2)}%</span>
+                  <span className="breakdown-label">Full Base Burden %</span>
+                  <span className="breakdown-value">{result.fullBaseBurdenPercent.toFixed(2)}%</span>
                 </div>
                 <div className="breakdown-item">
-                  <span className="breakdown-label">WC Rate % ({state}×{trade})</span>
-                  <span className="breakdown-value">{result.breakdown.wcPct.toFixed(2)}%</span>
+                  <span className="breakdown-label">Premium Burden % (payroll tax)</span>
+                  <span className="breakdown-value">{result.premiumBurdenPercent.toFixed(2)}%</span>
                 </div>
               </div>
 
+              {/* Per-category breakdown */}
+              <div className="category-grid">
+                {Object.entries(result.burdenBreakdown)
+                  .filter(([, v]) => v > 0)
+                  .map(([cat, val]) => (
+                    <div key={cat} className="category-chip">
+                      <span className="category-name">{cat}</span>
+                      <span className="category-rate">{val.toFixed(2)}%</span>
+                    </div>
+                  ))}
+              </div>
+
               <div className="formula-section">
-                <div className="formula-title">Formulas Applied (v1.0):</div>
+                <div className="formula-title">Formulas Applied (Split Burden):</div>
                 <div className="formula">
-                  <code>REG = payRate × (1 + totalWageBurden% + WC%)</code>
+                  <code>REG = payRate &times; (1 + fullBurden%)</code>
+                  <span className="formula-note">all categories on base hour</span>
                 </div>
                 <div className="formula">
-                  <code>OT = (payRate × 1.5) × (1 + totalWageBurden%) + (payRate × WC%)</code>
-                  <span className="formula-note">WC applies to base only</span>
+                  <code>OT = REG + payRate &times; 0.5 &times; (1 + premiumBurden%)</code>
+                  <span className="formula-note">premium carries FICA+SUTA+FUTA only</span>
                 </div>
                 <div className="formula">
-                  <code>DT = (payRate × 2.0) × (1 + totalWageBurden%) + (payRate × WC%)</code>
-                  <span className="formula-note">WC applies to base only</span>
+                  <code>DT = REG + payRate &times; 1.0 &times; (1 + premiumBurden%)</code>
+                  <span className="formula-note">premium carries FICA+SUTA+FUTA only</span>
                 </div>
               </div>
             </div>
           </>
         ) : (
           <div className="results-placeholder">
-            <div className="placeholder-icon">📊</div>
+            <div className="placeholder-icon">&#x1F4CA;</div>
             <div className="placeholder-text">
-              Select State, Trade, and enter Pay Rate to see burdened costs
+              Select State, Trade, and enter Pay Rate then click Compute Preview
             </div>
           </div>
         )}
@@ -274,7 +303,7 @@ export default function BurdenPreviewPage() {
 
       {/* Rules Reminder */}
       <div className="rules-reminder">
-        <strong>Reminder:</strong> Workers&apos; Comp (WC) is base-wage-only and does NOT follow OT/DT premium. 
+        <strong>Reminder:</strong> Workers&apos; Comp (WC) is base-wage-only and does NOT follow OT/DT premium.
         All other burden components follow the OT/DT premium multiplier.
       </div>
 
@@ -316,24 +345,6 @@ export default function BurdenPreviewPage() {
           color: rgba(255, 255, 255, 0.55);
           margin: 0;
           line-height: 1.5;
-        }
-
-        /* Shell Notice */
-        .shell-notice {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 12px 16px;
-          background: rgba(139, 92, 246, 0.08);
-          border: 1px solid rgba(139, 92, 246, 0.2);
-          border-radius: 8px;
-          margin-bottom: 24px;
-          font-size: 13px;
-          color: #a78bfa;
-        }
-
-        .shell-icon {
-          font-size: 16px;
         }
 
         /* Input Section */
@@ -395,6 +406,90 @@ export default function BurdenPreviewPage() {
 
         .input-field input::placeholder {
           color: rgba(255, 255, 255, 0.35);
+        }
+
+        .compute-row {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          margin-top: 16px;
+        }
+
+        .compute-btn {
+          padding: 10px 24px;
+          background: #3b82f6;
+          color: #fff;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+
+        .compute-btn:hover:not(:disabled) {
+          background: #2563eb;
+        }
+
+        .compute-btn:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+
+        .trade-hint {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.4);
+          font-family: var(--font-geist-mono), monospace;
+        }
+
+        /* Error */
+        .error-notice {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 16px;
+          background: rgba(239, 68, 68, 0.08);
+          border: 1px solid rgba(239, 68, 68, 0.25);
+          border-radius: 8px;
+          margin-bottom: 24px;
+          font-size: 13px;
+          color: #f87171;
+        }
+
+        .error-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          background: rgba(239, 68, 68, 0.2);
+          font-size: 11px;
+          font-weight: 700;
+          flex-shrink: 0;
+        }
+
+        /* WC Source Badge */
+        .wc-source-badge {
+          display: inline-block;
+          padding: 6px 12px;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 600;
+          margin-bottom: 16px;
+          font-family: var(--font-geist-mono), monospace;
+        }
+
+        .wc-source-badge.primary {
+          background: rgba(34, 197, 94, 0.1);
+          border: 1px solid rgba(34, 197, 94, 0.25);
+          color: #4ade80;
+        }
+
+        .wc-source-badge.fallback {
+          background: rgba(245, 158, 11, 0.1);
+          border: 1px solid rgba(245, 158, 11, 0.25);
+          color: #fbbf24;
         }
 
         /* Results Section */
@@ -536,6 +631,39 @@ export default function BurdenPreviewPage() {
           font-family: var(--font-geist-mono), monospace;
         }
 
+        /* Category chips */
+        .category-grid {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 20px;
+        }
+
+        .category-chip {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 10px;
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 6px;
+        }
+
+        .category-name {
+          font-size: 11px;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.5);
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+        }
+
+        .category-rate {
+          font-size: 12px;
+          font-weight: 600;
+          color: #fff;
+          font-family: var(--font-geist-mono), monospace;
+        }
+
         .formula-section {
           padding: 16px;
           background: rgba(0, 0, 0, 0.2);
@@ -602,4 +730,3 @@ export default function BurdenPreviewPage() {
     </div>
   );
 }
-
