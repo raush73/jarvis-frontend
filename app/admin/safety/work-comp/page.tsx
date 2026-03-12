@@ -1,226 +1,111 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 
-// Types
-type WCStatus = "Active" | "Inactive";
-
-type WCRate = {
+type Trade = {
   id: string;
-  state: string;
-  trade: string;
-  ratePct: number;
-  status: WCStatus;
-  effectiveDate: string;
-  createdAt: string;
-  updatedAt: string;
-  notes: string;
+  name: string;
+  wcClassCode: string;
+  isActive: boolean;
 };
 
-// Deterministic mock data
-const STATES = ["KY", "TN", "IN", "OH"] as const;
-const TRADES = ["Millwright", "Welder", "Pipefitter", "Electrician"] as const;
+type BurdenRateSet = {
+  id: string;
+  state: string;
+  tradeCode: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  wcRate: number | null;
+  glRate: number | null;
+  sutaRate: number | null;
+  futaRate: number | null;
+  ficaRate: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
-const MOCK_WC_RATES: WCRate[] = [
-  {
-    id: "WC-001",
-    state: "KY",
-    trade: "Millwright",
-    ratePct: 4.25,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "Standard rate for Kentucky millwright classification.",
-  },
-  {
-    id: "WC-002",
-    state: "KY",
-    trade: "Welder",
-    ratePct: 5.10,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "",
-  },
-  {
-    id: "WC-003",
-    state: "KY",
-    trade: "Pipefitter",
-    ratePct: 4.75,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "",
-  },
-  {
-    id: "WC-004",
-    state: "KY",
-    trade: "Electrician",
-    ratePct: 3.85,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "Lower rate due to classification code.",
-  },
-  {
-    id: "WC-005",
-    state: "TN",
-    trade: "Millwright",
-    ratePct: 3.90,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "",
-  },
-  {
-    id: "WC-006",
-    state: "TN",
-    trade: "Welder",
-    ratePct: 4.65,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "",
-  },
-  {
-    id: "WC-007",
-    state: "TN",
-    trade: "Pipefitter",
-    ratePct: 4.30,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "",
-  },
-  {
-    id: "WC-008",
-    state: "TN",
-    trade: "Electrician",
-    ratePct: 3.50,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "",
-  },
-  {
-    id: "WC-009",
-    state: "IN",
-    trade: "Millwright",
-    ratePct: 4.00,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "",
-  },
-  {
-    id: "WC-010",
-    state: "IN",
-    trade: "Welder",
-    ratePct: 4.85,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "",
-  },
-  {
-    id: "WC-011",
-    state: "IN",
-    trade: "Pipefitter",
-    ratePct: 4.50,
-    status: "Inactive",
-    effectiveDate: "2025-06-01",
-    createdAt: "2025-05-01",
-    updatedAt: "2025-12-15",
-    notes: "Superseded by updated rate. Kept for audit.",
-  },
-  {
-    id: "WC-012",
-    state: "IN",
-    trade: "Electrician",
-    ratePct: 3.65,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "",
-  },
-  {
-    id: "WC-013",
-    state: "OH",
-    trade: "Millwright",
-    ratePct: 4.40,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "Ohio BWC rate schedule.",
-  },
-  {
-    id: "WC-014",
-    state: "OH",
-    trade: "Welder",
-    ratePct: 5.25,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "",
-  },
-  {
-    id: "WC-015",
-    state: "OH",
-    trade: "Pipefitter",
-    ratePct: 4.90,
-    status: "Active",
-    effectiveDate: "2026-01-01",
-    createdAt: "2025-11-15",
-    updatedAt: "2025-12-20",
-    notes: "",
-  },
-  {
-    id: "WC-016",
-    state: "OH",
-    trade: "Electrician",
-    ratePct: 3.95,
-    status: "Inactive",
-    effectiveDate: "2025-01-01",
-    createdAt: "2024-11-15",
-    updatedAt: "2025-12-01",
-    notes: "Old rate. New rate pending entry.",
-  },
-];
+type WCStatus = "Active" | "Inactive";
+
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = window.localStorage.getItem("jp_accessToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function deriveStatus(row: BurdenRateSet): WCStatus {
+  if (!row.effectiveTo) return "Active";
+  return new Date(row.effectiveTo) > new Date() ? "Active" : "Inactive";
+}
+
+function fmtDate(iso: string | null): string {
+  if (!iso) return "";
+  return iso.slice(0, 10);
+}
 
 export default function WorkCompRatesPage() {
-  // Filter state
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [rates, setRates] = useState<BurdenRateSet[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   const [stateFilter, setStateFilter] = useState<string>("All");
   const [tradeFilter, setTradeFilter] = useState<string>("All");
   const [statusFilter, setStatusFilter] = useState<string>("All");
 
-  // Modal state
-  const [selectedRate, setSelectedRate] = useState<WCRate | null>(null);
-  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [selectedRate, setSelectedRate] = useState<BurdenRateSet | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  // Filter logic
-  const filteredRates = MOCK_WC_RATES.filter((rate) => {
-    if (stateFilter !== "All" && rate.state !== stateFilter) return false;
-    if (tradeFilter !== "All" && rate.trade !== tradeFilter) return false;
-    if (statusFilter !== "All" && rate.status !== statusFilter) return false;
-    return true;
-  });
+  const [editWcRate, setEditWcRate] = useState("");
+  const [editEffectiveTo, setEditEffectiveTo] = useState("");
 
-  // Status badge style
+  const [addState, setAddState] = useState("");
+  const [addTradeCode, setAddTradeCode] = useState("");
+  const [addWcRate, setAddWcRate] = useState("");
+  const [addEffectiveFrom, setAddEffectiveFrom] = useState("");
+
+    const distinctStates = useMemo(() => { const set = new Set(rates.map((r) => r.state)); return Array.from(set).sort(); }, [rates]);
+
+  const distinctTradeCodes = useMemo(() => {
+    const set = new Set(rates.map((r) => r.tradeCode));
+    return Array.from(set).sort();
+  }, [rates]);
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const headers = { ...getAuthHeaders() };
+      const [tradesRes, ratesRes] = await Promise.all([
+        fetch("/api/trades", { headers, cache: "no-store" }),
+        fetch("/api/burden-rate-sets", { headers, cache: "no-store" }),
+      ]);
+      if (tradesRes.ok) {
+        setTrades(await tradesRes.json());
+      }
+      if (ratesRes.ok) {
+        setRates(await ratesRes.json());
+      }
+    } catch {
+      // network error -- leave empty
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const filteredRates = useMemo(() => {
+    return rates.filter((row) => {
+      if (stateFilter !== "All" && row.state !== stateFilter) return false;
+      if (tradeFilter !== "All" && row.tradeCode !== tradeFilter) return false;
+      if (statusFilter !== "All" && deriveStatus(row) !== statusFilter) return false;
+      return true;
+    });
+  }, [rates, stateFilter, tradeFilter, statusFilter]);
+
   const getStatusStyle = (status: WCStatus) => {
     if (status === "Active") {
       return { bg: "rgba(34, 197, 94, 0.12)", color: "#22c55e", border: "rgba(34, 197, 94, 0.25)" };
@@ -228,7 +113,6 @@ export default function WorkCompRatesPage() {
     return { bg: "rgba(107, 114, 128, 0.12)", color: "#6b7280", border: "rgba(107, 114, 128, 0.25)" };
   };
 
-  // State badge style
   const getStateBadgeStyle = (state: string) => {
     switch (state) {
       case "KY":
@@ -244,17 +128,100 @@ export default function WorkCompRatesPage() {
     }
   };
 
-  // Open view/edit modal
-  const handleViewRate = (rate: WCRate) => {
-    setSelectedRate(rate);
-    setIsViewModalOpen(true);
+  const openEditModal = (row: BurdenRateSet) => {
+    setSelectedRate(row);
+    setEditWcRate(row.wcRate != null ? String(row.wcRate) : "");
+    setEditEffectiveTo(fmtDate(row.effectiveTo));
+    setIsEditModalOpen(true);
   };
 
-  // Close view modal
-  const handleCloseViewModal = () => {
-    setIsViewModalOpen(false);
+  const closeEditModal = () => {
+    setIsEditModalOpen(false);
     setTimeout(() => setSelectedRate(null), 200);
   };
+
+  const handleSaveEdit = async () => {
+    if (!selectedRate) return;
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = {};
+      const newWc = parseFloat(editWcRate);
+      if (!isNaN(newWc) && newWc !== selectedRate.wcRate) {
+        body.wcRate = newWc;
+      }
+      const newTo = editEffectiveTo || null;
+      const oldTo = fmtDate(selectedRate.effectiveTo) || null;
+      if (newTo !== oldTo) {
+        body.effectiveTo = newTo;
+      }
+      if (Object.keys(body).length === 0) {
+        closeEditModal();
+        return;
+      }
+      const res = await fetch(`/api/burden-rate-sets/${selectedRate.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        await loadData();
+        closeEditModal();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openAddModal = () => {
+    setAddState("");
+    setAddTradeCode("");
+    setAddWcRate("");
+    setAddEffectiveFrom("");
+    setIsAddModalOpen(true);
+  };
+
+  const closeAddModal = () => {
+    setIsAddModalOpen(false);
+  };
+
+  const handleSaveAdd = async () => {
+    if (!addState || !addTradeCode || !addWcRate || !addEffectiveFrom) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/burden-rate-sets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          state: addState,
+          tradeCode: addTradeCode,
+          effectiveFrom: addEffectiveFrom,
+          wcRate: parseFloat(addWcRate),
+        }),
+      });
+      if (res.ok) {
+        await loadData();
+        closeAddModal();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const activeTrades = trades.filter((t) => t.isActive);
+
+  const codeToTrades = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const t of trades) {
+      const code = (t.wcClassCode || "").trim();
+      if (!code) continue;
+      if (!map[code]) map[code] = [];
+      map[code].push(t.name);
+    }
+    for (const code of Object.keys(map)) {
+      map[code] = Array.from(new Set(map[code])).sort();
+    }
+    return map;
+  }, [trades]);
 
   return (
     <div className="wc-container">
@@ -262,15 +229,15 @@ export default function WorkCompRatesPage() {
       <div className="page-header">
         <div className="header-left">
           <Link href="/admin" className="back-link">
-            ← Back to Admin
+            &larr; Back to Admin
           </Link>
           <h1>Work Comp Rates</h1>
           <p className="subtitle">
-            Configure workers&apos; compensation rates by State and Trade. These rates are used for burden and margin calculations.
+            Configure workers&apos; compensation rates by State and WC Class Code. These rates are used for burden and margin calculations.
           </p>
         </div>
         <div className="header-actions">
-          <button className="btn-add" onClick={() => setIsAddModalOpen(true)}>
+          <button className="btn-add" onClick={openAddModal}>
             + Add Rate
           </button>
         </div>
@@ -286,25 +253,23 @@ export default function WorkCompRatesPage() {
             onChange={(e) => setStateFilter(e.target.value)}
           >
             <option value="All">All States</option>
-            {STATES.map((state) => (
-              <option key={state} value={state}>
-                {state}
-              </option>
+            {distinctStates.map((s) => (
+              <option key={s} value={s}>{s}</option>
             ))}
           </select>
         </div>
 
         <div className="filter-group">
-          <label htmlFor="tradeFilter">Trade</label>
+          <label htmlFor="tradeFilter">WC Class Code</label>
           <select
             id="tradeFilter"
             value={tradeFilter}
             onChange={(e) => setTradeFilter(e.target.value)}
           >
-            <option value="All">All Trades</option>
-            {TRADES.map((trade) => (
-              <option key={trade} value={trade}>
-                {trade}
+            <option value="All">All Codes</option>
+            {distinctTradeCodes.map((tc) => (
+              <option key={tc} value={tc}>
+                {tc}
               </option>
             ))}
           </select>
@@ -324,7 +289,7 @@ export default function WorkCompRatesPage() {
         </div>
 
         <div className="filter-results">
-          {filteredRates.length} rate{filteredRates.length !== 1 ? "s" : ""}
+          {isLoading ? "Loading..." : `${filteredRates.length} rate${filteredRates.length !== 1 ? "s" : ""}`}
         </div>
       </div>
 
@@ -335,63 +300,55 @@ export default function WorkCompRatesPage() {
             <thead>
               <tr>
                 <th>State</th>
-                <th>Trade</th>
-                <th>WC Rate (%)</th>
+                <th>Code</th>                <th>Trades</th>                <th>WC Rate (%)</th>
                 <th>Status</th>
-                <th>Effective Date</th>
+                <th>Effective From</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredRates.map((rate) => (
-                <tr key={rate.id}>
-                  <td className="cell-state">
-                    <span
-                      className="state-badge"
-                      style={{
-                        backgroundColor: getStateBadgeStyle(rate.state).bg,
-                        color: getStateBadgeStyle(rate.state).color,
-                        borderColor: getStateBadgeStyle(rate.state).border,
-                      }}
-                    >
-                      {rate.state}
-                    </span>
-                  </td>
-                  <td className="cell-trade">{rate.trade}</td>
-                  <td className="cell-rate">{rate.ratePct.toFixed(2)}%</td>
-                  <td className="cell-status">
-                    <span
-                      className="status-badge"
-                      style={{
-                        backgroundColor: getStatusStyle(rate.status).bg,
-                        color: getStatusStyle(rate.status).color,
-                        borderColor: getStatusStyle(rate.status).border,
-                      }}
-                    >
-                      {rate.status}
-                    </span>
-                  </td>
-                  <td className="cell-date">{rate.effectiveDate}</td>
-                  <td className="cell-actions">
-                    <button
-                      className="action-btn"
-                      onClick={() => handleViewRate(rate)}
-                    >
-                      View
-                    </button>
-                    <button
-                      className="action-btn"
-                      onClick={() => handleViewRate(rate)}
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {filteredRates.length === 0 && (
+              {filteredRates.map((row) => {
+                const status = deriveStatus(row);
+                return (
+                  <tr key={row.id}>
+                    <td className="cell-state">
+                      <span
+                        className="state-badge"
+                        style={{
+                          backgroundColor: getStateBadgeStyle(row.state).bg,
+                          color: getStateBadgeStyle(row.state).color,
+                          borderColor: getStateBadgeStyle(row.state).border,
+                        }}
+                      >
+                        {row.state}
+                      </span>
+                    </td>
+                    <td className="cell-trade">{row.tradeCode}</td>                    <td className="cell-trades">{(codeToTrades[row.tradeCode] || []).join(", ") || "-"}</td>                    <td className="cell-rate">{row.wcRate != null ? row.wcRate.toFixed(2) + "%" : "-"}</td>
+                    <td className="cell-status">
+                      <span
+                        className="status-badge"
+                        style={{
+                          backgroundColor: getStatusStyle(status).bg,
+                          color: getStatusStyle(status).color,
+                          borderColor: getStatusStyle(status).border,
+                        }}
+                      >
+                        {status}
+                      </span>
+                    </td>
+                    <td className="cell-date">{fmtDate(row.effectiveFrom)}</td>
+                    <td className="cell-actions">
+                      <button className="action-btn" onClick={() => openEditModal(row)}>
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!isLoading && filteredRates.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="empty-row">
-                    No rates match your filters
+                  <td colSpan={7} className="empty-row">
+                    {rates.length === 0 ? "No Work Comp rates yet. Click \"+ Add Rate\" to create one." : "No rates match your filters"}
                   </td>
                 </tr>
               )}
@@ -400,14 +357,14 @@ export default function WorkCompRatesPage() {
         </div>
       </div>
 
-      {/* View/Edit Modal */}
-      {isViewModalOpen && selectedRate && (
-        <div className="modal-overlay" onClick={handleCloseViewModal}>
+      {/* Edit Modal */}
+      {isEditModalOpen && selectedRate && (
+        <div className="modal-overlay" onClick={closeEditModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Work Comp Rate</h2>
-              <button className="modal-close" onClick={handleCloseViewModal}>
-                ×
+              <h2>Edit Work Comp Rate</h2>
+              <button className="modal-close" onClick={closeEditModal}>
+                &times;
               </button>
             </div>
 
@@ -415,24 +372,16 @@ export default function WorkCompRatesPage() {
               <div className="form-row">
                 <div className="form-field">
                   <label>State</label>
-                  <select defaultValue={selectedRate.state}>
-                    {STATES.map((state) => (
-                      <option key={state} value={state}>
-                        {state}
-                      </option>
-                    ))}
-                  </select>
+                  <input type="text" value={selectedRate.state} readOnly className="readonly" />
                 </div>
-
                 <div className="form-field">
-                  <label>Trade</label>
-                  <select defaultValue={selectedRate.trade}>
-                    {TRADES.map((trade) => (
-                      <option key={trade} value={trade}>
-                        {trade}
-                      </option>
-                    ))}
-                  </select>
+                  <label>WC Class Code</label>
+                  <input
+                    type="text"
+                    value={selectedRate.tradeCode}
+                    readOnly
+                    className="readonly"
+                  />
                 </div>
               </div>
 
@@ -444,40 +393,22 @@ export default function WorkCompRatesPage() {
                     step="0.01"
                     min="0"
                     max="100"
-                    defaultValue={selectedRate.ratePct}
+                    value={editWcRate}
+                    onChange={(e) => setEditWcRate(e.target.value)}
                   />
                 </div>
-
                 <div className="form-field">
-                  <label>Effective Date</label>
-                  <input type="date" defaultValue={selectedRate.effectiveDate} />
+                  <label>Effective From</label>
+                  <input type="text" value={fmtDate(selectedRate.effectiveFrom)} readOnly className="readonly" />
                 </div>
               </div>
 
               <div className="form-field">
-                <label>Status</label>
-                <div className="toggle-group">
-                  <button
-                    className={`toggle-btn ${selectedRate.status === "Active" ? "active" : ""}`}
-                    type="button"
-                  >
-                    Active
-                  </button>
-                  <button
-                    className={`toggle-btn ${selectedRate.status === "Inactive" ? "active" : ""}`}
-                    type="button"
-                  >
-                    Inactive
-                  </button>
-                </div>
-              </div>
-
-              <div className="form-field">
-                <label>Notes</label>
-                <textarea
-                  placeholder="Optional notes..."
-                  rows={3}
-                  defaultValue={selectedRate.notes}
+                <label>Effective To (leave empty for active)</label>
+                <input
+                  type="date"
+                  value={editEffectiveTo}
+                  onChange={(e) => setEditEffectiveTo(e.target.value)}
                 />
               </div>
 
@@ -486,36 +417,36 @@ export default function WorkCompRatesPage() {
                 <div className="audit-grid">
                   <div className="audit-item">
                     <span className="audit-label">Created</span>
-                    <span className="audit-value">{selectedRate.createdAt}</span>
+                    <span className="audit-value">{fmtDate(selectedRate.createdAt)}</span>
                   </div>
                   <div className="audit-item">
                     <span className="audit-label">Updated</span>
-                    <span className="audit-value">{selectedRate.updatedAt}</span>
+                    <span className="audit-value">{fmtDate(selectedRate.updatedAt)}</span>
                   </div>
                 </div>
               </div>
             </div>
 
             <div className="modal-footer">
-              <button className="btn-cancel" onClick={handleCloseViewModal}>
+              <button className="btn-cancel" onClick={closeEditModal}>
                 Cancel
               </button>
-              <button className="btn-save" onClick={handleCloseViewModal}>
-                Save Changes
+              <button className="btn-save" onClick={handleSaveEdit} disabled={saving}>
+                {saving ? "Saving..." : "Save Changes"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add Rate Modal (UI shell only) */}
+      {/* Add Rate Modal */}
       {isAddModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsAddModalOpen(false)}>
+        <div className="modal-overlay" onClick={closeAddModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Add Work Comp Rate</h2>
-              <button className="modal-close" onClick={() => setIsAddModalOpen(false)}>
-                ×
+              <button className="modal-close" onClick={closeAddModal}>
+                &times;
               </button>
             </div>
 
@@ -523,27 +454,19 @@ export default function WorkCompRatesPage() {
               <div className="form-row">
                 <div className="form-field">
                   <label>State</label>
-                  <select defaultValue="">
-                    <option value="" disabled>
-                      Select State
-                    </option>
-                    {STATES.map((state) => (
-                      <option key={state} value={state}>
-                        {state}
-                      </option>
-                    ))}
+                  <select value={addState} onChange={(e) => setAddState(e.target.value)}>
+                    <option value="" disabled>Select State</option>
+                    {distinctStates.map((s) => (<option key={s} value={s}>{s}</option>))}
                   </select>
                 </div>
 
                 <div className="form-field">
-                  <label>Trade</label>
-                  <select defaultValue="">
-                    <option value="" disabled>
-                      Select Trade
-                    </option>
-                    {TRADES.map((trade) => (
-                      <option key={trade} value={trade}>
-                        {trade}
+                  <label>WC Class Code</label>
+                  <select value={addTradeCode} onChange={(e) => setAddTradeCode(e.target.value)}>
+                    <option value="" disabled>Select Code</option>
+                    {activeTrades.map((t) => (
+                      <option key={t.id} value={t.wcClassCode}>
+                        {t.wcClassCode}
                       </option>
                     ))}
                   </select>
@@ -559,39 +482,32 @@ export default function WorkCompRatesPage() {
                     min="0"
                     max="100"
                     placeholder="e.g. 4.50"
+                    value={addWcRate}
+                    onChange={(e) => setAddWcRate(e.target.value)}
                   />
                 </div>
 
                 <div className="form-field">
-                  <label>Effective Date</label>
-                  <input type="date" />
+                  <label>Effective From</label>
+                  <input
+                    type="date"
+                    value={addEffectiveFrom}
+                    onChange={(e) => setAddEffectiveFrom(e.target.value)}
+                  />
                 </div>
-              </div>
-
-              <div className="form-field">
-                <label>Status</label>
-                <div className="toggle-group">
-                  <button className="toggle-btn active" type="button">
-                    Active
-                  </button>
-                  <button className="toggle-btn" type="button">
-                    Inactive
-                  </button>
-                </div>
-              </div>
-
-              <div className="form-field">
-                <label>Notes</label>
-                <textarea placeholder="Optional notes..." rows={3} />
               </div>
             </div>
 
             <div className="modal-footer">
-              <button className="btn-cancel" onClick={() => setIsAddModalOpen(false)}>
+              <button className="btn-cancel" onClick={closeAddModal}>
                 Cancel
               </button>
-              <button className="btn-save" onClick={() => setIsAddModalOpen(false)}>
-                Add Rate
+              <button
+                className="btn-save"
+                onClick={handleSaveAdd}
+                disabled={saving || !addState || !addTradeCode || !addWcRate || !addEffectiveFrom}
+              >
+                {saving ? "Saving..." : "Add Rate"}
               </button>
             </div>
           </div>
@@ -777,6 +693,12 @@ export default function WorkCompRatesPage() {
           color: #fff !important;
         }
 
+        .cell-trades {
+          color: rgba(255, 255, 255, 0.72) !important;
+          max-width: 280px;
+          white-space: normal;
+          line-height: 1.35;
+        }
         .cell-rate {
           font-family: var(--font-geist-mono), monospace;
           font-weight: 600;
@@ -955,43 +877,9 @@ export default function WorkCompRatesPage() {
           color: #fff;
         }
 
-        .form-field textarea {
-          resize: vertical;
-          min-height: 80px;
-        }
-
-        .toggle-group {
-          display: flex;
-          gap: 0;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 6px;
-          overflow: hidden;
-        }
-
-        .toggle-btn {
-          flex: 1;
-          padding: 10px 16px;
-          font-size: 13px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.5);
-          background: transparent;
-          border: none;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-
-        .toggle-btn:first-child {
-          border-right: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .toggle-btn:hover {
-          color: rgba(255, 255, 255, 0.8);
-        }
-
-        .toggle-btn.active {
-          color: #fff;
-          background: rgba(34, 197, 94, 0.15);
+        .form-field .readonly {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .audit-section {
@@ -1073,8 +961,17 @@ export default function WorkCompRatesPage() {
         .btn-save:hover {
           background: #2563eb;
         }
+
+        .btn-save:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
       `}</style>
     </div>
   );
 }
+
+
+
+
 
