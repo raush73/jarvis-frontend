@@ -1,8 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+
+type CommissionPlanOption = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+};
 
 // OT Multiplier constraints
 const OT_MULTIPLIER_MIN = 1.47;
@@ -170,6 +176,21 @@ export default function CreateOrderPage() {
   const [commissionSplits, setCommissionSplits] = useState<CommissionSplit[]>([
     createEmptyCommissionSplit(MOCK_PERSONS[0]),
   ]);
+
+  // Commission plan selection
+  const [commissionPlans, setCommissionPlans] = useState<CommissionPlanOption[]>([]);
+  const [selectedCommissionPlanId, setSelectedCommissionPlanId] = useState<string>("");
+
+  const loadCommissionPlans = useCallback(async () => {
+    try {
+      const plans = await apiFetch<CommissionPlanOption[]>("/commissions/plans");
+      setCommissionPlans(plans);
+    } catch {
+      // Plans may not be available yet; degrade gracefully
+    }
+  }, []);
+
+  useEffect(() => { loadCommissionPlans(); }, [loadCommissionPlans]);
 
   // Job requirements
   const [jobRequirements, setJobRequirements] = useState<JobRequirements>({
@@ -419,6 +440,7 @@ export default function CreateOrderPage() {
       modifiers,
       sdPayDeltaRate: sdDeltaRates.sdPayDeltaRate,
       sdBillDeltaRate: sdDeltaRates.sdBillDeltaRate,
+      commissionPlanId: selectedCommissionPlanId || null,
       commissionSplits,
       origin: { type: "manual" },
     };
@@ -962,6 +984,28 @@ export default function CreateOrderPage() {
           </div>
         </div>
       </div>
+
+      {/* Commission Plan Selection */}
+      {commissionPlans.length > 0 && (
+        <div className="form-section">
+          <h2>Commission Plan</h2>
+          <span className="section-note" style={{ display: "block", marginBottom: 12 }}>
+            Select a commission plan for this order, or leave as default.
+          </span>
+          <select
+            className="form-select"
+            value={selectedCommissionPlanId}
+            onChange={(e) => setSelectedCommissionPlanId(e.target.value)}
+          >
+            <option value="">Use Global Default Plan</option>
+            {commissionPlans.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}{p.isDefault ? " (Default)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Commission Splits Section */}
       <div className="form-section">

@@ -11,23 +11,6 @@ function passthroughResponse(res: Response, text: string) {
   });
 }
 
-export async function GET(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
-  const { id } = await context.params;
-  const auth = req.headers.get("authorization") ?? "";
-
-  const res = await fetch(`${UPSTREAM_BASE}/commissions/plans/${id}`, {
-    method: "GET",
-    headers: { Authorization: auth },
-    cache: "no-store",
-  });
-
-  const text = await res.text();
-  return passthroughResponse(res, text);
-}
-
 export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -36,16 +19,13 @@ export async function PATCH(
 
   try {
     const auth = req.headers.get("authorization") ?? "";
-    const contentType = req.headers.get("content-type") ?? "application/json";
-    const bodyText = await req.text();
 
-    const res = await fetch(`${UPSTREAM_BASE}/commissions/plans/${id}`, {
+    const res = await fetch(`${UPSTREAM_BASE}/commissions/plans/${id}/default`, {
       method: "PATCH",
       headers: {
         Authorization: auth,
-        "Content-Type": contentType,
+        "Content-Type": "application/json",
       },
-      body: bodyText,
       cache: "no-store",
     });
 
@@ -55,8 +35,8 @@ export async function PATCH(
     return NextResponse.json(
       {
         ok: false,
-        errorId: "JP-COMMISSION-PLANS-PROXY-PATCH",
-        message: err?.message ?? "Proxy PATCH failed",
+        errorId: "JP-COMMISSION-PLANS-PROXY-SET-DEFAULT",
+        message: err?.message ?? "Proxy PATCH default failed",
       },
       { status: 502 }
     );
