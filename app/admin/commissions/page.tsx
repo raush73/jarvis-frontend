@@ -2,86 +2,54 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { apiFetch } from "../../../lib/api";
 
-// localStorage key
-const CONFIG_KEY = "jarvisPrimeCommissionConfig.v1";
-
-// Locked basis label
 const LOCKED_BASIS_LABEL =
   "Trade labor gross margin (REG/OT/DT hours only; excludes per diem/bonus/travel/mob/demob/reimbursements/discounts/credits)";
 
-// Types
 type TierConfig = {
   minDays: number;
-  maxDays: number | null; // null = unlimited
+  maxDays: number | null;
   multiplierPct: number;
 };
 
 type CommissionConfig = {
-  basis: {
-    type: string;
-    label: string;
-  };
+  planId: string;
+  basis: { type: string; label: string };
   defaultRatePct: number;
   tiers: TierConfig[];
-  salespersonOverrides: Record<string, number>;
 };
 
-// Default configuration (locked rules)
-const DEFAULT_CONFIG: CommissionConfig = {
-  basis: {
-    type: "gross_margin",
-    label: LOCKED_BASIS_LABEL,
-  },
-  defaultRatePct: 10,
-  tiers: [
-    { minDays: 0, maxDays: 40, multiplierPct: 100 },
-    { minDays: 41, maxDays: 60, multiplierPct: 75 },
-    { minDays: 61, maxDays: 90, multiplierPct: 50 },
-    { minDays: 91, maxDays: null, multiplierPct: 0 },
-  ],
-  salespersonOverrides: {},
+type BackendPlan = {
+  id: string;
+  name: string;
+  type: string;
+  defaultRate: number;
+  isActive: boolean;
+  tiers: { id: string; minDays: number; maxDays: number | null; multiplier: number }[];
 };
 
-function loadConfig(): CommissionConfig {
-  if (typeof window === "undefined") return DEFAULT_CONFIG;
-  try {
-    const stored = localStorage.getItem(CONFIG_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      // Validate structure
-      if (
-        parsed &&
-        typeof parsed.defaultRatePct === "number" &&
-        Array.isArray(parsed.tiers) &&
-        parsed.basis &&
-        typeof parsed.salespersonOverrides === "object"
-      ) {
-        return parsed as CommissionConfig;
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return DEFAULT_CONFIG;
-}
-
-function saveConfig(config: CommissionConfig): boolean {
-  try {
-    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
-    return true;
-  } catch {
-    return false;
-  }
+function backendToConfig(plan: BackendPlan): CommissionConfig {
+  return {
+    planId: plan.id,
+    basis: {
+      type: plan.type,
+      label: LOCKED_BASIS_LABEL,
+    },
+    defaultRatePct: plan.defaultRate * 100,
+    tiers: plan.tiers.map((t) => ({
+      minDays: t.minDays,
+      maxDays: t.maxDays,
+      multiplierPct: t.multiplier * 100,
+    })),
+  };
 }
 
 function validateConfig(config: CommissionConfig): string | null {
-  // Validate defaultRatePct
   if (config.defaultRatePct < 0 || config.defaultRatePct > 100) {
     return "Default rate must be between 0 and 100";
   }
 
-  // Validate tiers
   for (let i = 0; i < config.tiers.length; i++) {
     const tier = config.tiers[i];
     if (tier.multiplierPct < 0 || tier.multiplierPct > 100) {
@@ -92,13 +60,6 @@ function validateConfig(config: CommissionConfig): string | null {
     }
     if (tier.maxDays !== null && tier.maxDays < tier.minDays) {
       return `Tier ${i + 1} max days must be >= min days`;
-    }
-  }
-
-  // Validate overrides
-  for (const [name, pct] of Object.entries(config.salespersonOverrides)) {
-    if (pct < 0 || pct > 100) {
-      return `Override for "${name}" must be between 0 and 100`;
     }
   }
 
@@ -113,143 +74,150 @@ function formatTierRange(tier: TierConfig): string {
 }
 
 export default function AdminCommissionsPage() {
-  const [config, setConfig] = useState<CommissionConfig>(DEFAULT_CONFIG);
-  const [loaded, setLoaded] = useState(false);
+  const [config, setConfig] = useState<CommissionConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  // New override inputs
-  const [newOverrideName, setNewOverrideName] = useState("");
-  const [newOverridePct, setNewOverridePct] = useState(10);
-
-  // Load config on mount
   useEffect(() => {
-    const savedConfig = loadConfig();
-    setConfig(savedConfig);
-    setLoaded(true);
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const plan = await apiFetch<BackendPlan>("/commissions/plans/active");
+        if (!alive) return;
+        setConfig(backendToConfig(plan));
+      } catch (e: any) {
+        if (!alive) return;
+        setError(e?.message ?? "Failed to load commission plan.");
+      } finally {
+        if (!alive) return;
+        setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
   }, []);
 
   const handleTierMultiplierChange = (index: number, value: string) => {
     const numVal = Math.max(0, Math.min(100, parseFloat(value) || 0));
-    setConfig((prev) => ({
-      ...prev,
-      tiers: prev.tiers.map((t, i) =>
-        i === index ? { ...t, multiplierPct: numVal } : t
-      ),
-    }));
+    setConfig((prev) =>
+      prev
+        ? {
+            ...prev,
+            tiers: prev.tiers.map((t, i) =>
+              i === index ? { ...t, multiplierPct: numVal } : t
+            ),
+          }
+        : prev
+    );
   };
 
   const handleTierMinDaysChange = (index: number, value: string) => {
     const numVal = Math.max(0, parseInt(value) || 0);
-    setConfig((prev) => ({
-      ...prev,
-      tiers: prev.tiers.map((t, i) =>
-        i === index ? { ...t, minDays: numVal } : t
-      ),
-    }));
+    setConfig((prev) =>
+      prev
+        ? {
+            ...prev,
+            tiers: prev.tiers.map((t, i) =>
+              i === index ? { ...t, minDays: numVal } : t
+            ),
+          }
+        : prev
+    );
   };
 
   const handleTierMaxDaysChange = (index: number, value: string) => {
     const numVal = value === "" ? null : Math.max(0, parseInt(value) || 0);
-    setConfig((prev) => ({
-      ...prev,
-      tiers: prev.tiers.map((t, i) =>
-        i === index ? { ...t, maxDays: numVal } : t
-      ),
-    }));
+    setConfig((prev) =>
+      prev
+        ? {
+            ...prev,
+            tiers: prev.tiers.map((t, i) =>
+              i === index ? { ...t, maxDays: numVal } : t
+            ),
+          }
+        : prev
+    );
   };
 
   const addTier = () => {
+    if (!config) return;
     const lastTier = config.tiers[config.tiers.length - 1];
     const newMin = lastTier ? (lastTier.maxDays ?? lastTier.minDays) + 1 : 0;
-    setConfig((prev) => ({
-      ...prev,
-      tiers: [
-        ...prev.tiers,
-        { minDays: newMin, maxDays: null, multiplierPct: 0 },
-      ],
-    }));
+    setConfig((prev) =>
+      prev
+        ? {
+            ...prev,
+            tiers: [
+              ...prev.tiers,
+              { minDays: newMin, maxDays: null, multiplierPct: 0 },
+            ],
+          }
+        : prev
+    );
   };
 
   const removeTier = (index: number) => {
-    if (config.tiers.length <= 1) return;
-    setConfig((prev) => ({
-      ...prev,
-      tiers: prev.tiers.filter((_, i) => i !== index),
-    }));
+    if (!config || config.tiers.length <= 1) return;
+    setConfig((prev) =>
+      prev
+        ? { ...prev, tiers: prev.tiers.filter((_, i) => i !== index) }
+        : prev
+    );
   };
 
   const handleDefaultRateChange = (value: string) => {
     const numVal = Math.max(0, Math.min(100, parseFloat(value) || 0));
-    setConfig((prev) => ({ ...prev, defaultRatePct: numVal }));
+    setConfig((prev) => (prev ? { ...prev, defaultRatePct: numVal } : prev));
   };
 
-  const addOverride = () => {
-    const name = newOverrideName.trim();
-    if (!name) return;
-    setConfig((prev) => ({
-      ...prev,
-      salespersonOverrides: {
-        ...prev.salespersonOverrides,
-        [name]: Math.max(0, Math.min(100, newOverridePct)),
-      },
-    }));
-    setNewOverrideName("");
-    setNewOverridePct(10);
-  };
-
-  const updateOverridePct = (name: string, value: string) => {
-    const numVal = Math.max(0, Math.min(100, parseFloat(value) || 0));
-    setConfig((prev) => ({
-      ...prev,
-      salespersonOverrides: {
-        ...prev.salespersonOverrides,
-        [name]: numVal,
-      },
-    }));
-  };
-
-  const removeOverride = (name: string) => {
-    setConfig((prev) => {
-      const newOverrides = { ...prev.salespersonOverrides };
-      delete newOverrides[name];
-      return { ...prev, salespersonOverrides: newOverrides };
-    });
-  };
-
-  const handleSave = () => {
-    setErrorMsg(null);
+  const handleSave = async () => {
+    if (!config) return;
+    setSaveError(null);
     setSaveStatus("saving");
 
-    // Sort tiers by minDays
     const sortedTiers = [...config.tiers].sort((a, b) => a.minDays - b.minDays);
     const validatedConfig = { ...config, tiers: sortedTiers };
 
     const validationError = validateConfig(validatedConfig);
     if (validationError) {
-      setErrorMsg(validationError);
+      setSaveError(validationError);
       setSaveStatus("error");
       setTimeout(() => setSaveStatus("idle"), 3000);
       return;
     }
 
-    if (saveConfig(validatedConfig)) {
-      setConfig(validatedConfig);
+    try {
+      const updated = await apiFetch<BackendPlan>(
+        `/commissions/plans/${config.planId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            defaultRate: validatedConfig.defaultRatePct / 100,
+            tiers: validatedConfig.tiers.map((t) => ({
+              minDays: t.minDays,
+              maxDays: t.maxDays,
+              multiplier: t.multiplierPct / 100,
+            })),
+          }),
+        }
+      );
+      setConfig(backendToConfig(updated));
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
-    } else {
-      setErrorMsg("Failed to save to localStorage");
+    } catch (e: any) {
+      setSaveError(e?.message ?? "Failed to save commission plan.");
       setSaveStatus("error");
       setTimeout(() => setSaveStatus("idle"), 3000);
     }
   };
 
-  const overrideEntries = Object.entries(config.salespersonOverrides);
-
-  if (!loaded) {
+  if (loading) {
     return (
       <div className="commissions-admin-container">
-        <div className="loading">Loading configuration...</div>
+        <div className="loading">Loading commission plan...</div>
         <style jsx>{`
           .commissions-admin-container {
             padding: 24px 40px 60px;
@@ -259,6 +227,53 @@ export default function AdminCommissionsPage() {
           .loading {
             color: rgba(255, 255, 255, 0.5);
             font-size: 14px;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (error || !config) {
+    return (
+      <div className="commissions-admin-container">
+        <div className="page-header">
+          <Link href="/admin" className="back-link">
+            ← Back to Admin
+          </Link>
+          <h1>Commission Configuration</h1>
+        </div>
+        <div className="error-banner">{error ?? "No active commission plan found."}</div>
+        <style jsx>{`
+          .commissions-admin-container {
+            padding: 24px 40px 60px;
+            max-width: 900px;
+            margin: 0 auto;
+          }
+          .back-link {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.5);
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 12px;
+          }
+          .back-link:hover {
+            color: #3b82f6;
+          }
+          h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: #fff;
+            margin: 0 0 8px;
+            letter-spacing: -0.5px;
+          }
+          .error-banner {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+            padding: 16px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-top: 16px;
           }
         `}</style>
       </div>
@@ -407,101 +422,25 @@ export default function AdminCommissionsPage() {
         </button>
       </section>
 
-      {/* Salesperson Overrides */}
+      {/* Salesperson Overrides — deferred */}
       <section className="config-section">
         <div className="section-header">
           <h2>Salesperson Rate Overrides</h2>
-          <span className="section-note">
-            Custom rates for specific salespeople (e.g., Steve may differ)
-          </span>
+          <span className="section-note deferred-badge">Coming Soon</span>
         </div>
-
-        {overrideEntries.length > 0 ? (
-          <div className="overrides-table-wrap">
-            <table className="overrides-table">
-              <thead>
-                <tr>
-                  <th>Salesperson Name</th>
-                  <th>Override Rate</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {overrideEntries.map(([name, pct]) => (
-                  <tr key={name}>
-                    <td className="override-name-cell">
-                      <span className="override-name">{name}</span>
-                    </td>
-                    <td className="override-rate-cell">
-                      <div className="input-wrap">
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={0.5}
-                          value={pct}
-                          onChange={(e) => updateOverridePct(name, e.target.value)}
-                        />
-                        <span className="input-suffix">%</span>
-                      </div>
-                    </td>
-                    <td className="override-actions">
-                      <button
-                        className="remove-btn"
-                        onClick={() => removeOverride(name)}
-                        title="Remove override"
-                      >
-                        ×
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="no-overrides">
-            No salesperson overrides configured. All salespeople use the default rate.
-          </div>
-        )}
-
-        <div className="add-override-row">
-          <input
-            type="text"
-            placeholder="Salesperson name"
-            value={newOverrideName}
-            onChange={(e) => setNewOverrideName(e.target.value)}
-            className="new-override-name"
-          />
-          <div className="input-wrap">
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.5}
-              value={newOverridePct}
-              onChange={(e) => setNewOverridePct(parseFloat(e.target.value) || 0)}
-              className="new-override-pct"
-            />
-            <span className="input-suffix">%</span>
-          </div>
-          <button
-            className="add-row-btn"
-            onClick={addOverride}
-            disabled={!newOverrideName.trim()}
-          >
-            + Add Override
-          </button>
+        <div className="deferred-notice">
+          Salesperson-specific rate overrides will be supported in a future release.
+          All salespeople currently use the default rate above.
         </div>
       </section>
 
       {/* Save Footer */}
       <div className="save-footer">
         {saveStatus === "saved" && (
-          <span className="save-status success">✓ Configuration saved</span>
+          <span className="save-status success">Configuration saved</span>
         )}
         {saveStatus === "error" && (
-          <span className="save-status error">{errorMsg || "Failed to save"}</span>
+          <span className="save-status error">{saveError || "Failed to save"}</span>
         )}
         <button
           className="save-btn"
@@ -550,7 +489,6 @@ export default function AdminCommissionsPage() {
           margin: 0;
         }
 
-        /* Formula Box */
         .formula-box {
           background: rgba(59, 130, 246, 0.08);
           border: 1px solid rgba(59, 130, 246, 0.2);
@@ -588,7 +526,6 @@ export default function AdminCommissionsPage() {
           line-height: 1.5;
         }
 
-        /* Config Sections */
         .config-section {
           background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.06);
@@ -624,7 +561,14 @@ export default function AdminCommissionsPage() {
           font-weight: 500;
         }
 
-        /* Basis Display */
+        .deferred-badge {
+          color: rgba(139, 92, 246, 0.9);
+          background: rgba(139, 92, 246, 0.1);
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-weight: 500;
+        }
+
         .basis-display {
           display: flex;
           align-items: center;
@@ -641,7 +585,6 @@ export default function AdminCommissionsPage() {
           line-height: 1.5;
         }
 
-        /* Rate Input */
         .rate-input-row {
           display: flex;
           align-items: center;
@@ -653,7 +596,6 @@ export default function AdminCommissionsPage() {
           color: rgba(255, 255, 255, 0.5);
         }
 
-        /* Input Wrap */
         .input-wrap {
           display: flex;
           align-items: center;
@@ -682,9 +624,7 @@ export default function AdminCommissionsPage() {
           color: rgba(255, 255, 255, 0.5);
         }
 
-        /* Tiers Table */
-        .tiers-table-wrap,
-        .overrides-table-wrap {
+        .tiers-table-wrap {
           background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 10px;
@@ -692,19 +632,16 @@ export default function AdminCommissionsPage() {
           margin-bottom: 12px;
         }
 
-        .tiers-table,
-        .overrides-table {
+        .tiers-table {
           width: 100%;
           border-collapse: collapse;
         }
 
-        .tiers-table thead,
-        .overrides-table thead {
+        .tiers-table thead {
           background: rgba(255, 255, 255, 0.03);
         }
 
-        .tiers-table th,
-        .overrides-table th {
+        .tiers-table th {
           padding: 12px 16px;
           text-align: left;
           font-size: 11px;
@@ -715,16 +652,14 @@ export default function AdminCommissionsPage() {
           border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         }
 
-        .tiers-table td,
-        .overrides-table td {
+        .tiers-table td {
           padding: 12px 16px;
           font-size: 14px;
           color: rgba(255, 255, 255, 0.85);
           border-bottom: 1px solid rgba(255, 255, 255, 0.04);
         }
 
-        .tiers-table tr:last-child td,
-        .overrides-table tr:last-child td {
+        .tiers-table tr:last-child td {
           border-bottom: none;
         }
 
@@ -759,8 +694,7 @@ export default function AdminCommissionsPage() {
           width: 70px;
         }
 
-        .tier-actions,
-        .override-actions {
+        .tier-actions {
           text-align: right;
         }
 
@@ -789,17 +723,7 @@ export default function AdminCommissionsPage() {
           cursor: not-allowed;
         }
 
-        /* Overrides */
-        .override-name {
-          font-weight: 500;
-          color: #fff;
-        }
-
-        .override-rate-cell .input-wrap input {
-          width: 70px;
-        }
-
-        .no-overrides {
+        .deferred-notice {
           padding: 20px;
           text-align: center;
           color: rgba(255, 255, 255, 0.4);
@@ -807,37 +731,7 @@ export default function AdminCommissionsPage() {
           background: rgba(255, 255, 255, 0.02);
           border: 1px dashed rgba(255, 255, 255, 0.08);
           border-radius: 8px;
-          margin-bottom: 12px;
-        }
-
-        .add-override-row {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-
-        .new-override-name {
-          width: 180px;
-          padding: 8px 12px;
-          font-size: 14px;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          border-radius: 6px;
-          color: #fff;
-        }
-
-        .new-override-name:focus {
-          outline: none;
-          border-color: rgba(59, 130, 246, 0.5);
-        }
-
-        .new-override-name::placeholder {
-          color: rgba(255, 255, 255, 0.3);
-        }
-
-        .new-override-pct {
-          width: 70px;
+          line-height: 1.5;
         }
 
         .add-row-btn {
@@ -862,7 +756,6 @@ export default function AdminCommissionsPage() {
           cursor: not-allowed;
         }
 
-        /* Save Footer */
         .save-footer {
           display: flex;
           align-items: center;
