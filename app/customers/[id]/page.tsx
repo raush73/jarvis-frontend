@@ -490,7 +490,7 @@ export default function CustomerDetailPage() {
 
   const loadCustomerPpeReqs = async () => {
     try {
-      const data = await apiFetch<any>(`/customers/${customerId}/ppe-requirements`);
+      const data = await apiFetch<any>(`/customers/${customerId}/ppe-baseline`);
       setCustomerPpeReqs(Array.isArray(data) ? data : []);
     } catch (e: any) {
       console.error("Failed to load customer PPE requirements:", e);
@@ -1163,7 +1163,7 @@ export default function CustomerDetailPage() {
     setPpeSaving(true);
     setPpeError("");
     try {
-      await apiFetch(`/customers/${customerId}/ppe-requirements`, {
+      await apiFetch(`/customers/${customerId}/ppe-baseline`, {
         method: "POST",
         body: JSON.stringify({ ppeTypeId: addPpeTypeId, notes: addPpeNotes.trim() || null }),
       });
@@ -1196,7 +1196,7 @@ export default function CustomerDetailPage() {
     setPpeSaving(true);
     setPpeError("");
     try {
-      await apiFetch(`/customers/${customerId}/ppe-requirements/${editingPpeItem.reqId}`, {
+      await apiFetch(`/customers/${customerId}/ppe-baseline/${editingPpeItem.reqId}`, {
         method: "PATCH",
         body: JSON.stringify({ notes: editingPpeItem.notes.trim() || null }),
       });
@@ -1226,7 +1226,7 @@ export default function CustomerDetailPage() {
     setPpeSaving(true);
     setPpeError("");
     try {
-      await apiFetch(`/customers/${customerId}/ppe-requirements/${deletingPpeItem.reqId}`, {
+      await apiFetch(`/customers/${customerId}/ppe-baseline/${deletingPpeItem.reqId}`, {
         method: "DELETE",
       });
       setShowDeletePpeModal(false);
@@ -4601,6 +4601,7 @@ export default function CustomerDetailPage() {
     </div>
   );
 }
+
 
 
 

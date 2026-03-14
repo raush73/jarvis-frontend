@@ -1,1772 +1,1074 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useRouter, useParams, useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import type {
+  TradeListItem,
+  CreateOrderPayload,
+  CreateTradeRequirement,
+  CreateOrderResponse,
+  CreatePpeRequirement,
+  CreateToolRequirement,
+  CreateCertRequirement,
+  CreateComplianceRequirement,
+  RequirementEnforcement,
+} from "@/lib/types/order";
+import { ENFORCEMENT_LABELS } from "@/lib/types/order";
 
-type CommissionPlanOption = {
-  id: string;
-  name: string;
-  isDefault: boolean;
+type CommissionPlanOption = { id: string; name: string; isDefault: boolean };
+type PpeTypeOption = { id: string; name: string; active?: boolean };
+type ToolOption = { id: string; name: string; active?: boolean };
+type CertTypeOption = { id: string; name: string; code?: string; categoryId?: string };
+type ComplianceReqTypeOption = { id: string; name: string };
+type ComplianceVariantOption = { id: string; name: string; requirementTypeId: string };
+
+type ReqItem = { typeId: string; enforcement: RequirementEnforcement; isBaseline?: boolean };
+
+type BaselineSource = "MW4H" | "CUSTOMER" | null;
+
+type TradeToolBaselineResponse = { tradeId: string; toolIds: string[] };
+type TradePpeBaselineResponse = { tradeId: string; ppeTypeIds: string[] };
+type CustomerToolBaselineResponse = { customerId: string; baselines: Array<{ tradeId: string; toolIds: string[] }> };
+type CustomerPpeBaselineResponse = { customerId: string; baselines: Array<{ tradeId: string; ppeIds?: string[]; ppeTypeIds?: string[] }> };
+
+type TradeLineState = {
+  tradeId: string;
+  basePayRate: string;
+  baseBillRate: string;
+  requestedHeadcount: number;
+  startDate: string;
+  expectedEndDate: string;
+  notes: string;
+  ppeBaselineSource: BaselineSource;
+  toolBaselineSource: BaselineSource;
+  ppeItems: ReqItem[];
+  toolItems: ReqItem[];
+  certItems: ReqItem[];
+  complianceItems: Array<{ requirementTypeId: string; variantId: string }>;
 };
 
-// OT Multiplier constraints
-const OT_MULTIPLIER_MIN = 1.47;
-const OT_MULTIPLIER_DEFAULT = 1.5;
-
-// Available trades for dropdown
-const AVAILABLE_TRADES = [
-  "Millwright",
-  "Electrician",
-  "Pipefitter",
-  "Welder",
-  "Rigger",
-  "Crane Operator",
-  "HVAC Technician",
-  "Ironworker",
-  "Carpenter",
-  "Plumber",
-];
-
-// Mock person list for commission splits
-const MOCK_PERSONS = [
-  "Jordan Miles",
-  "Sarah Chen",
-  "Mike Thompson",
-  "Lisa Rodriguez",
-  "David Kim",
-];
-
-// Commission roles
-const COMMISSION_ROLES = ["Sales", "Recruiting", "Admin", "Other"];
-
-// Trade line type
-type TradeLine = {
-  trade: string;
-  projectName: string;
-  headcount: number;
-  hours: number;
-  basePay: number;
-  billRate: number;
-  otMultiplier: number;
-  // System-owned placeholders
-  burdenedPay: number;
-  gmPerHr: number;
-  gmPct: number;
-  health: "Good" | "Watch" | "Risk";
-};
-
-// Commission split type
-type CommissionSplit = {
-  person: string;
-  role: string;
-  splitPct: number;
-};
-
-// Order modifiers type
-type OrderModifiers = {
-  perDiem: number;
-  travel: number;
-  bonuses: number;
-};
-
-// SD delta rates type
-type SDDeltaRates = {
-  sdPayDeltaRate: number | null;
-  sdBillDeltaRate: number | null;
-};
-
-// Helper to generate order ID
-function generateOrderId(): string {
-  const year = new Date().getFullYear();
-  const num = Math.floor(Math.random() * 900) + 100;
-  return `ORD-${year}-${num}`;
-}
-
-const MOCK_CERTIFICATIONS = [
-  "OSHA 10",
-  "OSHA 30",
-  "MSHA",
-  "NCCER",
-  "Confined Space",
-  "Fall Protection",
-  "Forklift Certified",
-  "Rigging Certified",
-];
-
-// MW4H Standard Tool List (mock)
-const MW4H_STANDARD_TOOLS = [
-  "Hard Hat",
-  "FR Clothing",
-  "Steel Toe Boots",
-  "Safety Glasses",
-  "Gloves",
-  "Basic Hand Tools",
-];
-
-// Job requirements type
-type JobRequirements = {
-  tools: string[];
-  useCustomerToolList: boolean;
-  useMW4HStandardToolList: boolean;
-  certifications: string[];
-  ppe: string[];
-};
-
-// Create empty trade line
-function createEmptyTradeLine(): TradeLine {
+function createEmptyTradeLine(defaultTradeId: string): TradeLineState {
   return {
-    trade: "Millwright",
-    projectName: "",
-    headcount: 1,
-    hours: 40,
-    basePay: 30,
-    billRate: 55,
-    otMultiplier: OT_MULTIPLIER_DEFAULT,
-    // System-owned placeholders
-    burdenedPay: 36,
-    gmPerHr: 19,
-    gmPct: 34.5,
-    health: "Good",
+    tradeId: defaultTradeId,
+    basePayRate: "30",
+    baseBillRate: "55",
+    requestedHeadcount: 1,
+    startDate: "",
+    expectedEndDate: "",
+    notes: "",
+    ppeBaselineSource: null,
+    toolBaselineSource: null,
+    ppeItems: [],
+    toolItems: [],
+    certItems: [],
+    complianceItems: [],
   };
 }
 
-// Create empty commission split
-function createEmptyCommissionSplit(defaultPerson: string): CommissionSplit {
-  return {
-    person: defaultPerson,
-    role: "Sales",
-    splitPct: 100,
-  };
-}
+const DEFAULT_ENFORCEMENT: RequirementEnforcement = "FILTER";
 
 export default function CreateOrderPage() {
   const router = useRouter();
   const params = useParams();
-  const searchParams = useSearchParams();
   const customerId = params.id as string;
 
-  const fromQuote = searchParams.get("fromQuote");
-  const orderId = searchParams.get("orderId");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Order metadata
-  const [orderName, setOrderName] = useState("");
-  const [site, setSite] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [notes, setNotes] = useState("");
+  // --- Title ---
+  const [title, setTitle] = useState("");
 
-  // Trade lines
-  const [tradeLines, setTradeLines] = useState<TradeLine[]>([createEmptyTradeLine()]);
+  // --- Shift Differential (toggle-driven) ---
+  const [hasShiftDifferential, setHasShiftDifferential] = useState(false);
+  const [sdPayDeltaRate, setSdPayDeltaRate] = useState<number | null>(null);
+  const [sdBillDeltaRate, setSdBillDeltaRate] = useState<number | null>(null);
 
-  // Modifiers
-  const [modifiers, setModifiers] = useState<OrderModifiers>({
-    perDiem: 100,
-    travel: 0.58,
-    bonuses: 0,
-  });
-
-  // SD Delta Rates
-  const [sdDeltaRates, setSDDeltaRates] = useState<SDDeltaRates>({
-    sdPayDeltaRate: null,
-    sdBillDeltaRate: null,
-  });
-
-  // Commission splits
-  const [commissionSplits, setCommissionSplits] = useState<CommissionSplit[]>([
-    createEmptyCommissionSplit(MOCK_PERSONS[0]),
-  ]);
-
-  // Commission plan selection
+  // --- Commission ---
   const [commissionPlans, setCommissionPlans] = useState<CommissionPlanOption[]>([]);
-  const [selectedCommissionPlanId, setSelectedCommissionPlanId] = useState<string>("");
+  const [selectedCommissionPlanId, setSelectedCommissionPlanId] = useState("");
+  const [isCommissionSplit, setIsCommissionSplit] = useState(false);
 
-  const loadCommissionPlans = useCallback(async () => {
-    try {
-      const plans = await apiFetch<CommissionPlanOption[]>("/commissions/plans");
-      setCommissionPlans(plans);
-    } catch {
-      // Plans may not be available yet; degrade gracefully
-    }
-  }, []);
-
-  useEffect(() => { loadCommissionPlans(); }, [loadCommissionPlans]);
-
-  // Job requirements
-  const [jobRequirements, setJobRequirements] = useState<JobRequirements>({
-    tools: [],
-    useCustomerToolList: false,
-    useMW4HStandardToolList: false,
-    certifications: [],
-    ppe: [],
-  });
-
-  // Registry-backed PPE and Tool types (Layer 1 dictionaries)
-  const [ppeTypes, setPpeTypes] = useState<Array<{ id: string; name: string; active?: boolean }>>([]);
-  const [toolTypes, setToolTypes] = useState<Array<{ id: string; name: string; active?: boolean }>>([]);
+  // --- Registry data ---
+  const [trades, setTrades] = useState<TradeListItem[]>([]);
+  const [ppeTypes, setPpeTypes] = useState<PpeTypeOption[]>([]);
+  const [tools, setTools] = useState<ToolOption[]>([]);
+  const [certTypes, setCertTypes] = useState<CertTypeOption[]>([]);
+  const [complianceReqTypes, setComplianceReqTypes] = useState<ComplianceReqTypeOption[]>([]);
+  const [complianceVariants, setComplianceVariants] = useState<ComplianceVariantOption[]>([]);
   const [registryLoaded, setRegistryLoaded] = useState(false);
+  const [registryLoadErrors, setRegistryLoadErrors] = useState<string[]>([]);
+  const [baselineLoading, setBaselineLoading] = useState<Record<string, boolean>>({});
+  const [baselineError, setBaselineError] = useState<Record<string, string | null>>({});
 
-  // Customer PPE policy for blow-through defaults (3A.1)
-  const [customerPpePolicy, setCustomerPpePolicy] = useState<string[]>([]);
-  const [initializedFromPolicy, setInitializedFromPolicy] = useState(false);
+  // --- Trade lines ---
+  const [tradeLines, setTradeLines] = useState<TradeLineState[]>([]);
+
+  // --- Collapsible sections: key = "{tradeIdx}-{section}" ---
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggleSection = (key: string) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+  const isExpanded = (key: string) => !!expanded[key];
 
   useEffect(() => {
-    async function loadRegistry() {
+    let alive = true;
+    async function load() {
+      const errors: string[] = [];
       try {
-        const [ppe, tools] = await Promise.all([
-          apiFetch<Array<{ id: string; name: string; active?: boolean }>>("/ppe-types?activeOnly=true"),
-          apiFetch<Array<{ id: string; name: string; active?: boolean }>>("/tool-types?activeOnly=true"),
-        ]);
-
-        setPpeTypes(Array.isArray(ppe) ? ppe : []);
-        setToolTypes(Array.isArray(tools) ? tools : []);
-      } catch (err) {
-        console.error("Failed to load PPE/Tool registries", err);
-        setPpeTypes([]);
-        setToolTypes([]);
+        const [tradesRes, ppeRes, toolsRes, certsRes, compReqRes, compVarRes, plansRes] =
+          await Promise.all([
+            apiFetch<TradeListItem[]>("/trades").catch((e) => { errors.push(`Trades: ${e instanceof Error ? e.message : "failed"}`); return []; }),
+            apiFetch<PpeTypeOption[]>("/ppe-types?activeOnly=true").catch((e) => { errors.push(`PPE: ${e instanceof Error ? e.message : "failed"}`); return []; }),
+            apiFetch<ToolOption[]>("/tools?activeOnly=true").catch((e) => { errors.push(`Tools: ${e instanceof Error ? e.message : "failed"}`); return []; }),
+            apiFetch<CertTypeOption[]>("/certification-types").catch((e) => { errors.push(`Certifications: ${e instanceof Error ? e.message : "failed"}`); return []; }),
+            apiFetch<ComplianceReqTypeOption[]>("/compliance-requirement-types").catch((e) => { errors.push(`Compliance Types: ${e instanceof Error ? e.message : "failed"}`); return []; }),
+            apiFetch<ComplianceVariantOption[]>("/compliance-variants").catch((e) => { errors.push(`Compliance Variants: ${e instanceof Error ? e.message : "failed"}`); return []; }),
+            apiFetch<CommissionPlanOption[]>("/commissions/plans").catch((e) => { errors.push(`Commission Plans: ${e instanceof Error ? e.message : "failed"}`); return []; }),
+          ]);
+        if (!alive) return;
+        const tradeList = Array.isArray(tradesRes) ? tradesRes : [];
+        setTrades(tradeList);
+        setPpeTypes(Array.isArray(ppeRes) ? ppeRes : []);
+        setTools(Array.isArray(toolsRes) ? toolsRes : []);
+        setCertTypes(Array.isArray(certsRes) ? certsRes : []);
+        setComplianceReqTypes(Array.isArray(compReqRes) ? compReqRes : []);
+        setComplianceVariants(Array.isArray(compVarRes) ? compVarRes : []);
+        setCommissionPlans(Array.isArray(plansRes) ? plansRes : []);
+        setTradeLines([createEmptyTradeLine(tradeList[0]?.id ?? "")]);
+        if (errors.length > 0) setRegistryLoadErrors(errors);
+      } catch {
+        if (alive) setRegistryLoadErrors(["Registry loading failed unexpectedly"]);
       } finally {
-        setRegistryLoaded(true);
+        if (alive) setRegistryLoaded(true);
       }
     }
-
-    loadRegistry();
+    load();
+    return () => { alive = false; };
   }, []);
 
-  useEffect(() => {
-    if (!customerId) return;
-    let alive = true;
-    (async () => {
-      try {
-        const data = await apiFetch<any[]>(`/customers/${customerId}/ppe-requirements`);
-        if (!alive) return;
-        const rows = Array.isArray(data) ? data : [];
-        setCustomerPpePolicy(rows.map((row: any) => row.ppeTypeId).filter(Boolean));
-      } catch {
-        // Customer may not have PPE policy — safe to ignore
-      }
-    })();
-    return () => { alive = false; };
-  }, [customerId]);
-
-  useEffect(() => {
-    if (initializedFromPolicy) return;
-    if (orderId) return;
-    if (customerPpePolicy.length === 0) return;
-    setJobRequirements(prev => ({
-      ...prev,
-      ppe: customerPpePolicy,
-    }));
-    setInitializedFromPolicy(true);
-  }, [customerPpePolicy, initializedFromPolicy, orderId]);
-
-  useEffect(() => {
-    if (!orderId) return;
-    const storageKey = `jp.orderDraft.${customerId}.${orderId}`;
-    const raw = sessionStorage.getItem(storageKey);
-    if (!raw) return;
-    try {
-      const payload = JSON.parse(raw);
-      if (payload.orderName) setOrderName(payload.orderName);
-      if (payload.projectDescription) setNotes(payload.projectDescription);
-      if (payload.site) setSite(payload.site);
-      if (payload.startDate) setStartDate(payload.startDate);
-      if (payload.endDate) setEndDate(payload.endDate);
-      if (payload.tradeLines && Array.isArray(payload.tradeLines)) {
-        const mappedLines: TradeLine[] = payload.tradeLines.map((t: Record<string, unknown>) => ({
-          trade: (t.trade as string) || "Millwright",
-          projectName: (t.project as string) || "",
-          headcount: (t.headcount as number) || 1,
-          hours: (t.hours as number) || 40,
-          basePay: (t.basePay as number) || 30,
-          billRate: (t.billRate as number) || 55,
-          otMultiplier: (t.otMultiplier as number) || OT_MULTIPLIER_DEFAULT,
-          burdenedPay: (t.burdenedPay as number) || 36,
-          gmPerHr: (t.gmPerHr as number) || 19,
-          gmPct: (t.gmPct as number) || 34.5,
-          health: ((t.health as string) || "Good") as "Good" | "Watch" | "Risk",
-        }));
-        if (mappedLines.length > 0) setTradeLines(mappedLines);
-      }
-      if (payload.modifiers) {
-        setModifiers({
-          perDiem: payload.modifiers.perDiem ?? 100,
-          travel: payload.modifiers.travel ?? 0.58,
-          bonuses: payload.modifiers.bonuses ?? 0,
-        });
-      }
-
-      // Load SD delta rates from draft (top-level fields)
-      if (payload.sdPayDeltaRate !== undefined || payload.sdBillDeltaRate !== undefined) {
-        setSDDeltaRates({
-          sdPayDeltaRate: payload.sdPayDeltaRate ?? null,
-          sdBillDeltaRate: payload.sdBillDeltaRate ?? null,
-        });
-      }
-      if (payload.jobRequirements) {
-        setJobRequirements({
-          tools: payload.jobRequirements.tools || [],
-          certifications: payload.jobRequirements.certifications || [],
-          ppe: payload.jobRequirements.ppe || [],
-          useCustomerToolList: payload.jobRequirements.useCustomerToolList || false,
-          useMW4HStandardToolList: payload.jobRequirements.useMW4HStandardToolList || false,
-        });
-      }
-      if (payload.commissionSplits && Array.isArray(payload.commissionSplits) && payload.commissionSplits.length > 0) {
-        setCommissionSplits(payload.commissionSplits.map((s: Record<string, unknown>) => ({
-          person: (s.person as string) || MOCK_PERSONS[0],
-          role: (s.role as string) || "Sales",
-          splitPct: (s.splitPct as number) || 100,
-        })));
-      }
-    } catch {
-      // ignore malformed payload
-    }
-  }, [customerId, orderId]);
-
-  // Calculate total commission percentage
-  const totalCommissionPct = commissionSplits.reduce((sum, s) => sum + s.splitPct, 0);
-  const commissionError = totalCommissionPct !== 100;
-
-  // Trade line handlers
-  const updateTradeLine = (index: number, field: keyof TradeLine, value: string | number) => {
-    const newLines = [...tradeLines];
-    newLines[index] = { ...newLines[index], [field]: value };
-    setTradeLines(newLines);
-  };
-
-  const handleOtMultiplierBlur = (index: number, inputValue: string) => {
-    const parsed = parseFloat(inputValue);
-    let finalValue: number;
-    if (isNaN(parsed) || inputValue.trim() === "") {
-      const prior = tradeLines[index].otMultiplier ?? OT_MULTIPLIER_DEFAULT;
-      finalValue = Math.max(OT_MULTIPLIER_MIN, prior);
-    } else {
-      finalValue = Math.max(OT_MULTIPLIER_MIN, parsed);
-    }
-    updateTradeLine(index, "otMultiplier", finalValue);
+  // --- Trade line helpers ---
+  const updateTradeLine = (idx: number, patch: Partial<TradeLineState>) => {
+    setTradeLines((prev) => prev.map((tl, i) => (i === idx ? { ...tl, ...patch } : tl)));
   };
 
   const addTradeLine = () => {
-    setTradeLines([...tradeLines, createEmptyTradeLine()]);
+    setTradeLines((prev) => [...prev, createEmptyTradeLine(trades[0]?.id ?? "")]);
   };
 
-  const removeTradeLine = (index: number) => {
+  const removeTradeLine = (idx: number) => {
     if (tradeLines.length <= 1) return;
-    setTradeLines(tradeLines.filter((_, i) => i !== index));
+    setTradeLines((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  // Commission split handlers
-  const updateCommissionSplit = (index: number, field: keyof CommissionSplit, value: string | number) => {
-    const newSplits = [...commissionSplits];
-    newSplits[index] = { ...newSplits[index], [field]: value };
-    setCommissionSplits(newSplits);
+  const toggleReqItem = (
+    idx: number,
+    field: "ppeItems" | "toolItems" | "certItems",
+    typeId: string,
+  ) => {
+    const tl = tradeLines[idx];
+    const items = tl[field];
+    const exists = items.find((r) => r.typeId === typeId);
+    if (exists?.isBaseline) return;
+    const next = exists
+      ? items.filter((r) => r.typeId !== typeId)
+      : [...items, { typeId, enforcement: DEFAULT_ENFORCEMENT }];
+    updateTradeLine(idx, { [field]: next });
   };
 
-  const addCommissionSplit = () => {
-    setCommissionSplits([...commissionSplits, createEmptyCommissionSplit(MOCK_PERSONS[0])]);
+  const setReqEnforcement = (
+    idx: number,
+    field: "ppeItems" | "toolItems" | "certItems",
+    typeId: string,
+    enforcement: RequirementEnforcement,
+  ) => {
+    const tl = tradeLines[idx];
+    const next = tl[field].map((r) => (r.typeId === typeId ? { ...r, enforcement } : r));
+    updateTradeLine(idx, { [field]: next });
   };
 
-  const removeCommissionSplit = (index: number) => {
-    if (commissionSplits.length <= 1) return;
-    setCommissionSplits(commissionSplits.filter((_, i) => i !== index));
-  };
-
-  // Modifier handlers
-  const updateModifier = (field: keyof OrderModifiers, value: number) => {
-    setModifiers({ ...modifiers, [field]: value });
-  };
-
-  // SD Delta Rate handlers
-  const updateSDDeltaRate = (field: keyof SDDeltaRates, value: number | null) => {
-    setSDDeltaRates({ ...sdDeltaRates, [field]: value });
-  };
-
-  // Job requirements handlers
-  const toggleTool = (toolTypeId: string) => {
-    const next = jobRequirements.tools.includes(toolTypeId)
-      ? jobRequirements.tools.filter((t) => t !== toolTypeId)
-      : [...jobRequirements.tools, toolTypeId];
-    setJobRequirements({ ...jobRequirements, tools: next });
-  };
-
-  const toggleUseCustomerToolList = () => {
-    setJobRequirements({
-      ...jobRequirements,
-      useCustomerToolList: !jobRequirements.useCustomerToolList,
+  const addComplianceItem = (idx: number) => {
+    if (complianceReqTypes.length === 0) return;
+    updateTradeLine(idx, {
+      complianceItems: [
+        ...tradeLines[idx].complianceItems,
+        { requirementTypeId: complianceReqTypes[0].id, variantId: "" },
+      ],
     });
   };
 
-  const toggleUseMW4HStandardToolList = () => {
-    setJobRequirements({
-      ...jobRequirements,
-      useMW4HStandardToolList: !jobRequirements.useMW4HStandardToolList,
+  const removeComplianceItem = (tradeIdx: number, compIdx: number) => {
+    const next = tradeLines[tradeIdx].complianceItems.filter((_, i) => i !== compIdx);
+    updateTradeLine(tradeIdx, { complianceItems: next });
+  };
+
+  const updateComplianceItem = (
+    tradeIdx: number,
+    compIdx: number,
+    field: "requirementTypeId" | "variantId",
+    value: string,
+  ) => {
+    const items = [...tradeLines[tradeIdx].complianceItems];
+    items[compIdx] = { ...items[compIdx], [field]: value };
+    updateTradeLine(tradeIdx, { complianceItems: items });
+  };
+
+  // --- Baseline handlers (per-section, per-trade-line) ---
+  const loadToolBaseline = async (idx: number, source: BaselineSource) => {
+    if (source === null) {
+      setTradeLines((prev) =>
+        prev.map((line, i) =>
+          i !== idx
+            ? line
+            : {
+                ...line,
+                toolBaselineSource: null,
+                toolItems: line.toolItems.filter((r) => !r.isBaseline),
+              }
+        )
+      );
+      setBaselineError((prev) => ({ ...prev, [`${idx}-tool`]: null }));
+      return;
+    }
+
+    const tl = tradeLines[idx];
+    const tradeId = tl.tradeId;
+    if (!tradeId) return;
+
+    const key = `${idx}-tool`;
+    setBaselineLoading((prev) => ({ ...prev, [key]: true }));
+    setBaselineError((prev) => ({ ...prev, [key]: null }));
+
+    try {
+      let baselineIds: string[] = [];
+
+      if (source === "MW4H") {
+        const res = await apiFetch<TradeToolBaselineResponse>(
+          `/trades/${tradeId}/tools-baseline`
+        );
+        baselineIds = res.toolIds ?? [];
+      } else if (source === "CUSTOMER") {
+        const res = await apiFetch<CustomerToolBaselineResponse>(
+          `/customers/${customerId}/tools-baseline`
+        );
+        const match = res.baselines?.find((b) => b.tradeId === tradeId);
+        baselineIds = match?.toolIds ?? [];
+      }
+
+      if (baselineIds.length === 0) {
+        setBaselineError((prev) => ({
+          ...prev,
+          [key]: "No tool baseline configured for this trade.",
+        }));
+      }
+
+      setTradeLines((prev) =>
+        prev.map((line, i) => {
+          if (i !== idx) return line;
+          const deltaItems = line.toolItems.filter((r) => !r.isBaseline);
+          const deltaIds = new Set(deltaItems.map((r) => r.typeId));
+          const newBaseline: ReqItem[] = baselineIds
+            .filter((id) => !deltaIds.has(id))
+            .map((id) => ({ typeId: id, enforcement: DEFAULT_ENFORCEMENT, isBaseline: true }));
+          return {
+            ...line,
+            toolBaselineSource: source,
+            toolItems: [...newBaseline, ...deltaItems],
+          };
+        })
+      );
+    } catch (err) {
+      setBaselineError((prev) => ({
+        ...prev,
+        [key]: err instanceof Error ? err.message : "Failed to load tool baseline",
+      }));
+    } finally {
+      setBaselineLoading((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const loadPpeBaseline = async (idx: number, source: BaselineSource) => {
+    if (source === null) {
+      setTradeLines((prev) =>
+        prev.map((line, i) =>
+          i !== idx
+            ? line
+            : {
+                ...line,
+                ppeBaselineSource: null,
+                ppeItems: line.ppeItems.filter((r) => !r.isBaseline),
+              }
+        )
+      );
+      setBaselineError((prev) => ({ ...prev, [`${idx}-ppe`]: null }));
+      return;
+    }
+
+    const tl = tradeLines[idx];
+    const tradeId = tl.tradeId;
+    if (!tradeId) return;
+
+    const key = `${idx}-ppe`;
+    setBaselineLoading((prev) => ({ ...prev, [key]: true }));
+    setBaselineError((prev) => ({ ...prev, [key]: null }));
+
+    try {
+      let baselineIds: string[] = [];
+
+      if (source === "MW4H") {
+        const res = await apiFetch<TradePpeBaselineResponse>(
+          `/trades/${tradeId}/ppe-baseline`
+        );
+        baselineIds = res.ppeTypeIds ?? [];
+      } else if (source === "CUSTOMER") {
+        const res = await apiFetch<CustomerPpeBaselineResponse>(
+          `/customers/${customerId}/ppe-baseline`
+        );
+        const match = res.baselines?.find((b) => b.tradeId === tradeId);
+        baselineIds = match?.ppeIds ?? match?.ppeTypeIds ?? [];
+      }
+
+      if (baselineIds.length === 0) {
+        setBaselineError((prev) => ({
+          ...prev,
+          [key]: "No PPE baseline configured for this trade.",
+        }));
+      }
+
+      setTradeLines((prev) =>
+        prev.map((line, i) => {
+          if (i !== idx) return line;
+          const deltaItems = line.ppeItems.filter((r) => !r.isBaseline);
+          const deltaIds = new Set(deltaItems.map((r) => r.typeId));
+          const newBaseline: ReqItem[] = baselineIds
+            .filter((id) => !deltaIds.has(id))
+            .map((id) => ({ typeId: id, enforcement: DEFAULT_ENFORCEMENT, isBaseline: true }));
+          return {
+            ...line,
+            ppeBaselineSource: source,
+            ppeItems: [...newBaseline, ...deltaItems],
+          };
+        })
+      );
+    } catch (err) {
+      setBaselineError((prev) => ({
+        ...prev,
+        [key]: err instanceof Error ? err.message : "Failed to load PPE baseline",
+      }));
+    } finally {
+      setBaselineLoading((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const handleTradeChange = (idx: number, newTradeId: string) => {
+    setTradeLines((prev) =>
+      prev.map((line, i) => {
+        if (i !== idx) return line;
+        if (line.tradeId === newTradeId) return line;
+        return {
+          ...line,
+          tradeId: newTradeId,
+          toolBaselineSource: null,
+          ppeBaselineSource: null,
+          toolItems: line.toolItems.filter((r) => !r.isBaseline),
+          ppeItems: line.ppeItems.filter((r) => !r.isBaseline),
+        };
+      })
+    );
+    setBaselineError((prev) => {
+      const next = { ...prev };
+      delete next[`${idx}-tool`];
+      delete next[`${idx}-ppe`];
+      return next;
     });
   };
 
-  const toggleCertification = (cert: string) => {
-    const newCerts = jobRequirements.certifications.includes(cert)
-      ? jobRequirements.certifications.filter((c) => c !== cert)
-      : [...jobRequirements.certifications, cert];
-    setJobRequirements({ ...jobRequirements, certifications: newCerts });
-  };
+  // --- Validation ---
+  const canSubmit =
+    tradeLines.length > 0 &&
+    tradeLines.every((tl) => tl.tradeId) &&
+    !submitting;
 
-  const togglePPE = (ppeTypeId: string) => {
-    const next = jobRequirements.ppe.includes(ppeTypeId)
-      ? jobRequirements.ppe.filter((p) => p !== ppeTypeId)
-      : [...jobRequirements.ppe, ppeTypeId];
-    setJobRequirements({ ...jobRequirements, ppe: next });
-  };
-
-  const customerTools: string[] = [];
-
-  // Form validation
-  const canSubmit = orderName.trim() !== "" && !commissionError;
-
-  // Handle create order
-  const handleCreateOrder = () => {
+  // --- Submit ---
+  const handleCreateOrder = async () => {
     if (!canSubmit) return;
+    setSubmitting(true);
+    setError(null);
 
-    const orderId = generateOrderId();
-    const payload = {
-      orderId,
-      customerId,
-      orderName: orderName.trim(),
-      site: site.trim() || null,
-      startDate: startDate || null,
-      endDate: endDate || null,
-      notes: notes.trim() || null,
-      status: "Draft",
-      tradeLines,
-      modifiers,
-      sdPayDeltaRate: sdDeltaRates.sdPayDeltaRate,
-      sdBillDeltaRate: sdDeltaRates.sdBillDeltaRate,
-      commissionPlanId: selectedCommissionPlanId || null,
-      commissionSplits,
-      origin: { type: "manual" },
-    };
+    try {
+      const tradeRequirements: CreateTradeRequirement[] = tradeLines.map((tl) => {
+        const ppeRequirements: CreatePpeRequirement[] = tl.ppeItems.map((r) => ({
+          ppeTypeId: r.typeId,
+          enforcement: r.enforcement,
+        }));
+        const toolRequirements: CreateToolRequirement[] = tl.toolItems.map((r) => ({
+          toolId: r.typeId,
+          enforcement: r.enforcement,
+        }));
+        const certRequirements: CreateCertRequirement[] = tl.certItems.map((r) => ({
+          certTypeId: r.typeId,
+          enforcement: r.enforcement,
+        }));
+        const complianceRequirements: CreateComplianceRequirement[] = tl.complianceItems
+          .filter((c) => c.requirementTypeId)
+          .map((c) => ({
+            requirementTypeId: c.requirementTypeId,
+            ...(c.variantId ? { variantId: c.variantId } : {}),
+          }));
 
-    // Store in sessionStorage
-    const storageKey = `jp.orderDraft.${customerId}.${orderId}`;
-    sessionStorage.setItem(storageKey, JSON.stringify(payload));
+        return {
+          tradeId: tl.tradeId,
+          basePayRate: tl.basePayRate || undefined,
+          baseBillRate: tl.baseBillRate || undefined,
+          requestedHeadcount: tl.requestedHeadcount || undefined,
+          startDate: tl.startDate || undefined,
+          expectedEndDate: tl.expectedEndDate || undefined,
+          notes: tl.notes || undefined,
+          ...(ppeRequirements.length > 0 ? { ppeRequirements } : {}),
+          ...(toolRequirements.length > 0 ? { toolRequirements } : {}),
+          ...(certRequirements.length > 0 ? { certRequirements } : {}),
+          ...(complianceRequirements.length > 0 ? { complianceRequirements } : {}),
+        };
+      });
 
-    // Navigate to order detail
-    router.push(`/customers/${customerId}/orders/${orderId}`);
+      const payload: CreateOrderPayload = {
+        title: title || undefined,
+        customerId,
+        ...(hasShiftDifferential && sdPayDeltaRate != null ? { sdPayDeltaRate } : {}),
+        ...(hasShiftDifferential && sdBillDeltaRate != null ? { sdBillDeltaRate } : {}),
+        ...(selectedCommissionPlanId ? { commissionPlanId: selectedCommissionPlanId } : {}),
+        tradeRequirements,
+      };
+
+      const result = await apiFetch<CreateOrderResponse>("/orders", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      router.push(`/customers/${customerId}/orders/${result.id}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to create order";
+      setError(msg);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleCancel = () => {
-    router.push(`/customers/${customerId}`);
+  const handleCancel = () => router.push(`/customers/${customerId}`);
+
+  const baselineLabel = (source: BaselineSource): string => {
+    if (source === "MW4H") return "Using MW4H minimum baseline";
+    if (source === "CUSTOMER") return "Using Customer baseline";
+    return "No baseline selected";
   };
 
   return (
-    <div className="create-order-container">
+    <div className="co-container">
       {/* Page Header */}
       <div className="page-header">
-        <button className="back-btn" onClick={handleCancel}>
-          â† Back to Customer
-        </button>
+        <button className="back-btn" onClick={handleCancel}>← Back to Customer</button>
         <h1>Create Order</h1>
-        <span className="customer-id-badge">{customerId}</span>
+        <span className="cust-badge">{customerId}</span>
       </div>
 
-      {/* Order Setup Section */}
-      <div className="form-section">
-        <h2>Order Setup</h2>
-        <div className="form-grid">
-          <div className="form-row full-width">
-            <label className="form-label">Order Name <span className="required">*</span></label>
-            <input
-              type="text"
-              className="form-input"
-              value={orderName}
-              onChange={(e) => setOrderName(e.target.value)}
-              placeholder="e.g., Downtown Tower Phase 2 â€” Millwright Services"
-            />
-          </div>
-          <div className="form-row">
-            <label className="form-label">Site / Location</label>
-            <input
-              type="text"
-              className="form-input"
-              value={site}
-              onChange={(e) => setSite(e.target.value)}
-              placeholder="e.g., Downtown Tower â€” Los Angeles, CA"
-            />
-          </div>
-          <div className="form-row">
-            <label className="form-label">Start Date</label>
-            <input
-              type="date"
-              className="form-input"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </div>
-          <div className="form-row">
-            <label className="form-label">End Date</label>
-            <input
-              type="date"
-              className="form-input"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </div>
-          <div className="form-row full-width">
-            <label className="form-label">Project Description</label>
-            <textarea
-              className="form-textarea"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Internal notes about this order..."
-              rows={2}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Trade Lines Section */}
-      <div className="form-section">
-        <div className="section-header">
-          <h2>Trade Lines</h2>
-          <button type="button" className="add-row-btn" onClick={addTradeLine}>
-            + Add Trade
-          </button>
-        </div>
-        <div className="trades-table-wrap">
-          <table className="trades-table">
-            <thead>
-              <tr>
-                <th>Trade</th>
-                <th>Project</th>
-                <th>Headcount</th>
-                <th>Hours</th>
-                <th>Base Pay</th>
-                <th>Bill Rate</th>
-                <th>OT Mult</th>
-                <th>
-                  <span className="th-with-hint">
-                    Burdened Pay
-                    <span className="auto-calc-hint">Auto-calculated</span>
-                  </span>
-                </th>
-                <th>
-                  <span className="th-with-hint">
-                    GM $/HR
-                    <span className="auto-calc-hint">Auto-calculated</span>
-                  </span>
-                </th>
-                <th>
-                  <span className="th-with-hint">
-                    GM %
-                    <span className="auto-calc-hint">Auto-calculated</span>
-                  </span>
-                </th>
-                <th>
-                  <span className="th-with-hint">
-                    Health
-                    <span className="auto-calc-hint">Auto-calculated</span>
-                  </span>
-                </th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {tradeLines.map((line, idx) => (
-                <tr key={idx}>
-                  <td>
-                    <select
-                      className="form-select-sm"
-                      value={line.trade}
-                      onChange={(e) => updateTradeLine(idx, "trade", e.target.value)}
-                    >
-                      {AVAILABLE_TRADES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      className="form-input-sm"
-                      value={line.projectName}
-                      onChange={(e) => updateTradeLine(idx, "projectName", e.target.value)}
-                      placeholder="Project / PO"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="form-input-sm num-input"
-                      value={line.headcount}
-                      onChange={(e) => updateTradeLine(idx, "headcount", parseInt(e.target.value) || 0)}
-                      min={1}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="form-input-sm num-input"
-                      value={line.hours}
-                      onChange={(e) => updateTradeLine(idx, "hours", parseInt(e.target.value) || 0)}
-                      min={0}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="form-input-sm num-input"
-                      value={line.basePay}
-                      onChange={(e) => updateTradeLine(idx, "basePay", parseFloat(e.target.value) || 0)}
-                      min={0}
-                      step={0.01}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="form-input-sm num-input"
-                      value={line.billRate}
-                      onChange={(e) => updateTradeLine(idx, "billRate", parseFloat(e.target.value) || 0)}
-                      min={0}
-                      step={0.01}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="form-input-sm num-input"
-                      value={line.otMultiplier}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        const parsed = parseFloat(val);
-                        if (val === "" || isNaN(parsed)) {
-                          updateTradeLine(idx, "otMultiplier", OT_MULTIPLIER_DEFAULT);
-                        } else {
-                          updateTradeLine(idx, "otMultiplier", parsed);
-                        }
-                      }}
-                      onBlur={(e) => handleOtMultiplierBlur(idx, e.target.value)}
-                      min={OT_MULTIPLIER_MIN}
-                      step={0.001}
-                      title={`Minimum: ${OT_MULTIPLIER_MIN}`}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="form-input-sm form-input-disabled num-input"
-                      value={line.burdenedPay}
-                      disabled
-                      readOnly
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="form-input-sm form-input-disabled num-input"
-                      value={line.gmPerHr}
-                      disabled
-                      readOnly
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="form-input-sm form-input-disabled num-input"
-                      value={line.gmPct}
-                      disabled
-                      readOnly
-                    />
-                  </td>
-                  <td>
-                    <span className={`health-badge health-badge-${line.health.toLowerCase()}`}>
-                      {line.health}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="remove-row-btn"
-                      onClick={() => removeTradeLine(idx)}
-                      disabled={tradeLines.length <= 1}
-                      title="Remove trade"
-                    >
-                      Ã—
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Modifiers Section */}
-      <div className="form-section">
-        <h2>Modifiers</h2>
-        <div className="modifiers-grid">
-          <div className="form-row">
-            <label className="form-label">Per Diem ($/day)</label>
-            <input
-              type="number"
-              className="form-input"
-              value={modifiers.perDiem}
-              onChange={(e) => updateModifier("perDiem", parseFloat(e.target.value) || 0)}
-              min={0}
-              step={0.01}
-            />
-          </div>
-          <div className="form-row">
-            <label className="form-label">Travel ($/mi)</label>
-            <input
-              type="number"
-              className="form-input"
-              value={modifiers.travel}
-              onChange={(e) => updateModifier("travel", parseFloat(e.target.value) || 0)}
-              min={0}
-              step={0.01}
-            />
-          </div>
-          <div className="form-row">
-            <label className="form-label">Bonuses / Premiums ($/hr)</label>
-            <input
-              type="number"
-              className="form-input"
-              value={modifiers.bonuses}
-              onChange={(e) => updateModifier("bonuses", parseFloat(e.target.value) || 0)}
-              min={0}
-              step={0.01}
-            />
-          </div>
-        </div>
-
-        {/* Shift Differential Section */}
-        <div className="sd-delta-section">
-          <h3>Shift Differential</h3>
-          <div className="sd-delta-grid">
-            <div className="form-row">
-              <label className="form-label">SD Pay Delta ($/hr)</label>
-              <input
-                type="number"
-                className="form-input"
-                value={sdDeltaRates.sdPayDeltaRate ?? ""}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  updateSDDeltaRate("sdPayDeltaRate", val === "" ? null : parseFloat(val));
-                }}
-                min={0}
-                step={0.01}
-                placeholder="e.g., 2.50"
-              />
-            </div>
-            <div className="form-row">
-              <label className="form-label">SD Bill Delta ($/hr)</label>
-              <input
-                type="number"
-                className="form-input"
-                value={sdDeltaRates.sdBillDeltaRate ?? ""}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  updateSDDeltaRate("sdBillDeltaRate", val === "" ? null : parseFloat(val));
-                }}
-                min={0}
-                step={0.01}
-                placeholder="e.g., 4.00"
-              />
-            </div>
-          </div>
-          <p className="sd-helper-text">
-            Additive delta applied only to SD hours. Base rates remain on trade lines.
-          </p>
-        </div>
-      </div>
-
-      {/* Job Requirements Section */}
-      <div className="form-section">
-        <h2>Job Requirements</h2>
-
-        {/* Required Tools */}
-        <div className="requirements-subsection">
-          <h3>Required Tools</h3>
-          <div className="toggle-row toggle-row-inline">
-            <label className="toggle-label">
-              <input
-                type="checkbox"
-                checked={jobRequirements.useCustomerToolList}
-                onChange={toggleUseCustomerToolList}
-              />
-              <span>Use Customer Tool List</span>
-            </label>
-            <label className="toggle-label">
-              <input
-                type="checkbox"
-                checked={jobRequirements.useMW4HStandardToolList}
-                onChange={toggleUseMW4HStandardToolList}
-              />
-              <span>MW4H Standard Tool List</span>
-            </label>
-          </div>
-          {jobRequirements.useCustomerToolList && (
-            <div className="customer-tools-preview">
-              <span className="preview-label">Customer Tools ({tradeLines[0]?.trade}):</span>
-              <div className="preview-items">
-                {customerTools.length > 0 ? (
-                  customerTools.map((tool) => (
-                    <span key={tool} className="preview-tag">{tool}</span>
-                  ))
-                ) : (
-                  <span className="preview-empty">No customer tools defined for this trade</span>
-                )}
-              </div>
-            </div>
-          )}
-          {jobRequirements.useMW4HStandardToolList && (
-            <div className="customer-tools-preview mw4h-tools-preview">
-              <span className="preview-label">MW4H Standard Tools:</span>
-              <div className="preview-items">
-                {MW4H_STANDARD_TOOLS.map((tool) => (
-                  <span key={tool} className="preview-tag mw4h-tag">{tool}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Trade-specific tool display (UI-only) */}
-          {(() => {
-            const TRADE_DISPLAY_ALIAS: Record<string, string> = {
-              Millwrights: "Millwright",
-              Electricians: "Electrician",
-            };
-
-            const MW4H_BASELINE_BY_TRADE: Record<string, string[]> = {
-              Millwright: ["Hard Hat", "FR Clothing", "Steel Toe Boots", "Safety Glasses", "Gloves", "Basic Hand Tools"],
-              Electrician: ["Hard Hat", "FR Clothing", "Steel Toe Boots", "Safety Glasses", "Gloves", "Basic Hand Tools"],
-            };
-
-            const tradesToDisplay = ["Millwrights", "Electricians"];
-
-            const toolIdToName = new Map(toolTypes.map((t) => [t.id, t.name]));
-
-            const getBaselineForTrade = (displayTrade: string): string[] => {
-              const normalizedTrade = TRADE_DISPLAY_ALIAS[displayTrade] || displayTrade;
-              if (jobRequirements.useCustomerToolList) {
-                return [];
-              } else if (jobRequirements.useMW4HStandardToolList) {
-                return MW4H_BASELINE_BY_TRADE[normalizedTrade] || [];
-              }
-              return [];
-            };
-
-            const computeTradeToolGroups = (displayTrade: string) => {
-              const baselineNames = getBaselineForTrade(displayTrade);
-              const selected = jobRequirements.tools.map((id) => ({ id, name: toolIdToName.get(id) || id }));
-              const baselineTools = selected.filter((t) => baselineNames.includes(t.name));
-              const jobSpecificTools = selected.filter((t) => !baselineNames.includes(t.name));
-              return { baselineTools, jobSpecificTools };
-            };
-
-            return (
-              <div className="trade-tools-display-wrapper">
-                <div className="trade-tools-note-box">
-                  Tools are selected once for the Job Order. Each trade section shows how the selected tools relate to the baseline for that trade.
-                </div>
-
-                {tradesToDisplay.map((displayTrade) => {
-                  const { baselineTools, jobSpecificTools } = computeTradeToolGroups(displayTrade);
-                  return (
-                    <div key={displayTrade} className="trade-tools-section">
-                      <h4 className="trade-tools-section-header">Required Tools — {displayTrade}</h4>
-                      <p className="trade-tools-helper-text">
-                        Baseline tools are copied into this Job Order and will not change if customer defaults change later.
-                      </p>
-
-                      <div className="trade-tools-group">
-                        <div className="trade-tools-group-header">
-                          <span className="trade-tools-group-title">Baseline tools</span>
-                          <span className="trade-tools-group-badge badge-copied">Copied at creation</span>
-                        </div>
-                        <p className="trade-tools-group-subtext">These tools came from the selected baseline for this trade.</p>
-                        <div className="trade-tools-list">
-                          {baselineTools.length > 0 ? (
-                            baselineTools.map((tool) => (
-                              <span key={tool.id} className="trade-tool-item">
-                                <span className="trade-tool-name">{tool.name}</span>
-                                <span className="trade-tool-badge badge-baseline">Baseline</span>
-                              </span>
-                            ))
-                          ) : (
-                            <span className="trade-tools-empty">No baseline tools selected</span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="trade-tools-group">
-                        <div className="trade-tools-group-header">
-                          <span className="trade-tools-group-title">Job-specific additions</span>
-                        </div>
-                        <p className="trade-tools-group-subtext">Added for this Job Order only.</p>
-                        <div className="trade-tools-list">
-                          {jobSpecificTools.length > 0 ? (
-                            jobSpecificTools.map((tool) => (
-                              <span key={tool.id} className="trade-tool-item">
-                                <span className="trade-tool-name">{tool.name}</span>
-                                <span className="trade-tool-badge badge-job-specific">Job-specific</span>
-                              </span>
-                            ))
-                          ) : (
-                            <span className="trade-tools-empty">No job-specific tools added</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-
-          <div className="checkbox-grid">
-            {toolTypes.length === 0 ? (
-              <div style={{ color: "rgba(255,255,255,0.45)", fontStyle: "italic", padding: "8px 0" }}>
-                {registryLoaded ? "No Tool Types found. Add them in Admin → Tools." : "Loading Tool Types..."}
-              </div>
-            ) : (
-              toolTypes.map((item) => (
-                <label key={item.id} className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={jobRequirements.tools.includes(item.id)}
-                    onChange={() => toggleTool(item.id)}
-                  />
-                  <span>{item.name}</span>
-                </label>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Required Certifications */}
-        <div className="requirements-subsection">
-          <h3>Required Certifications</h3>
-          <div className="checkbox-grid">
-            {MOCK_CERTIFICATIONS.map((cert) => (
-              <label key={cert} className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={jobRequirements.certifications.includes(cert)}
-                  onChange={() => toggleCertification(cert)}
-                />
-                <span>{cert}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        {/* Required PPE */}
-        <div className="requirements-subsection">
-          <h3>Required PPE</h3>
-          <div className="checkbox-grid">
-            {ppeTypes.length === 0 ? (
-              <div style={{ color: "rgba(255,255,255,0.45)", fontStyle: "italic", padding: "8px 0" }}>
-                {registryLoaded ? "No PPE Types found. Add them in Admin → PPE." : "Loading PPE Types..."}
-              </div>
-            ) : (
-              ppeTypes.map((item) => (
-                <label key={item.id} className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={jobRequirements.ppe.includes(item.id)}
-                    onChange={() => togglePPE(item.id)}
-                  />
-                  <span>{item.name}</span>
-                </label>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Commission Plan Selection */}
-      {commissionPlans.length > 0 && (
-        <div className="form-section">
-          <h2>Commission Plan</h2>
-          <span className="section-note" style={{ display: "block", marginBottom: 12 }}>
-            Select a commission plan for this order, or leave as default.
-          </span>
-          <select
-            className="form-select"
-            value={selectedCommissionPlanId}
-            onChange={(e) => setSelectedCommissionPlanId(e.target.value)}
-          >
-            <option value="">Use Global Default Plan</option>
-            {commissionPlans.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}{p.isDefault ? " (Default)" : ""}
-              </option>
-            ))}
-          </select>
+      {error && <div className="error-banner">{error}</div>}
+      {registryLoadErrors.length > 0 && (
+        <div className="registry-warn-banner">
+          <strong>Registry load warnings:</strong> {registryLoadErrors.join(" · ")}
         </div>
       )}
 
-      {/* Commission Splits Section */}
+      {/* Job Order Title */}
       <div className="form-section">
-        <div className="section-header">
-          <div>
-            <h2>Commission Splits</h2>
-            <span className="section-note">Overrides Customer default salesperson for this Order</span>
-          </div>
-          <button type="button" className="add-row-btn" onClick={addCommissionSplit}>
-            + Add Split
-          </button>
+        <h2>Job Order Title</h2>
+        <div className="form-row">
+          <label className="form-label">Title</label>
+          <input
+            type="text"
+            className="form-input"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Example: Tesla Shutdown – Phase 2"
+          />
         </div>
-        {commissionError && (
-          <div className="error-banner">
-            Commission splits must total exactly 100%. Current total: {totalCommissionPct}%
+      </div>
+
+      {/* Shift Differential — toggle-driven */}
+      <div className="form-section">
+        <div className="toggle-header">
+          <h2>Shift Differential</h2>
+          <label className="toggle-label">
+            <input
+              type="checkbox"
+              checked={hasShiftDifferential}
+              onChange={(e) => setHasShiftDifferential(e.target.checked)}
+            />
+            <span>Is there a shift differential?</span>
+          </label>
+        </div>
+        {hasShiftDifferential && (
+          <>
+            <div className="sd-grid">
+              <div className="form-row">
+                <label className="form-label">Shift Differential Pay Delta ($/hr)</label>
+                <input type="number" className="form-input" value={sdPayDeltaRate ?? ""}
+                  onChange={(e) => setSdPayDeltaRate(e.target.value === "" ? null : parseFloat(e.target.value))}
+                  min={0} step={0.01} placeholder="e.g., 2.50" />
+              </div>
+              <div className="form-row">
+                <label className="form-label">Shift Differential Bill Delta ($/hr)</label>
+                <input type="number" className="form-input" value={sdBillDeltaRate ?? ""}
+                  onChange={(e) => setSdBillDeltaRate(e.target.value === "" ? null : parseFloat(e.target.value))}
+                  min={0} step={0.01} placeholder="e.g., 4.00" />
+              </div>
+            </div>
+            <p className="helper-text">Additive delta applied only to shift differential hours. Base rates remain on trade lines.</p>
+          </>
+        )}
+      </div>
+
+      {/* Commission — split-aware */}
+      <div className="form-section">
+        <h2>Commission</h2>
+        <div className="form-row" style={{ marginBottom: 16 }}>
+          <label className="form-label">Commission Plan</label>
+          <select className="form-select" value={selectedCommissionPlanId}
+            onChange={(e) => setSelectedCommissionPlanId(e.target.value)}>
+            <option value="">Use Global Default Plan</option>
+            {commissionPlans.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}{p.isDefault ? " (Default)" : ""}</option>
+            ))}
+          </select>
+        </div>
+        <div className="toggle-header">
+          <label className="toggle-label">
+            <input
+              type="checkbox"
+              checked={isCommissionSplit}
+              onChange={(e) => setIsCommissionSplit(e.target.checked)}
+            />
+            <span>Is commission split?</span>
+          </label>
+        </div>
+        {isCommissionSplit && (
+          <div className="split-notice">
+            <div className="split-notice-icon">⚡</div>
+            <div>
+              <p className="split-notice-title">Split Commission Mode</p>
+              <p className="split-notice-text">
+                This order uses split commission allocation. The selected plan above applies to the total commissionable amount.
+                Split commission detail allocation will be configured in the next commission wiring pass.
+              </p>
+            </div>
           </div>
         )}
-        <div className="commission-table-wrap">
-          <table className="commission-table">
-            <thead>
-              <tr>
-                <th>Person</th>
-                <th>Role</th>
-                <th>Split %</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {commissionSplits.map((split, idx) => (
-                <tr key={idx}>
-                  <td>
-                    <select
-                      className="form-select-sm"
-                      value={split.person}
-                      onChange={(e) => updateCommissionSplit(idx, "person", e.target.value)}
-                    >
-                      {MOCK_PERSONS.map((p) => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <select
-                      className="form-select-sm"
-                      value={split.role}
-                      onChange={(e) => updateCommissionSplit(idx, "role", e.target.value)}
-                    >
-                      {COMMISSION_ROLES.map((r) => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      className="form-input-sm num-input"
-                      value={split.splitPct}
-                      onChange={(e) => updateCommissionSplit(idx, "splitPct", parseFloat(e.target.value) || 0)}
-                      min={0}
-                      max={100}
-                      step={0.01}
-                    />
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="remove-row-btn"
-                      onClick={() => removeCommissionSplit(idx)}
-                      disabled={commissionSplits.length <= 1}
-                      title="Remove split"
-                    >
-                      Ã—
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={2} className="total-label">Total</td>
-                <td className={`total-value ${commissionError ? "error" : ""}`}>
-                  {totalCommissionPct}%
-                </td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
+      </div>
+
+      {/* Trade Requirements */}
+      <div className="form-section">
+        <div className="section-header">
+          <h2>Trade Requirements</h2>
+          <button type="button" className="add-btn" onClick={addTradeLine}>+ Add Trade</button>
         </div>
+
+        {tradeLines.map((tl, idx) => {
+          const ppeKey = `${idx}-ppe`;
+          const toolKey = `${idx}-tools`;
+          const certKey = `${idx}-certs`;
+          const compKey = `${idx}-compliance`;
+          const ppeCount = tl.ppeItems.length;
+          const toolCount = tl.toolItems.length;
+          const certCount = tl.certItems.length;
+          const compCount = tl.complianceItems.length;
+
+          return (
+            <div key={idx} className="tl-card">
+              <div className="tl-header">
+                <span className="tl-num">Trade Line {idx + 1}</span>
+                {tradeLines.length > 1 && (
+                  <button type="button" className="rm-btn" onClick={() => removeTradeLine(idx)}>×</button>
+                )}
+              </div>
+
+              {/* Core fields */}
+              <div className="tl-grid">
+                <div className="form-row">
+                  <label className="form-label">Trade *</label>
+                  <select className="form-select-sm" value={tl.tradeId}
+                    onChange={(e) => handleTradeChange(idx, e.target.value)}>
+                    {!registryLoaded && <option value="">Loading...</option>}
+                    {trades.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+                <div className="form-row">
+                  <label className="form-label">Base Pay Rate</label>
+                  <input type="text" className="form-input-sm" value={tl.basePayRate}
+                    onChange={(e) => updateTradeLine(idx, { basePayRate: e.target.value })} placeholder="30.00" />
+                </div>
+                <div className="form-row">
+                  <label className="form-label">Base Bill Rate</label>
+                  <input type="text" className="form-input-sm" value={tl.baseBillRate}
+                    onChange={(e) => updateTradeLine(idx, { baseBillRate: e.target.value })} placeholder="55.00" />
+                </div>
+                <div className="form-row">
+                  <label className="form-label">Headcount</label>
+                  <input type="number" className="form-input-sm num-input" value={tl.requestedHeadcount}
+                    onChange={(e) => updateTradeLine(idx, { requestedHeadcount: parseInt(e.target.value) || 0 })} min={1} />
+                </div>
+                <div className="form-row">
+                  <label className="form-label">Start Date</label>
+                  <input type="date" className="form-input-sm" value={tl.startDate}
+                    onChange={(e) => updateTradeLine(idx, { startDate: e.target.value })} />
+                </div>
+                <div className="form-row">
+                  <label className="form-label">Expected End Date</label>
+                  <input type="date" className="form-input-sm" value={tl.expectedEndDate}
+                    onChange={(e) => updateTradeLine(idx, { expectedEndDate: e.target.value })} />
+                </div>
+              </div>
+
+              <div className="form-row" style={{ marginTop: 12 }}>
+                <label className="form-label">Notes</label>
+                <textarea className="form-textarea" value={tl.notes} rows={2}
+                  onChange={(e) => updateTradeLine(idx, { notes: e.target.value })}
+                  placeholder="Trade-line notes..." />
+              </div>
+
+              {/* --- PPE Requirements (baseline-first) --- */}
+              <div className="req-section">
+                <button type="button" className="req-toggle" onClick={() => toggleSection(ppeKey)}>
+                  <span className="req-toggle-label">
+                    PPE Requirements
+                    {ppeCount > 0 && <span className="req-count">{ppeCount}</span>}
+                  </span>
+                  <span className="req-chevron">{isExpanded(ppeKey) ? "▾" : "▸"}</span>
+                </button>
+                {isExpanded(ppeKey) && (
+                  <div className="req-body">
+                    {/* Baseline selection */}
+                    <div className="baseline-area">
+                      <span className="baseline-area-label">Baseline Source</span>
+                      <div className="baseline-btns">
+                        <button type="button"
+                          className={`baseline-btn-inline ${tl.ppeBaselineSource === "MW4H" ? "baseline-active" : ""}`}
+                          onClick={() => loadPpeBaseline(idx, tl.ppeBaselineSource === "MW4H" ? null : "MW4H")}
+                          disabled={!!baselineLoading[`${idx}-ppe`]}>
+                          Use MW4H PPE Baseline
+                        </button>
+                        <button type="button"
+                          className={`baseline-btn-inline ${tl.ppeBaselineSource === "CUSTOMER" ? "baseline-active" : ""}`}
+                          onClick={() => loadPpeBaseline(idx, tl.ppeBaselineSource === "CUSTOMER" ? null : "CUSTOMER")}
+                          disabled={!!baselineLoading[`${idx}-ppe`]}>
+                          Use Customer PPE Baseline
+                        </button>
+                      </div>
+                      {baselineLoading[`${idx}-ppe`] && (
+                        <span className="baseline-loading">Loading PPE baseline…</span>
+                      )}
+                      {baselineError[`${idx}-ppe`] && (
+                        <span className="baseline-error">{baselineError[`${idx}-ppe`]}</span>
+                      )}
+                      {tl.ppeBaselineSource && !baselineLoading[`${idx}-ppe`] && (
+                        <span className="baseline-indicator">{baselineLabel(tl.ppeBaselineSource)}</span>
+                      )}
+                    </div>
+
+                    {/* PPE items — baseline items shown locked, manual items toggleable */}
+                    <div className="delta-area">
+                      <span className="delta-label">
+                        {tl.ppeBaselineSource ? "PPE items (baseline + order-specific deltas)" : "PPE items for this order"}
+                      </span>
+                      {ppeTypes.length === 0 ? (
+                        <span className="req-empty">{registryLoaded ? "No PPE types available" : "Loading..."}</span>
+                      ) : (
+                        <div className="req-list">
+                          {ppeTypes.map((item) => {
+                            const sel = tl.ppeItems.find((r) => r.typeId === item.id);
+                            const isBl = !!sel?.isBaseline;
+                            return (
+                              <div key={item.id} className={`req-row ${sel ? "req-row-active" : ""} ${isBl ? "req-row-baseline" : ""}`}>
+                                <label className={`req-check-label ${isBl ? "req-check-locked" : ""}`}>
+                                  <input type="checkbox" checked={!!sel}
+                                    disabled={isBl}
+                                    onChange={() => toggleReqItem(idx, "ppeItems", item.id)} />
+                                  <span>{item.name}</span>
+                                  {isBl && <span className="baseline-tag">baseline</span>}
+                                </label>
+                                {sel && (
+                                  <select className="enf-select" value={sel.enforcement}
+                                    onChange={(e) => setReqEnforcement(idx, "ppeItems", item.id, e.target.value as RequirementEnforcement)}>
+                                    <option value="FILTER">{ENFORCEMENT_LABELS.FILTER}</option>
+                                    <option value="FLAG">{ENFORCEMENT_LABELS.FLAG}</option>
+                                  </select>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* --- Tool Requirements (baseline-first) --- */}
+              <div className="req-section">
+                <button type="button" className="req-toggle" onClick={() => toggleSection(toolKey)}>
+                  <span className="req-toggle-label">
+                    Tool Requirements
+                    {toolCount > 0 && <span className="req-count">{toolCount}</span>}
+                  </span>
+                  <span className="req-chevron">{isExpanded(toolKey) ? "▾" : "▸"}</span>
+                </button>
+                {isExpanded(toolKey) && (
+                  <div className="req-body">
+                    {/* Baseline selection */}
+                    <div className="baseline-area">
+                      <span className="baseline-area-label">Baseline Source</span>
+                      <div className="baseline-btns">
+                        <button type="button"
+                          className={`baseline-btn-inline ${tl.toolBaselineSource === "MW4H" ? "baseline-active" : ""}`}
+                          onClick={() => loadToolBaseline(idx, tl.toolBaselineSource === "MW4H" ? null : "MW4H")}
+                          disabled={!!baselineLoading[`${idx}-tool`]}>
+                          Use MW4H Tool Baseline
+                        </button>
+                        <button type="button"
+                          className={`baseline-btn-inline ${tl.toolBaselineSource === "CUSTOMER" ? "baseline-active" : ""}`}
+                          onClick={() => loadToolBaseline(idx, tl.toolBaselineSource === "CUSTOMER" ? null : "CUSTOMER")}
+                          disabled={!!baselineLoading[`${idx}-tool`]}>
+                          Use Customer Tool Baseline
+                        </button>
+                      </div>
+                      {baselineLoading[`${idx}-tool`] && (
+                        <span className="baseline-loading">Loading tool baseline…</span>
+                      )}
+                      {baselineError[`${idx}-tool`] && (
+                        <span className="baseline-error">{baselineError[`${idx}-tool`]}</span>
+                      )}
+                      {tl.toolBaselineSource && !baselineLoading[`${idx}-tool`] && (
+                        <span className="baseline-indicator">{baselineLabel(tl.toolBaselineSource)}</span>
+                      )}
+                    </div>
+
+                    {/* Baseline items rendered from state (visible even if registry fails) */}
+                    {tl.toolItems.filter((r) => r.isBaseline).length > 0 && (
+                      <div className="delta-area">
+                        <span className="delta-label">Baseline tools (locked)</span>
+                        <div className="req-list">
+                          {tl.toolItems.filter((r) => r.isBaseline).map((item) => {
+                            const toolMeta = tools.find((t) => t.id === item.typeId);
+                            return (
+                              <div key={item.typeId} className="req-row req-row-active req-row-baseline">
+                                <label className="req-check-label req-check-locked">
+                                  <input type="checkbox" checked disabled />
+                                  <span>{toolMeta?.name ?? `Tool ${item.typeId.slice(0, 8)}…`}</span>
+                                  <span className="baseline-tag">baseline</span>
+                                </label>
+                                <select className="enf-select" value={item.enforcement}
+                                  onChange={(e) => setReqEnforcement(idx, "toolItems", item.typeId, e.target.value as RequirementEnforcement)}>
+                                  <option value="FILTER">{ENFORCEMENT_LABELS.FILTER}</option>
+                                  <option value="FLAG">{ENFORCEMENT_LABELS.FLAG}</option>
+                                </select>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Order-specific delta items already selected */}
+                    {tl.toolItems.filter((r) => !r.isBaseline).length > 0 && (
+                      <div className="delta-area">
+                        <span className="delta-label">Order-specific tools (added)</span>
+                        <div className="req-list">
+                          {tl.toolItems.filter((r) => !r.isBaseline).map((item) => {
+                            const toolMeta = tools.find((t) => t.id === item.typeId);
+                            return (
+                              <div key={item.typeId} className="req-row req-row-active">
+                                <label className="req-check-label">
+                                  <input type="checkbox" checked
+                                    onChange={() => toggleReqItem(idx, "toolItems", item.typeId)} />
+                                  <span>{toolMeta?.name ?? `Tool ${item.typeId.slice(0, 8)}…`}</span>
+                                  <span className="delta-tag">order-specific</span>
+                                </label>
+                                <select className="enf-select" value={item.enforcement}
+                                  onChange={(e) => setReqEnforcement(idx, "toolItems", item.typeId, e.target.value as RequirementEnforcement)}>
+                                  <option value="FILTER">{ENFORCEMENT_LABELS.FILTER}</option>
+                                  <option value="FLAG">{ENFORCEMENT_LABELS.FLAG}</option>
+                                </select>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Delta-add checklist: non-baseline tools from registry */}
+                    <div className="delta-area">
+                      <span className="delta-label">
+                        {tl.toolBaselineSource ? "Add order-specific tools" : "Select tools for this order"}
+                      </span>
+                      {tools.length === 0 ? (
+                        <span className="req-empty">{registryLoaded ? "Tool registry is empty or failed to load — check warnings above" : "Loading tool registry..."}</span>
+                      ) : (
+                        <div className="req-list">
+                          {tools
+                            .filter((item) => !tl.toolItems.find((r) => r.typeId === item.id))
+                            .map((item) => (
+                              <div key={item.id} className="req-row">
+                                <label className="req-check-label">
+                                  <input type="checkbox" checked={false}
+                                    onChange={() => toggleReqItem(idx, "toolItems", item.id)} />
+                                  <span>{item.name}</span>
+                                </label>
+                              </div>
+                            ))}
+                          {tools.filter((item) => !tl.toolItems.find((r) => r.typeId === item.id)).length === 0 && (
+                            <span className="req-empty">All available tools are already selected</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* --- Certification Requirements --- */}
+              <div className="req-section">
+                <button type="button" className="req-toggle" onClick={() => toggleSection(certKey)}>
+                  <span className="req-toggle-label">
+                    Certification Requirements
+                    {certCount > 0 && <span className="req-count">{certCount}</span>}
+                  </span>
+                  <span className="req-chevron">{isExpanded(certKey) ? "▾" : "▸"}</span>
+                </button>
+                {isExpanded(certKey) && (
+                  <div className="req-body">
+                    {/* Already-selected certs shown at top */}
+                    {tl.certItems.length > 0 && (
+                      <div className="delta-area" style={{ marginBottom: 12 }}>
+                        <span className="delta-label">Selected certification requirements</span>
+                        <div className="req-list">
+                          {tl.certItems.map((item) => {
+                            const certMeta = certTypes.find((c) => c.id === item.typeId);
+                            return (
+                              <div key={item.typeId} className="req-row req-row-active">
+                                <label className="req-check-label">
+                                  <input type="checkbox" checked
+                                    onChange={() => toggleReqItem(idx, "certItems", item.typeId)} />
+                                  <span>{certMeta?.name ?? `Cert ${item.typeId.slice(0, 8)}…`}</span>
+                                </label>
+                                <select className="enf-select" value={item.enforcement}
+                                  onChange={(e) => setReqEnforcement(idx, "certItems", item.typeId, e.target.value as RequirementEnforcement)}>
+                                  <option value="FILTER">{ENFORCEMENT_LABELS.FILTER}</option>
+                                  <option value="FLAG">{ENFORCEMENT_LABELS.FLAG}</option>
+                                </select>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Available certs to add */}
+                    <div className="delta-area">
+                      <span className="delta-label">Add certification requirements</span>
+                      {certTypes.length === 0 ? (
+                        <span className="req-empty">{registryLoaded ? "Certification registry is empty or failed to load — check warnings above" : "Loading certification types..."}</span>
+                      ) : (
+                        <div className="req-list">
+                          {certTypes
+                            .filter((item) => !tl.certItems.find((r) => r.typeId === item.id))
+                            .map((item) => (
+                              <div key={item.id} className="req-row">
+                                <label className="req-check-label">
+                                  <input type="checkbox" checked={false}
+                                    onChange={() => toggleReqItem(idx, "certItems", item.id)} />
+                                  <span>{item.name}</span>
+                                </label>
+                              </div>
+                            ))}
+                          {certTypes.filter((item) => !tl.certItems.find((r) => r.typeId === item.id)).length === 0 && tl.certItems.length > 0 && (
+                            <span className="req-empty">All available certifications are selected</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* --- Compliance Requirements --- */}
+              <div className="req-section">
+                <button type="button" className="req-toggle" onClick={() => toggleSection(compKey)}>
+                  <span className="req-toggle-label">
+                    Compliance Requirements
+                    {compCount > 0 && <span className="req-count">{compCount}</span>}
+                  </span>
+                  <span className="req-chevron">{isExpanded(compKey) ? "▾" : "▸"}</span>
+                </button>
+                {isExpanded(compKey) && (
+                  <div className="req-body">
+                    {tl.complianceItems.length > 0 && (
+                      <div className="delta-area" style={{ marginBottom: 12 }}>
+                        <span className="delta-label">Selected compliance requirements</span>
+                      </div>
+                    )}
+                    {tl.complianceItems.map((ci, cIdx) => {
+                      const variantsForType = complianceVariants.filter((v) => v.requirementTypeId === ci.requirementTypeId);
+                      return (
+                        <div key={cIdx} className="compliance-row">
+                          <select className="form-select-sm" value={ci.requirementTypeId}
+                            onChange={(e) => updateComplianceItem(idx, cIdx, "requirementTypeId", e.target.value)}>
+                            {complianceReqTypes.map((rt) => <option key={rt.id} value={rt.id}>{rt.name}</option>)}
+                          </select>
+                          <select className="form-select-sm" value={ci.variantId}
+                            onChange={(e) => updateComplianceItem(idx, cIdx, "variantId", e.target.value)}>
+                            <option value="">No variant</option>
+                            {variantsForType.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                          </select>
+                          <button type="button" className="rm-btn" onClick={() => removeComplianceItem(idx, cIdx)}>×</button>
+                        </div>
+                      );
+                    })}
+                    {complianceReqTypes.length === 0 ? (
+                      <span className="req-empty" style={{ display: "block", marginTop: 8 }}>
+                        {registryLoaded ? "Compliance registry is empty or failed to load — check warnings above" : "Loading compliance types..."}
+                      </span>
+                    ) : (
+                      <button type="button" className="add-btn-sm" onClick={() => addComplianceItem(idx)}>
+                        + Add Compliance Requirement
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Form Actions */}
       <div className="form-actions">
-        <button type="button" className="cancel-btn" onClick={handleCancel}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="create-btn"
-          onClick={handleCreateOrder}
-          disabled={!canSubmit}
-        >
-          Create Order
+        <button type="button" className="cancel-btn" onClick={handleCancel}>Cancel</button>
+        <button type="button" className="create-btn" onClick={handleCreateOrder} disabled={!canSubmit}>
+          {submitting ? "Creating..." : "Create Order"}
         </button>
       </div>
 
       <style jsx>{`
-        .create-order-container {
-          padding: 24px 40px 60px;
-          max-width: 1400px;
-          margin: 0 auto;
-        }
-
-        .page-header {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          margin-bottom: 32px;
-        }
-
-        .back-btn {
-          background: none;
-          border: none;
-          color: rgba(255, 255, 255, 0.5);
-          font-size: 13px;
-          cursor: pointer;
-          padding: 0;
-          transition: color 0.15s ease;
-        }
-
-        .back-btn:hover {
-          color: #3b82f6;
-        }
-
-        .page-header h1 {
-          font-size: 24px;
-          font-weight: 600;
-          color: #fff;
-          margin: 0;
-        }
-
-        .customer-id-badge {
-          font-family: var(--font-geist-mono), monospace;
-          font-size: 12px;
-          padding: 4px 10px;
-          background: rgba(59, 130, 246, 0.15);
-          color: #3b82f6;
-          border-radius: 6px;
-        }
-
-        .form-section {
-          margin-bottom: 32px;
-          padding: 24px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 12px;
-        }
-
-        .form-section h2 {
-          font-size: 16px;
-          font-weight: 600;
-          color: #fff;
-          margin: 0 0 20px;
-        }
-
-        .section-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          margin-bottom: 16px;
-        }
-
-        .section-header h2 {
-          margin: 0;
-        }
-
-        .section-note {
-          display: block;
-          font-size: 11px;
-          color: rgba(245, 158, 11, 0.8);
-          margin-top: 4px;
-        }
-
-        .form-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
-        }
-
-        .form-row {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-
-        .form-row.full-width {
-          grid-column: 1 / -1;
-        }
-
-        .form-label {
-          font-size: 11px;
-          color: rgba(255, 255, 255, 0.5);
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
-        }
-
-        .required {
-          color: #ef4444;
-        }
-
-        .form-input,
-        .form-textarea {
-          padding: 10px 12px;
-          font-size: 13px;
-          color: #fff;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 6px;
-          transition: border-color 0.15s ease;
-        }
-
-        .form-input:focus,
-        .form-textarea:focus {
-          outline: none;
-          border-color: rgba(59, 130, 246, 0.5);
-        }
-
-        .form-input::placeholder,
-        .form-textarea::placeholder {
-          color: rgba(255, 255, 255, 0.3);
-        }
-
-        .form-textarea {
-          resize: vertical;
-          min-height: 60px;
-        }
-
-        /* Tables */
-        .trades-table-wrap,
-        .commission-table-wrap {
-          overflow-x: auto;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 8px;
-        }
-
-        .trades-table,
-        .commission-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 12px;
-        }
-
-        .trades-table th,
-        .commission-table th {
-          padding: 10px 8px;
-          text-align: left;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-          white-space: nowrap;
-        }
-
-        .trades-table td,
-        .commission-table td {
-          padding: 8px 6px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-        }
-
-        .trades-table tr:last-child td,
-        .commission-table tbody tr:last-child td {
-          border-bottom: none;
-        }
-
-        .commission-table tfoot td {
-          padding: 10px 8px;
-          border-top: 1px solid rgba(255, 255, 255, 0.08);
-          font-weight: 600;
-        }
-
-        .total-label {
-          text-align: right;
-          color: rgba(255, 255, 255, 0.7);
-        }
-
-        .total-value {
-          color: #22c55e;
-        }
-
-        .total-value.error {
-          color: #ef4444;
-        }
-
-        .th-with-hint {
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-        }
-
-        .auto-calc-hint {
-          font-size: 9px;
-          font-weight: 400;
-          color: rgba(245, 158, 11, 0.8);
-          text-transform: none;
-          letter-spacing: 0;
-        }
-
-        .form-input-sm,
-        .form-select-sm {
-          width: 100%;
-          padding: 6px 8px;
-          font-size: 12px;
-          color: #fff;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 4px;
-        }
-
-        .form-input-sm:focus,
-        .form-select-sm:focus {
-          outline: none;
-          border-color: rgba(59, 130, 246, 0.5);
-        }
-
-        .form-input-sm {
-          min-width: 80px;
-        }
-
-        .form-input-sm.num-input {
-          min-width: 60px;
-          max-width: 80px;
-        }
-
-        .form-input-sm.form-input-disabled {
-          background: rgba(255, 255, 255, 0.02);
-          color: rgba(255, 255, 255, 0.4);
-          cursor: not-allowed;
-          border-color: rgba(255, 255, 255, 0.05);
-        }
-
-        .form-select-sm {
-          min-width: 100px;
-          cursor: pointer;
-        }
-
-        .health-badge {
-          display: inline-block;
-          padding: 4px 10px;
-          font-size: 11px;
-          font-weight: 500;
-          border-radius: 10px;
-          text-align: center;
-          min-width: 52px;
-          user-select: none;
-        }
-
-        .health-badge-good {
-          background: rgba(34, 197, 94, 0.15);
-          color: #22c55e;
-        }
-
-        .health-badge-watch {
-          background: rgba(245, 158, 11, 0.15);
-          color: #f59e0b;
-        }
-
-        .health-badge-risk {
-          background: rgba(239, 68, 68, 0.15);
-          color: #ef4444;
-        }
-
-        .add-row-btn {
-          padding: 6px 12px;
-          font-size: 12px;
-          font-weight: 500;
-          color: #3b82f6;
-          background: rgba(59, 130, 246, 0.1);
-          border: 1px solid rgba(59, 130, 246, 0.3);
-          border-radius: 4px;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-
-        .add-row-btn:hover {
-          background: rgba(59, 130, 246, 0.2);
-        }
-
-        .remove-row-btn {
-          width: 24px;
-          height: 24px;
-          padding: 0;
-          font-size: 16px;
-          font-weight: 500;
-          color: rgba(239, 68, 68, 0.7);
-          background: transparent;
-          border: 1px solid rgba(239, 68, 68, 0.3);
-          border-radius: 4px;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-
-        .remove-row-btn:hover:not(:disabled) {
-          color: #ef4444;
-          background: rgba(239, 68, 68, 0.1);
-          border-color: rgba(239, 68, 68, 0.5);
-        }
-
-        .remove-row-btn:disabled {
-          opacity: 0.3;
-          cursor: not-allowed;
-        }
-
-        .modifiers-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
-        }
-
-        .sd-delta-section {
-          margin-top: 24px;
-          padding-top: 20px;
-          border-top: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        .sd-delta-section h3 {
-          font-size: 13px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.8);
-          margin: 0 0 12px;
-        }
-
-        .sd-delta-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 16px;
-          max-width: 500px;
-        }
-
-        .sd-helper-text {
-          margin: 12px 0 0;
-          font-size: 11px;
-          color: rgba(255, 255, 255, 0.4);
-          font-style: italic;
-        }
-
-        .error-banner {
-          padding: 12px 16px;
-          margin-bottom: 16px;
-          background: rgba(239, 68, 68, 0.1);
-          border: 1px solid rgba(239, 68, 68, 0.3);
-          border-radius: 8px;
-          color: #ef4444;
-          font-size: 13px;
-        }
-
-        .form-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 12px;
-          padding-top: 24px;
-          border-top: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        .cancel-btn {
-          padding: 12px 24px;
-          font-size: 14px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.7);
-          background: transparent;
-          border: 1px solid rgba(255, 255, 255, 0.15);
-          border-radius: 6px;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-
-        .cancel-btn:hover {
-          color: #fff;
-          border-color: rgba(255, 255, 255, 0.3);
-        }
-
-        .create-btn {
-          padding: 12px 24px;
-          font-size: 14px;
-          font-weight: 500;
-          color: #fff;
-          background: #3b82f6;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          transition: background 0.15s ease;
-        }
-
-        .create-btn:hover:not(:disabled) {
-          background: #2563eb;
-        }
-
-        .create-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .requirements-subsection {
-          margin-bottom: 24px;
-          padding-bottom: 20px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        .requirements-subsection:last-child {
-          margin-bottom: 0;
-          padding-bottom: 0;
-          border-bottom: none;
-        }
-
-        .requirements-subsection h3 {
-          font-size: 13px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.8);
-          margin: 0 0 12px;
-        }
-
-        .toggle-row {
-          margin-bottom: 12px;
-        }
-
-        .toggle-row-inline {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 16px;
-        }
-
-        .toggle-label {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 12px;
-          color: rgba(255, 255, 255, 0.7);
-          cursor: pointer;
-        }
-
-        .toggle-label input[type="checkbox"] {
-          width: 16px;
-          height: 16px;
-          accent-color: #3b82f6;
-          cursor: pointer;
-        }
-
-        .customer-tools-preview {
-          margin-bottom: 12px;
-          padding: 12px;
-          background: rgba(59, 130, 246, 0.08);
-          border: 1px solid rgba(59, 130, 246, 0.2);
-          border-radius: 6px;
-        }
-
-        .preview-label {
-          display: block;
-          font-size: 11px;
-          color: rgba(255, 255, 255, 0.5);
-          margin-bottom: 8px;
-        }
-
-        .preview-items {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-        }
-
-        .preview-tag {
-          padding: 4px 10px;
-          font-size: 11px;
-          background: rgba(59, 130, 246, 0.15);
-          color: #3b82f6;
-          border-radius: 4px;
-        }
-
-        .mw4h-tools-preview {
-          background: rgba(34, 197, 94, 0.08);
-          border-color: rgba(34, 197, 94, 0.2);
-        }
-
-        .mw4h-tag {
-          background: rgba(34, 197, 94, 0.15);
-          color: #22c55e;
-        }
-
-        .preview-empty {
-          font-size: 11px;
-          color: rgba(255, 255, 255, 0.4);
-          font-style: italic;
-        }
-
-        .checkbox-grid {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 8px;
-        }
-
-        .checkbox-label {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 12px;
-          color: rgba(255, 255, 255, 0.7);
-          cursor: pointer;
-          padding: 6px 8px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 4px;
-          transition: all 0.15s ease;
-        }
-
-        .checkbox-label:hover {
-          background: rgba(255, 255, 255, 0.04);
-          border-color: rgba(255, 255, 255, 0.1);
-        }
-
-        .checkbox-label input[type="checkbox"] {
-          width: 14px;
-          height: 14px;
-          accent-color: #3b82f6;
-          cursor: pointer;
-        }
-
-        .checkbox-label input[type="checkbox"]:checked + span {
-          color: #fff;
-        }
-
-        /* Trade-specific tool display styles (UI-only) */
-        .trade-tools-display-wrapper {
-          margin-bottom: 16px;
-        }
-
-        .trade-tools-note-box {
-          padding: 12px 16px;
-          margin-bottom: 16px;
-          background: rgba(59, 130, 246, 0.08);
-          border: 1px solid rgba(59, 130, 246, 0.2);
-          border-radius: 6px;
-          font-size: 12px;
-          color: rgba(255, 255, 255, 0.8);
-          line-height: 1.5;
-        }
-
-        .trade-tools-section {
-          margin-bottom: 20px;
-          padding: 16px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 8px;
-        }
-
-        .trade-tools-section:last-of-type {
-          margin-bottom: 16px;
-        }
-
-        .trade-tools-section-header {
-          font-size: 14px;
-          font-weight: 600;
-          color: #fff;
-          margin: 0 0 8px;
-        }
-
-        .trade-tools-helper-text {
-          font-size: 11px;
-          color: rgba(255, 255, 255, 0.5);
-          margin: 0 0 16px;
-          font-style: italic;
-        }
-
-        .trade-tools-group {
-          margin-bottom: 16px;
-          padding: 12px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 6px;
-        }
-
-        .trade-tools-group:last-child {
-          margin-bottom: 0;
-        }
-
-        .trade-tools-group-header {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          margin-bottom: 6px;
-        }
-
-        .trade-tools-group-title {
-          font-size: 12px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.9);
-        }
-
-        .trade-tools-group-badge {
-          padding: 2px 8px;
-          font-size: 10px;
-          font-weight: 500;
-          border-radius: 4px;
-        }
-
-        .badge-copied {
-          background: rgba(34, 197, 94, 0.15);
-          color: #22c55e;
-        }
-
-        .trade-tools-group-subtext {
-          font-size: 11px;
-          color: rgba(255, 255, 255, 0.4);
-          margin: 0 0 10px;
-        }
-
-        .trade-tools-list {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
-        .trade-tool-item {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 10px;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 4px;
-        }
-
-        .trade-tool-name {
-          font-size: 12px;
-          color: rgba(255, 255, 255, 0.85);
-        }
-
-        .trade-tool-badge {
-          padding: 2px 6px;
-          font-size: 9px;
-          font-weight: 500;
-          border-radius: 3px;
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
-        }
-
-        .badge-baseline {
-          background: rgba(59, 130, 246, 0.15);
-          color: #3b82f6;
-        }
-
-        .badge-job-specific {
-          background: rgba(245, 158, 11, 0.15);
-          color: #f59e0b;
-        }
-
-        .trade-tools-empty {
-          font-size: 11px;
-          color: rgba(255, 255, 255, 0.4);
-          font-style: italic;
-        }
+        .co-container { padding: 24px 40px 60px; max-width: 1400px; margin: 0 auto; }
+        .page-header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
+        .back-btn { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 13px; cursor: pointer; padding: 0; }
+        .back-btn:hover { color: #3b82f6; }
+        .page-header h1 { font-size: 24px; font-weight: 600; color: #fff; margin: 0; }
+        .cust-badge { font-family: var(--font-geist-mono), monospace; font-size: 12px; padding: 4px 10px; background: rgba(59,130,246,0.15); color: #3b82f6; border-radius: 6px; }
+
+        .error-banner { padding: 12px 16px; margin-bottom: 16px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; color: #ef4444; font-size: 13px; }
+        .registry-warn-banner { padding: 12px 16px; margin-bottom: 16px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px; color: #f59e0b; font-size: 12px; line-height: 1.5; }
+
+        .form-section { margin-bottom: 28px; padding: 24px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; }
+        .form-section h2 { font-size: 16px; font-weight: 600; color: #fff; margin: 0 0 16px; }
+        .section-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+        .section-header h2 { margin: 0; }
+
+        .form-row { display: flex; flex-direction: column; gap: 6px; }
+        .form-label { font-size: 11px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.3px; }
+        .form-input, .form-textarea, .form-select { padding: 10px 12px; font-size: 13px; color: #fff; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; }
+        .form-input:focus, .form-textarea:focus, .form-select:focus { outline: none; border-color: rgba(59,130,246,0.5); }
+        .form-input::placeholder, .form-textarea::placeholder { color: rgba(255,255,255,0.3); }
+        .form-textarea { resize: vertical; min-height: 60px; width: 100%; }
+        .form-select { cursor: pointer; }
+        .helper-text { margin: 12px 0 0; font-size: 11px; color: rgba(255,255,255,0.4); font-style: italic; }
+
+        /* Toggle headers */
+        .toggle-header { display: flex; align-items: center; gap: 16px; }
+        .toggle-header h2 { margin: 0; }
+        .toggle-label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: rgba(255,255,255,0.7); cursor: pointer; user-select: none; }
+        .toggle-label input[type="checkbox"] { width: 16px; height: 16px; accent-color: #3b82f6; cursor: pointer; }
+        .toggle-label input[type="checkbox"]:checked + span { color: #fff; }
+
+        /* Shift differential grid */
+        .sd-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; max-width: 500px; margin-top: 16px; }
+
+        /* Commission split notice */
+        .split-notice { display: flex; gap: 12px; margin-top: 14px; padding: 14px 16px; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 8px; }
+        .split-notice-icon { font-size: 18px; flex-shrink: 0; line-height: 1.4; }
+        .split-notice-title { font-size: 13px; font-weight: 600; color: #f59e0b; margin: 0 0 4px; }
+        .split-notice-text { font-size: 12px; color: rgba(255,255,255,0.55); margin: 0; line-height: 1.5; }
+
+        /* Trade line cards */
+        .tl-card { margin-bottom: 24px; padding: 20px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; }
+        .tl-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .tl-num { font-size: 14px; font-weight: 600; color: #fff; }
+        .tl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+
+        .form-input-sm, .form-select-sm { width: 100%; padding: 8px 10px; font-size: 12px; color: #fff; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; }
+        .form-input-sm:focus, .form-select-sm:focus { outline: none; border-color: rgba(59,130,246,0.5); }
+        .form-input-sm.num-input { max-width: 100px; }
+
+        /* Collapsible requirement sections */
+        .req-section { margin-top: 10px; border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; overflow: hidden; }
+        .req-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.02); border: none; color: rgba(255,255,255,0.7); font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s ease; }
+        .req-toggle:hover { background: rgba(255,255,255,0.04); }
+        .req-toggle-label { display: flex; align-items: center; gap: 8px; }
+        .req-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; font-size: 10px; font-weight: 700; background: rgba(59,130,246,0.2); color: #3b82f6; border-radius: 10px; }
+        .req-chevron { font-size: 11px; color: rgba(255,255,255,0.4); }
+        .req-body { padding: 12px 14px; }
+        .req-empty { font-size: 11px; color: rgba(255,255,255,0.4); font-style: italic; }
+
+        /* Baseline area inside requirement sections */
+        .baseline-area { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        .baseline-area-label { display: block; font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px; }
+        .baseline-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+        .baseline-btn-inline { padding: 5px 12px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.55); background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,255,255,0.15); border-radius: 6px; cursor: pointer; transition: all 0.15s ease; }
+        .baseline-btn-inline:hover { color: #3b82f6; border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.06); }
+        .baseline-active { color: #22c55e; border-color: rgba(34,197,94,0.5); border-style: solid; background: rgba(34,197,94,0.08); }
+        .baseline-active:hover { color: #22c55e; border-color: rgba(34,197,94,0.5); background: rgba(34,197,94,0.12); }
+        .baseline-indicator { display: block; margin-top: 8px; font-size: 11px; color: rgba(34,197,94,0.8); font-style: italic; }
+
+        /* Baseline loading / error indicators */
+        .baseline-loading { display: block; margin-top: 8px; font-size: 11px; color: rgba(59,130,246,0.8); font-style: italic; }
+        .baseline-error { display: block; margin-top: 8px; font-size: 11px; color: rgba(245,158,11,0.9); font-style: italic; }
+        .baseline-btn-inline:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Baseline item tag */
+        .baseline-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: rgba(34,197,94,0.9); background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); border-radius: 4px; }
+        .delta-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: rgba(59,130,246,0.9); background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.25); border-radius: 4px; }
+        .req-row-baseline { background: rgba(34,197,94,0.04); border-left: 2px solid rgba(34,197,94,0.3); }
+        .req-check-locked { cursor: default; }
+        .req-check-locked input[type="checkbox"] { cursor: default; opacity: 0.6; }
+
+        /* Delta area */
+        .delta-area {}
+        .delta-label { display: block; font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px; }
+
+        .req-list { display: flex; flex-direction: column; gap: 4px; }
+        .req-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; border-radius: 4px; transition: background 0.1s ease; }
+        .req-row-active { background: rgba(59,130,246,0.06); }
+        .req-check-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgba(255,255,255,0.7); cursor: pointer; }
+        .req-check-label input[type="checkbox"] { width: 14px; height: 14px; accent-color: #3b82f6; cursor: pointer; }
+        .req-check-label input[type="checkbox"]:checked + span { color: #fff; }
+
+        .enf-select { padding: 3px 8px; font-size: 10px; color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 4px; cursor: pointer; }
+        .enf-select:focus { outline: none; border-color: rgba(59,130,246,0.5); }
+
+        .compliance-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+        .compliance-row .form-select-sm { flex: 1; }
+
+        .add-btn { padding: 6px 12px; font-size: 12px; font-weight: 500; color: #3b82f6; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); border-radius: 4px; cursor: pointer; }
+        .add-btn:hover { background: rgba(59,130,246,0.2); }
+        .add-btn-sm { padding: 4px 10px; font-size: 11px; font-weight: 500; color: #3b82f6; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); border-radius: 4px; cursor: pointer; margin-top: 6px; }
+        .add-btn-sm:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .rm-btn { width: 24px; height: 24px; padding: 0; font-size: 16px; font-weight: 500; color: rgba(239,68,68,0.7); background: transparent; border: 1px solid rgba(239,68,68,0.3); border-radius: 4px; cursor: pointer; flex-shrink: 0; }
+        .rm-btn:hover { color: #ef4444; background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.5); }
+
+        .form-actions { display: flex; justify-content: flex-end; gap: 12px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.06); }
+        .cancel-btn { padding: 12px 24px; font-size: 14px; font-weight: 500; color: rgba(255,255,255,0.7); background: transparent; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; cursor: pointer; }
+        .cancel-btn:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+        .create-btn { padding: 12px 24px; font-size: 14px; font-weight: 500; color: #fff; background: #3b82f6; border: none; border-radius: 6px; cursor: pointer; }
+        .create-btn:hover:not(:disabled) { background: #2563eb; }
+        .create-btn:disabled { opacity: 0.5; cursor: not-allowed; }
       `}</style>
     </div>
   );
 }
-
-
