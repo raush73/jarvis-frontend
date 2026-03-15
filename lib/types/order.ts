@@ -62,6 +62,18 @@ export interface CreateOrderPayload {
   tradeRequirements?: CreateTradeRequirement[];
 }
 
+// -- GET /orders list item --
+
+export interface OrderListItem {
+  id: string;
+  title: string | null;
+  status: string;
+  customerId: string;
+  createdAt: string;
+  updatedAt: string;
+  customer?: { id: string; name: string } | null;
+}
+
 // -- Create order response (from POST /orders) --
 
 export interface CreateOrderResponse {

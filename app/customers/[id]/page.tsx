@@ -5,6 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { formatPhone } from "@/lib/format";
 import { apiFetch } from "@/lib/api";
+import type { OrderListItem } from "@/lib/types/order";
 
 // Trade row type for labor plan
 type TradeRow = {
@@ -679,6 +680,32 @@ export default function CustomerDetailPage() {
   const [addPpeDuplicateWarning, setAddPpeDuplicateWarning] = useState(false);
   const [ppeSaving, setPpeSaving] = useState(false);
   const [ppeError, setPpeError] = useState("");
+
+  // Real orders fetched from backend
+  const [fetchedOrders, setFetchedOrders] = useState<OrderListItem[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setOrdersLoading(true);
+        setOrdersError("");
+        const all = await apiFetch<OrderListItem[]>("/orders");
+        if (!alive) return;
+        setFetchedOrders(
+          (all ?? []).filter((o) => o.customerId === customerId)
+        );
+      } catch (e: unknown) {
+        if (!alive) return;
+        setOrdersError(e instanceof Error ? e.message : "Failed to load orders");
+      } finally {
+        if (alive) setOrdersLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [customerId]);
 
   // Merge customer with in-memory quotes
   const customer = { ...baseCustomer, quotes };
@@ -1474,7 +1501,7 @@ export default function CustomerDetailPage() {
               <span className="tab-count">{renderedContacts.length}</span>
             )}
             {tab.key === "orders" && (
-              <span className="tab-count">{customer.orders.length}</span>
+              <span className="tab-count">{draftOrders.length + fetchedOrders.length}</span>
             )}
             {tab.key === "quotes" && (
               <span className="tab-count">{customer.quotes.length}</span>
@@ -1779,38 +1806,64 @@ export default function CustomerDetailPage() {
                 + Create Order
               </button>
             </div>
+            {ordersLoading && (
+              <div className="placeholder-note">
+                <span>Loading orders…</span>
+              </div>
+            )}
+            {ordersError && (
+              <div className="placeholder-note" style={{ color: "#c0392b" }}>
+                <span>Failed to load orders: {ordersError}</span>
+              </div>
+            )}
+            {!ordersLoading && !ordersError && fetchedOrders.length === 0 && draftOrders.length === 0 && (
+              <div className="placeholder-note">
+                <span className="placeholder-icon">📋</span>
+                <span>No orders for this customer yet.</span>
+              </div>
+            )}
             <div className="orders-list">
-              {[...draftOrders, ...customer.orders].map((order) => {
-                const isDraft = "__isDraft" in order && order.__isDraft === true;
-                return (
-                  <div
-                    key={order.id}
-                    className="order-card"
-                    onClick={() => {
-                      router.push(`/orders/${order.id}`);
-                    }}
-                  >
-                    <div className="order-info">
-                      <span className="order-id">{order.id}</span>
-                      <span className="order-site">{isDraft ? ((order as typeof draftOrders[number]).orderName || (order as typeof draftOrders[number]).site || "—") : (order as typeof customer.orders[number]).site}</span>
-                    </div>
-                    <div className="order-meta">
-                      {!isDraft && (
-                        <span className="order-date">
-                          Start: {new Date((order as typeof customer.orders[number]).startDate).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
-                        </span>
-                      )}
-                      <span className={`order-status ${order.status.toLowerCase().replace(/[^a-z]/g, "-")}`}>
-                        {order.status}
-                      </span>
-                    </div>
+              {draftOrders.map((draft) => (
+                <div
+                  key={draft.id}
+                  className="order-card"
+                  onClick={() => router.push(`/orders/${draft.id}`)}
+                >
+                  <div className="order-info">
+                    <span className="order-id">{draft.orderName || draft.site || "Untitled Order"}</span>
+                    <span className="order-site">{draft.id}</span>
                   </div>
-                );
-              })}
+                  <div className="order-meta">
+                    <span className={`order-status ${draft.status.toLowerCase().replace(/[^a-z]/g, "-")}`}>
+                      {draft.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {fetchedOrders.map((order) => (
+                <div
+                  key={order.id}
+                  className="order-card"
+                  onClick={() => router.push(`/orders/${order.id}`)}
+                >
+                  <div className="order-info">
+                    <span className="order-id">{order.title || "Untitled Order"}</span>
+                    <span className="order-site">{order.id}</span>
+                  </div>
+                  <div className="order-meta">
+                    <span className="order-date">
+                      Created: {new Date(order.createdAt).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </span>
+                    <span className={`order-status ${order.status.toLowerCase().replace(/[^a-z]/g, "-")}`}>
+                      {order.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
