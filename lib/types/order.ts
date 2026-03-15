@@ -51,6 +51,14 @@ export interface CreateTradeRequirement {
   complianceRequirements?: CreateComplianceRequirement[];
 }
 
+// -- Job order contact payload (create) --
+
+export interface CreateJobOrderContactPayload {
+  customerContactId: string;
+  role: string;
+  isPrimary?: boolean;
+}
+
 // -- Create order payload --
 
 export interface CreateOrderPayload {
@@ -59,8 +67,18 @@ export interface CreateOrderPayload {
   sdPayDeltaRate?: number;
   sdBillDeltaRate?: number;
   commissionPlanId?: string;
+  jobSiteName?: string;
+  jobSiteAddress1?: string;
+  jobSiteAddress2?: string;
+  jobSiteCity?: string;
+  jobSiteState?: string;
+  jobSiteZip?: string;
+  jobSiteNotes?: string;
+  contacts?: CreateJobOrderContactPayload[];
   tradeRequirements?: CreateTradeRequirement[];
 }
+
+export type ApprovalStatus = "NOT_REQUIRED" | "PENDING" | "APPROVED" | "REJECTED";
 
 // -- GET /orders list item --
 
@@ -68,6 +86,7 @@ export interface OrderListItem {
   id: string;
   title: string | null;
   status: string;
+  approvalStatus?: ApprovalStatus;
   customerId: string;
   createdAt: string;
   updatedAt: string;
@@ -147,12 +166,33 @@ export interface OrderTradeRequirementResponse {
   complianceRequirements: OrderComplianceRequirementResponse[];
 }
 
+export interface JobOrderContactResponse {
+  id: string;
+  contactId: string;
+  contactName: string;
+  role: string;
+  isPrimary: boolean;
+}
+
 export interface OrderDetailResponse {
   id: string;
   title: string | null;
   status: string;
+  approvalStatus?: ApprovalStatus;
+  approvedByUserId?: string | null;
+  approvedAt?: string | null;
+  approvalNote?: string | null;
   customerId: string;
   customer: { id: string; name: string };
+  jobSiteName?: string | null;
+  jobSiteAddress1?: string | null;
+  jobSiteAddress2?: string | null;
+  jobSiteCity?: string | null;
+  jobSiteState?: string | null;
+  jobSiteZip?: string | null;
+  jobSiteNotes?: string | null;
+  jobLocationCode?: string | null;
+  jobOrderContacts?: JobOrderContactResponse[];
   tradeRequirements: OrderTradeRequirementResponse[];
   primaryCustomerContactId: string | null;
   primaryCustomerContact: {

@@ -112,19 +112,55 @@ export default function OrderDetailPage() {
           <span className="od-label">Commission Plan</span>
           <span className="od-value">{order.commissionPlan?.name ?? "Global Default"}</span>
         </div>
-        {order.primaryCustomerContact && (
-          <div className="od-summary-item">
-            <span className="od-label">Primary Contact</span>
-            <span className="od-value">
-              {order.primaryCustomerContact.firstName} {order.primaryCustomerContact.lastName}
-              {order.primaryCustomerContact.email ? ` — ${order.primaryCustomerContact.email}` : ""}
-            </span>
-          </div>
-        )}
+        <div className="od-summary-item">
+          <span className="od-label">Insurance Location ID</span>
+          <span className="od-value">{order.jobLocationCode || "Not assigned"}</span>
+        </div>
         <div className="od-summary-item">
           <span className="od-label">Created</span>
           <span className="od-value">{fmtDate(order.createdAt)}</span>
         </div>
+      </div>
+
+      {/* Job Site */}
+      {(order.jobSiteName || order.jobSiteAddress1 || order.jobSiteCity) && (
+        <div className="od-section">
+          <h2>Job Site</h2>
+          {order.jobSiteName && <div className="od-site-name">{order.jobSiteName}</div>}
+          <div className="od-site-addr">
+            {order.jobSiteAddress1 && <div>{order.jobSiteAddress1}</div>}
+            {order.jobSiteAddress2 && <div>{order.jobSiteAddress2}</div>}
+            {(order.jobSiteCity || order.jobSiteState || order.jobSiteZip) && (
+              <div>{[order.jobSiteCity, order.jobSiteState].filter(Boolean).join(", ")}{order.jobSiteZip ? ` ${order.jobSiteZip}` : ""}</div>
+            )}
+          </div>
+          {order.jobSiteNotes && <div className="od-site-notes">{order.jobSiteNotes}</div>}
+        </div>
+      )}
+
+      {/* Job Contacts */}
+      <div className="od-section">
+        <h2>Job Contacts</h2>
+        {order.jobOrderContacts && order.jobOrderContacts.length > 0 ? (
+          <div className="od-contacts-list">
+            {order.jobOrderContacts.map((joc) => (
+              <div key={joc.id} className="od-contact-row">
+                <span className="od-contact-name">{joc.contactName}</span>
+                <span className="od-contact-role">{joc.role.replace(/_/g, " ")}</span>
+                {joc.isPrimary && <span className="od-contact-primary">Primary</span>}
+              </div>
+            ))}
+          </div>
+        ) : order.primaryCustomerContact ? (
+          <div className="od-contacts-list">
+            <div className="od-contact-row">
+              <span className="od-contact-name">{order.primaryCustomerContact.firstName} {order.primaryCustomerContact.lastName}</span>
+              <span className="od-contact-role">Primary Contact</span>
+            </div>
+          </div>
+        ) : (
+          <p className="od-empty">No contacts assigned</p>
+        )}
       </div>
 
       {/* Trade Requirements */}
@@ -157,6 +193,15 @@ export default function OrderDetailPage() {
         .od-label { font-size: 11px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.5px; }
         .od-value { font-size: 14px; color: #fff; }
         .od-empty { font-size: 13px; color: rgba(255,255,255,0.4); font-style: italic; }
+
+        .od-site-name { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+        .od-site-addr { font-size: 13px; color: rgba(255,255,255,0.75); line-height: 1.6; }
+        .od-site-notes { font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 8px; font-style: italic; }
+        .od-contacts-list { display: flex; flex-direction: column; gap: 6px; }
+        .od-contact-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; }
+        .od-contact-name { font-size: 14px; font-weight: 500; color: #fff; }
+        .od-contact-role { font-size: 12px; color: rgba(255,255,255,0.5); text-transform: capitalize; }
+        .od-contact-primary { font-size: 10px; font-weight: 600; color: #22c55e; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); border-radius: 4px; padding: 2px 8px; }
       `}</style>
     </div>
   );

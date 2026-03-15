@@ -12,6 +12,7 @@ import type {
   CreateToolRequirement,
   CreateCertRequirement,
   CreateComplianceRequirement,
+  CreateJobOrderContactPayload,
   RequirementEnforcement,
 } from "@/lib/types/order";
 import { ENFORCEMENT_LABELS } from "@/lib/types/order";
@@ -22,6 +23,18 @@ type ToolOption = { id: string; name: string; active?: boolean };
 type CertTypeOption = { id: string; name: string; code?: string; categoryId?: string };
 type ComplianceReqTypeOption = { id: string; name: string };
 type ComplianceVariantOption = { id: string; name: string; requirementTypeId: string };
+
+type CustomerContactOption = { id: string; firstName: string; lastName: string; jobTitle?: string | null };
+type ContactRowState = { customerContactId: string; role: string; isPrimary: boolean };
+
+const CONTACT_ROLES = [
+  { value: "PROJECT_MANAGER", label: "Project Manager" },
+  { value: "SITE_SUPERVISOR", label: "Site Supervisor" },
+  { value: "SAFETY", label: "Safety" },
+  { value: "AP", label: "AP" },
+  { value: "EXECUTIVE", label: "Executive" },
+  { value: "OTHER", label: "Other" },
+];
 
 type ReqItem = { typeId: string; enforcement: RequirementEnforcement; isBaseline?: boolean };
 
@@ -84,6 +97,19 @@ export default function CreateOrderPage() {
   const [sdPayDeltaRate, setSdPayDeltaRate] = useState<number | null>(null);
   const [sdBillDeltaRate, setSdBillDeltaRate] = useState<number | null>(null);
 
+  // --- Job Site ---
+  const [jobSiteName, setJobSiteName] = useState("");
+  const [jobSiteAddress1, setJobSiteAddress1] = useState("");
+  const [jobSiteAddress2, setJobSiteAddress2] = useState("");
+  const [jobSiteCity, setJobSiteCity] = useState("");
+  const [jobSiteState, setJobSiteState] = useState("");
+  const [jobSiteZip, setJobSiteZip] = useState("");
+  const [jobSiteNotes, setJobSiteNotes] = useState("");
+
+  // --- Job Contacts ---
+  const [customerContacts, setCustomerContacts] = useState<CustomerContactOption[]>([]);
+  const [contactRows, setContactRows] = useState<ContactRowState[]>([]);
+
   // --- Commission ---
   const [commissionPlans, setCommissionPlans] = useState<CommissionPlanOption[]>([]);
   const [selectedCommissionPlanId, setSelectedCommissionPlanId] = useState("");
@@ -114,7 +140,7 @@ export default function CreateOrderPage() {
     async function load() {
       const errors: string[] = [];
       try {
-        const [tradesRes, ppeRes, toolsRes, certsRes, compReqRes, compVarRes, plansRes] =
+        const [tradesRes, ppeRes, toolsRes, certsRes, compReqRes, compVarRes, plansRes, contactsRes] =
           await Promise.all([
             apiFetch<TradeListItem[]>("/trades").catch((e) => { errors.push(`Trades: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<PpeTypeOption[]>("/ppe-types?activeOnly=true").catch((e) => { errors.push(`PPE: ${e instanceof Error ? e.message : "failed"}`); return []; }),
@@ -123,6 +149,7 @@ export default function CreateOrderPage() {
             apiFetch<ComplianceReqTypeOption[]>("/compliance-requirement-types").catch((e) => { errors.push(`Compliance Types: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<ComplianceVariantOption[]>("/compliance-variants").catch((e) => { errors.push(`Compliance Variants: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<CommissionPlanOption[]>("/commissions/plans").catch((e) => { errors.push(`Commission Plans: ${e instanceof Error ? e.message : "failed"}`); return []; }),
+            apiFetch<CustomerContactOption[]>(`/customer-contacts/customer/${customerId}`).catch((e) => { errors.push(`Customer Contacts: ${e instanceof Error ? e.message : "failed"}`); return []; }),
           ]);
         if (!alive) return;
         const tradeList = Array.isArray(tradesRes) ? tradesRes : [];
@@ -133,6 +160,7 @@ export default function CreateOrderPage() {
         setComplianceReqTypes(Array.isArray(compReqRes) ? compReqRes : []);
         setComplianceVariants(Array.isArray(compVarRes) ? compVarRes : []);
         setCommissionPlans(Array.isArray(plansRes) ? plansRes : []);
+        setCustomerContacts(Array.isArray(contactsRes) ? contactsRes : []);
         setTradeLines([createEmptyTradeLine(tradeList[0]?.id ?? "")]);
         if (errors.length > 0) setRegistryLoadErrors(errors);
       } catch {
@@ -143,7 +171,7 @@ export default function CreateOrderPage() {
     }
     load();
     return () => { alive = false; };
-  }, []);
+  }, [customerId]);
 
   // --- Trade line helpers ---
   const updateTradeLine = (idx: number, patch: Partial<TradeLineState>) => {
@@ -429,9 +457,25 @@ export default function CreateOrderPage() {
         };
       });
 
+      const contacts: CreateJobOrderContactPayload[] = contactRows
+        .filter((cr) => cr.customerContactId)
+        .map((cr) => ({
+          customerContactId: cr.customerContactId,
+          role: cr.role,
+          isPrimary: cr.isPrimary,
+        }));
+
       const payload: CreateOrderPayload = {
         title: title || undefined,
         customerId,
+        ...(jobSiteName ? { jobSiteName } : {}),
+        ...(jobSiteAddress1 ? { jobSiteAddress1 } : {}),
+        ...(jobSiteAddress2 ? { jobSiteAddress2 } : {}),
+        ...(jobSiteCity ? { jobSiteCity } : {}),
+        ...(jobSiteState ? { jobSiteState } : {}),
+        ...(jobSiteZip ? { jobSiteZip } : {}),
+        ...(jobSiteNotes ? { jobSiteNotes } : {}),
+        ...(contacts.length > 0 ? { contacts } : {}),
         ...(hasShiftDifferential && sdPayDeltaRate != null ? { sdPayDeltaRate } : {}),
         ...(hasShiftDifferential && sdBillDeltaRate != null ? { sdBillDeltaRate } : {}),
         ...(selectedCommissionPlanId ? { commissionPlanId: selectedCommissionPlanId } : {}),
@@ -489,6 +533,117 @@ export default function CreateOrderPage() {
             placeholder="Example: Tesla Shutdown – Phase 2"
           />
         </div>
+      </div>
+
+      {/* Job Site */}
+      <div className="form-section">
+        <h2>Job Site</h2>
+        <div className="form-row" style={{ marginBottom: 12 }}>
+          <label className="form-label">Site Name</label>
+          <input type="text" className="form-input" value={jobSiteName}
+            onChange={(e) => setJobSiteName(e.target.value)} placeholder="e.g., Tesla Gigafactory" />
+        </div>
+        <div className="form-row" style={{ marginBottom: 12 }}>
+          <label className="form-label">Address Line 1</label>
+          <input type="text" className="form-input" value={jobSiteAddress1}
+            onChange={(e) => setJobSiteAddress1(e.target.value)} placeholder="Street address" />
+        </div>
+        <div className="form-row" style={{ marginBottom: 12 }}>
+          <label className="form-label">Address Line 2</label>
+          <input type="text" className="form-input" value={jobSiteAddress2}
+            onChange={(e) => setJobSiteAddress2(e.target.value)} placeholder="Suite, building, gate, etc." />
+        </div>
+        <div className="site-csz-row">
+          <div className="form-row" style={{ flex: 2 }}>
+            <label className="form-label">City</label>
+            <input type="text" className="form-input" value={jobSiteCity}
+              onChange={(e) => setJobSiteCity(e.target.value)} placeholder="City" />
+          </div>
+          <div className="form-row" style={{ flex: 1 }}>
+            <label className="form-label">State</label>
+            <input type="text" className="form-input" value={jobSiteState}
+              onChange={(e) => setJobSiteState(e.target.value)} placeholder="TX" maxLength={2} />
+          </div>
+          <div className="form-row" style={{ flex: 1 }}>
+            <label className="form-label">Zip</label>
+            <input type="text" className="form-input" value={jobSiteZip}
+              onChange={(e) => setJobSiteZip(e.target.value)} placeholder="78701" maxLength={10} />
+          </div>
+        </div>
+        <div className="form-row" style={{ marginTop: 12 }}>
+          <label className="form-label">Site Notes</label>
+          <textarea className="form-textarea" value={jobSiteNotes} rows={2}
+            onChange={(e) => setJobSiteNotes(e.target.value)}
+            placeholder="Access instructions, gate info, reporting details..." />
+        </div>
+      </div>
+
+      {/* Job Contacts */}
+      <div className="form-section">
+        <div className="section-header">
+          <h2>Job Contacts</h2>
+          {customerContacts.length > 0 && (
+            <button type="button" className="add-btn" onClick={() => {
+              const firstAvailable = customerContacts.find(
+                (cc) => !contactRows.some((cr) => cr.customerContactId === cc.id && cr.role === "PROJECT_MANAGER")
+              );
+              setContactRows((prev) => [
+                ...prev,
+                {
+                  customerContactId: firstAvailable?.id ?? customerContacts[0]?.id ?? "",
+                  role: "PROJECT_MANAGER",
+                  isPrimary: prev.length === 0,
+                },
+              ]);
+            }}>+ Add Contact</button>
+          )}
+        </div>
+
+        {customerContacts.length === 0 && registryLoaded && (
+          <div className="contacts-empty">
+            No contacts found for this customer. Add contacts on the customer profile first.
+          </div>
+        )}
+
+        {contactRows.map((cr, idx) => {
+          const selectedContact = customerContacts.find((cc) => cc.id === cr.customerContactId);
+          return (
+            <div key={idx} className="contact-row">
+              <select className="form-select-sm contact-select" value={cr.customerContactId}
+                onChange={(e) => {
+                  setContactRows((prev) => prev.map((r, i) =>
+                    i === idx ? { ...r, customerContactId: e.target.value } : r
+                  ));
+                }}>
+                {customerContacts.map((cc) => (
+                  <option key={cc.id} value={cc.id}>
+                    {cc.firstName} {cc.lastName}{cc.jobTitle ? ` — ${cc.jobTitle}` : ""}
+                  </option>
+                ))}
+              </select>
+              <select className="form-select-sm role-select" value={cr.role}
+                onChange={(e) => {
+                  setContactRows((prev) => prev.map((r, i) =>
+                    i === idx ? { ...r, role: e.target.value } : r
+                  ));
+                }}>
+                {CONTACT_ROLES.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+              {cr.isPrimary && <span className="primary-badge">Primary</span>}
+              <button type="button" className="rm-btn" onClick={() => {
+                setContactRows((prev) => {
+                  const next = prev.filter((_, i) => i !== idx);
+                  if (cr.isPrimary && next.length > 0 && !next.some((r) => r.isPrimary)) {
+                    next[0] = { ...next[0], isPrimary: true };
+                  }
+                  return next;
+                });
+              }}>×</button>
+            </div>
+          );
+        })}
       </div>
 
       {/* Shift Differential — toggle-driven */}
@@ -978,6 +1133,16 @@ export default function CreateOrderPage() {
         .form-textarea { resize: vertical; min-height: 60px; width: 100%; }
         .form-select { cursor: pointer; }
         .helper-text { margin: 12px 0 0; font-size: 11px; color: rgba(255,255,255,0.4); font-style: italic; }
+
+        /* Job Site city/state/zip row */
+        .site-csz-row { display: flex; gap: 12px; margin-top: 12px; }
+
+        /* Job Contacts */
+        .contacts-empty { font-size: 13px; color: rgba(255,255,255,0.4); font-style: italic; padding: 8px 0; }
+        .contact-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .contact-select { flex: 2; }
+        .role-select { flex: 1; min-width: 140px; }
+        .primary-badge { font-size: 10px; font-weight: 600; color: #22c55e; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); border-radius: 4px; padding: 2px 8px; white-space: nowrap; }
 
         /* Toggle headers */
         .toggle-header { display: flex; align-items: center; gap: 16px; }

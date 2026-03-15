@@ -5,6 +5,8 @@
  * CANCELLED) to the four operational phases shown to users.
  */
 
+import type { ApprovalStatus } from './types/order';
+
 export type OrderPhase = 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
 
 const STATUS_TO_PHASE: Record<string, OrderPhase> = {
@@ -19,16 +21,14 @@ export function getOrderPhase(status: string): OrderPhase {
   const exact = STATUS_TO_PHASE[status];
   if (exact) return exact;
 
-  // UI-only draft variants (e.g. "Draft (UI-only)") map to DRAFT intentionally
   if (status.toUpperCase().includes('DRAFT')) return 'DRAFT';
 
-  // Unknown status — default to DRAFT as the safest read-only-safe phase.
-  // This should not occur in production; if it does, the UI will render a
-  // grey badge and no lifecycle actions, which is the least-harmful fallback.
   return 'DRAFT';
 }
 
-export function getPhaseLabel(phase: OrderPhase): string {
+export function getPhaseLabel(phase: OrderPhase, approvalStatus?: ApprovalStatus): string {
+  if (phase === 'DRAFT' && approvalStatus === 'PENDING') return 'Pending Approval';
+  if (phase === 'DRAFT' && approvalStatus === 'REJECTED') return 'Draft (Rejected)';
   switch (phase) {
     case 'DRAFT': return 'Draft';
     case 'ACTIVE': return 'Active';
@@ -37,7 +37,9 @@ export function getPhaseLabel(phase: OrderPhase): string {
   }
 }
 
-export function getPhaseBadgeClass(phase: OrderPhase): string {
+export function getPhaseBadgeClass(phase: OrderPhase, approvalStatus?: ApprovalStatus): string {
+  if (phase === 'DRAFT' && approvalStatus === 'PENDING') return 'phase-pending-approval';
+  if (phase === 'DRAFT' && approvalStatus === 'REJECTED') return 'phase-rejected';
   switch (phase) {
     case 'DRAFT': return 'phase-draft';
     case 'ACTIVE': return 'phase-active';
@@ -52,4 +54,6 @@ export const PHASE_BADGE_STYLES = `
   .phase-badge.phase-active { background: rgba(34,197,94,0.15); color: #22c55e; }
   .phase-badge.phase-completed { background: rgba(100,116,139,0.15); color: #64748b; }
   .phase-badge.phase-cancelled { background: rgba(239,68,68,0.15); color: #ef4444; }
+  .phase-badge.phase-pending-approval { background: rgba(245,158,11,0.15); color: #f59e0b; }
+  .phase-badge.phase-rejected { background: rgba(239,68,68,0.15); color: #ef4444; }
 `;
