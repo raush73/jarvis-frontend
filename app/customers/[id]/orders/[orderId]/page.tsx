@@ -8,6 +8,7 @@ import type {
   OrderTradeRequirementResponse,
 } from "@/lib/types/order";
 import { ENFORCEMENT_LABELS, type RequirementEnforcement } from "@/lib/types/order";
+import { getOrderPhase, getPhaseLabel, getPhaseBadgeClass, PHASE_BADGE_STYLES } from "@/lib/order-lifecycle";
 
 export default function OrderDetailPage() {
   const router = useRouter();
@@ -87,7 +88,7 @@ export default function OrderDetailPage() {
             <h1>{order.title || "Untitled Order"}</h1>
             <div className="od-meta">
               <span className="od-id-badge">{order.id}</span>
-              <span className={`od-status ${order.status.toLowerCase()}`}>{order.status}</span>
+              <span className={`od-status phase-badge ${getPhaseBadgeClass(getOrderPhase(order.status))}`}>{getPhaseLabel(getOrderPhase(order.status))}</span>
             </div>
           </div>
         </div>
@@ -148,9 +149,7 @@ export default function OrderDetailPage() {
         .od-meta { display: flex; align-items: center; gap: 10px; }
         .od-id-badge { font-family: var(--font-geist-mono), monospace; font-size: 12px; padding: 4px 10px; background: rgba(59,130,246,0.15); color: #3b82f6; border-radius: 6px; }
         .od-status { padding: 4px 12px; font-size: 11px; font-weight: 600; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .od-status.draft { background: rgba(148,163,184,0.15); color: #94a3b8; }
-        .od-status.active { background: rgba(34,197,94,0.15); color: #22c55e; }
-        .od-status.completed { background: rgba(59,130,246,0.15); color: #3b82f6; }
+        ${PHASE_BADGE_STYLES}
         .od-section { margin-bottom: 24px; padding: 24px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; }
         .od-section h2 { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.85); margin: 0 0 16px; }
         .od-summary { display: flex; gap: 32px; flex-wrap: wrap; }

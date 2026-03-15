@@ -5,6 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import type { OrderDetailResponse, OrderTradeRequirementResponse } from "@/lib/types/order";
 import { ENFORCEMENT_LABELS, type RequirementEnforcement } from "@/lib/types/order";
+import { getOrderPhase, getPhaseLabel, getPhaseBadgeClass, PHASE_BADGE_STYLES, type OrderPhase } from "@/lib/order-lifecycle";
 
 export type OrderDetailMode = "edit" | "view";
 
@@ -28,30 +29,51 @@ export function OrderDetail({ mode = "edit", backTo = "orders", customerId = nul
   const router = useRouter();
   const params = useParams();
   const orderId = params.id as string;
-  const isReadOnly = mode === "view";
 
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [order, setOrder] = useState<OrderDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const phase: OrderPhase = order ? getOrderPhase(order.status) : "DRAFT";
+  const isReadOnly = mode === "view" || phase === "COMPLETED" || phase === "CANCELLED";
+
+  async function loadOrder() {
+    try {
+      const data = await apiFetch<OrderDetailResponse>(`/orders/${orderId}`);
+      setOrder(data);
+      setError(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load order");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
-    async function load() {
-      try {
-        const data = await apiFetch<OrderDetailResponse>(`/orders/${orderId}`);
-        if (!alive) return;
-        setOrder(data);
-      } catch (err: unknown) {
-        if (!alive) return;
-        setError(err instanceof Error ? err.message : "Failed to load order");
-      } finally {
-        if (alive) setLoading(false);
-      }
-    }
-    load();
+    loadOrder().then(() => { if (!alive) return; });
     return () => { alive = false; };
   }, [orderId]);
+
+  async function handleLifecycleAction(action: "activate" | "complete" | "cancel") {
+    if (actionLoading) return;
+    if (action === "cancel" && !window.confirm("Are you sure you want to cancel this order?")) return;
+    if (action === "complete" && !window.confirm("Mark this order as completed?")) return;
+
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      await apiFetch(`/orders/${orderId}/${action}`, { method: "POST" });
+      await loadOrder();
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : `Failed to ${action} order`);
+    } finally {
+      setActionLoading(false);
+    }
+  }
 
   const handleBack = () => {
     if (backTo === "customer" && customerId) {
@@ -104,11 +126,45 @@ export function OrderDetail({ mode = "edit", backTo = "orders", customerId = nul
             <div className="header-title">
               <h1>{order.title || "Untitled Order"}</h1>
               <div className="header-meta">
-                <span className={`status-badge ${order.status.toLowerCase()}`}>{order.status}</span>
-                {isReadOnly && <span className="read-only-indicator">Read-Only View</span>}
+                <span className={`phase-badge ${getPhaseBadgeClass(phase)}`}>{getPhaseLabel(phase)}</span>
+                {isReadOnly && phase !== "COMPLETED" && phase !== "CANCELLED" && (
+                  <span className="read-only-indicator">Read-Only View</span>
+                )}
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Lifecycle Action Bar */}
+        <div className="lifecycle-bar">
+          {actionError && <div className="lifecycle-error">{actionError}</div>}
+          {phase === "DRAFT" && (
+            <button
+              className="lifecycle-btn lifecycle-activate"
+              onClick={() => handleLifecycleAction("activate")}
+              disabled={actionLoading}
+            >
+              {actionLoading ? "Activating..." : "Activate Order"}
+            </button>
+          )}
+          {phase === "ACTIVE" && (
+            <>
+              <button
+                className="lifecycle-btn lifecycle-complete"
+                onClick={() => handleLifecycleAction("complete")}
+                disabled={actionLoading}
+              >
+                {actionLoading ? "Processing..." : "Complete Order"}
+              </button>
+              <button
+                className="lifecycle-btn lifecycle-cancel"
+                onClick={() => handleLifecycleAction("cancel")}
+                disabled={actionLoading}
+              >
+                {actionLoading ? "Processing..." : "Cancel Order"}
+              </button>
+            </>
+          )}
         </div>
 
         {/* Tab Bar */}
@@ -144,7 +200,7 @@ export function OrderDetail({ mode = "edit", backTo = "orders", customerId = nul
                 </div>
                 <div className="summary-item">
                   <span className="label">Status</span>
-                  <span className="value">{order.status}</span>
+                  <span className="value">{getPhaseLabel(phase)}</span>
                 </div>
                 <div className="summary-item">
                   <span className="label">SD Pay Delta</span>
@@ -338,7 +394,7 @@ const baseStyles = `
   .order-detail-page { min-height: 100vh; background: linear-gradient(180deg, #0c0f14 0%, #111827 100%); }
   .order-detail-container { padding: 24px 40px 60px; max-width: 1200px; margin: 0 auto; }
 
-  .detail-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 32px; }
+  .detail-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
   .header-left { display: flex; flex-direction: column; gap: 12px; }
   .back-btn { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 13px; cursor: pointer; padding: 0; transition: color 0.15s ease; }
   .back-btn:hover { color: #3b82f6; }
@@ -346,11 +402,20 @@ const baseStyles = `
   .header-title h1 { font-size: 28px; font-weight: 600; color: #fff; margin: 0; letter-spacing: -0.5px; }
   .header-meta { display: flex; align-items: center; gap: 10px; }
 
-  .status-badge { padding: 4px 12px; font-size: 12px; font-weight: 600; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .status-badge.draft { background: rgba(148,163,184,0.15); color: #94a3b8; }
-  .status-badge.active { background: rgba(34,197,94,0.15); color: #22c55e; }
-  .status-badge.completed { background: rgba(59,130,246,0.15); color: #3b82f6; }
+  ${PHASE_BADGE_STYLES}
+
   .read-only-indicator { padding: 4px 12px; font-size: 11px; font-weight: 500; border-radius: 6px; background: rgba(148,163,184,0.15); color: rgba(148,163,184,0.8); border: 1px dashed rgba(148,163,184,0.3); }
+
+  .lifecycle-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+  .lifecycle-error { width: 100%; padding: 8px 14px; font-size: 13px; color: #fca5a5; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; margin-bottom: 4px; }
+  .lifecycle-btn { padding: 9px 20px; font-size: 13px; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; transition: all 0.15s ease; }
+  .lifecycle-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .lifecycle-activate { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+  .lifecycle-activate:hover:not(:disabled) { background: rgba(34,197,94,0.25); }
+  .lifecycle-complete { background: rgba(59,130,246,0.15); color: #93c5fd; border: 1px solid rgba(59,130,246,0.3); }
+  .lifecycle-complete:hover:not(:disabled) { background: rgba(59,130,246,0.25); }
+  .lifecycle-cancel { background: rgba(239,68,68,0.08); color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
+  .lifecycle-cancel:hover:not(:disabled) { background: rgba(239,68,68,0.15); }
 
   .tab-bar { display: flex; gap: 6px; margin-bottom: 24px; flex-wrap: wrap; }
   .tab-btn { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: rgba(255,255,255,0.65); padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.15s ease; }

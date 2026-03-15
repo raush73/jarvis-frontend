@@ -6,6 +6,7 @@ import Link from "next/link";
 import { formatPhone } from "@/lib/format";
 import { apiFetch } from "@/lib/api";
 import type { OrderListItem } from "@/lib/types/order";
+import { getOrderPhase, getPhaseLabel, getPhaseBadgeClass } from "@/lib/order-lifecycle";
 
 // Trade row type for labor plan
 type TradeRow = {
@@ -1834,8 +1835,8 @@ export default function CustomerDetailPage() {
                     <span className="order-site">{draft.id}</span>
                   </div>
                   <div className="order-meta">
-                    <span className={`order-status ${draft.status.toLowerCase().replace(/[^a-z]/g, "-")}`}>
-                      {draft.status}
+                    <span className={`order-status ${getPhaseBadgeClass(getOrderPhase(draft.status))}`}>
+                      {getPhaseLabel(getOrderPhase(draft.status))}
                     </span>
                   </div>
                 </div>
@@ -1858,8 +1859,8 @@ export default function CustomerDetailPage() {
                         year: "numeric",
                       })}
                     </span>
-                    <span className={`order-status ${order.status.toLowerCase().replace(/[^a-z]/g, "-")}`}>
-                      {order.status}
+                    <span className={`order-status ${getPhaseBadgeClass(getOrderPhase(order.status))}`}>
+                      {getPhaseLabel(getOrderPhase(order.status))}
                     </span>
                   </div>
                 </div>
@@ -3509,19 +3510,24 @@ export default function CustomerDetailPage() {
           letter-spacing: 0.3px;
         }
 
-        .order-status.active {
+        .order-status.phase-draft {
+          background: rgba(148, 163, 184, 0.15);
+          color: #94a3b8;
+        }
+
+        .order-status.phase-active {
           background: rgba(34, 197, 94, 0.15);
           color: #22c55e;
         }
 
-        .order-status.pending {
-          background: rgba(245, 158, 11, 0.15);
-          color: #f59e0b;
+        .order-status.phase-completed {
+          background: rgba(100, 116, 139, 0.15);
+          color: #64748b;
         }
 
-        .order-status.draft--ui-only- {
-          background: rgba(148, 163, 184, 0.15);
-          color: #94a3b8;
+        .order-status.phase-cancelled {
+          background: rgba(239, 68, 68, 0.15);
+          color: #ef4444;
         }
 
         /* Quotes Panel */
