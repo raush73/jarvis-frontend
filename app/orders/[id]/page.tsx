@@ -508,6 +508,12 @@ function TradeRequirementBlock({
         <div className="tr-f"><span className="tr-fl">End</span><span className="tr-fv">{fmtDate(tr.expectedEndDate)}</span></div>
       </div>
       {tr.notes && <p className="tr-notes">{tr.notes}</p>}
+      {tr.supervisorOverride && tr.supervisorContact && (
+        <div className="tr-supervisor">
+          <span className="tr-fl">Supervisor</span>
+          <span className="tr-supervisor-name">{tr.supervisorContact.firstName} {tr.supervisorContact.lastName}</span>
+        </div>
+      )}
       <EnfReqTags label="PPE" items={tr.ppeRequirements.map((r) => ({
         name: r.ppeType?.name ?? r.ppeTypeId, enforcement: r.enforcement,
       }))} />
@@ -535,6 +541,8 @@ function TradeRequirementBlock({
         .tr-fl { font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.4px; }
         .tr-fv { font-size: 13px; color: rgba(255,255,255,0.85); font-family: var(--font-geist-mono), monospace; }
         .tr-notes { font-size: 12px; color: rgba(255,255,255,0.6); margin: 4px 0 0; font-style: italic; }
+        .tr-supervisor { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+        .tr-supervisor-name { font-size: 13px; color: #3b82f6; font-weight: 500; }
       `}</style>
     </div>
   );

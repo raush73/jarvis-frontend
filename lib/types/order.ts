@@ -45,6 +45,8 @@ export interface CreateTradeRequirement {
   startDate?: string;
   expectedEndDate?: string;
   notes?: string;
+  supervisorOverride?: boolean;
+  supervisorContactId?: string | null;
   ppeRequirements?: CreatePpeRequirement[];
   toolRequirements?: CreateToolRequirement[];
   certRequirements?: CreateCertRequirement[];
@@ -159,6 +161,9 @@ export interface OrderTradeRequirementResponse {
   requestedHeadcount: number | null;
   startDate: string | null;
   expectedEndDate: string | null;
+  supervisorOverride: boolean;
+  supervisorContactId: string | null;
+  supervisorContact?: { id: string; firstName: string; lastName: string } | null;
   assignments: Array<{ id: string; userId: string; status: string; endDate: string | null }>;
   ppeRequirements: OrderPpeRequirementResponse[];
   toolRequirements: OrderToolRequirementResponse[];

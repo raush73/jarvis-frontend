@@ -244,6 +244,13 @@ function TradeRequirementCard({
 
       {tr.notes && <p className="tr-notes">{tr.notes}</p>}
 
+      {tr.supervisorOverride && tr.supervisorContact && (
+        <div className="tr-supervisor">
+          <span className="tr-label">Supervisor</span>
+          <span className="tr-supervisor-name">{tr.supervisorContact.firstName} {tr.supervisorContact.lastName}</span>
+        </div>
+      )}
+
       <EnforcedReqList label="PPE" items={(tr.ppeRequirements ?? []).map((r) => ({
         name: r.ppeType?.name ?? r.ppeTypeId,
         enforcement: r.enforcement,
@@ -276,6 +283,9 @@ function TradeRequirementCard({
         .tr-label { font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.4px; }
         .tr-val { font-size: 13px; color: rgba(255,255,255,0.85); font-family: var(--font-geist-mono), monospace; }
         .tr-notes { font-size: 12px; color: rgba(255,255,255,0.6); margin: 4px 0 0; font-style: italic; }
+        .tr-supervisor { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+        .tr-supervisor .tr-label { font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.4px; min-width: 80px; }
+        .tr-supervisor-name { font-size: 13px; color: #3b82f6; font-weight: 500; }
       `}</style>
     </div>
   );

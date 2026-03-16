@@ -53,6 +53,8 @@ type TradeLineState = {
   startDate: string;
   expectedEndDate: string;
   notes: string;
+  supervisorOverride: boolean;
+  supervisorContactId: string;
   ppeBaselineSource: BaselineSource;
   toolBaselineSource: BaselineSource;
   ppeItems: ReqItem[];
@@ -70,6 +72,8 @@ function createEmptyTradeLine(defaultTradeId: string): TradeLineState {
     startDate: "",
     expectedEndDate: "",
     notes: "",
+    supervisorOverride: false,
+    supervisorContactId: "",
     ppeBaselineSource: null,
     toolBaselineSource: null,
     ppeItems: [],
@@ -450,6 +454,7 @@ export default function CreateOrderPage() {
           startDate: tl.startDate || undefined,
           expectedEndDate: tl.expectedEndDate || undefined,
           notes: tl.notes || undefined,
+          ...(tl.supervisorOverride ? { supervisorOverride: true, supervisorContactId: tl.supervisorContactId || undefined } : {}),
           ...(ppeRequirements.length > 0 ? { ppeRequirements } : {}),
           ...(toolRequirements.length > 0 ? { toolRequirements } : {}),
           ...(certRequirements.length > 0 ? { certRequirements } : {}),
@@ -785,6 +790,33 @@ export default function CreateOrderPage() {
                 <textarea className="form-textarea" value={tl.notes} rows={2}
                   onChange={(e) => updateTradeLine(idx, { notes: e.target.value })}
                   placeholder="Trade-line notes..." />
+              </div>
+
+              {/* --- Supervisor Override --- */}
+              <div className="supervisor-row" style={{ marginTop: 12 }}>
+                <label className="form-label supervisor-toggle-label">
+                  <input type="checkbox" checked={tl.supervisorOverride}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      updateTradeLine(idx, {
+                        supervisorOverride: checked,
+                        supervisorContactId: checked ? tl.supervisorContactId : "",
+                      });
+                    }} />
+                  <span>Supervisor Override</span>
+                </label>
+                {tl.supervisorOverride && (
+                  <select className="form-select-sm supervisor-contact-select"
+                    value={tl.supervisorContactId}
+                    onChange={(e) => updateTradeLine(idx, { supervisorContactId: e.target.value })}>
+                    <option value="">Select supervisor...</option>
+                    {customerContacts.map((cc) => (
+                      <option key={cc.id} value={cc.id}>
+                        {cc.firstName} {cc.lastName}{cc.jobTitle ? ` — ${cc.jobTitle}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* --- PPE Requirements (baseline-first) --- */}
@@ -1142,6 +1174,10 @@ export default function CreateOrderPage() {
         .contact-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
         .contact-select { flex: 2; }
         .role-select { flex: 1; min-width: 140px; }
+        .supervisor-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .supervisor-toggle-label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: rgba(255,255,255,0.7); cursor: pointer; margin: 0; }
+        .supervisor-toggle-label input[type="checkbox"] { accent-color: #3b82f6; }
+        .supervisor-contact-select { min-width: 220px; }
         .primary-badge { font-size: 10px; font-weight: 600; color: #22c55e; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); border-radius: 4px; padding: 2px 8px; white-space: nowrap; }
 
         /* Toggle headers */
