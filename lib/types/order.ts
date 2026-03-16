@@ -212,6 +212,9 @@ export interface OrderDetailResponse {
   sdBillDeltaRate: number | null;
   commissionPlanId: string | null;
   commissionPlan: { id: string; name: string } | null;
+  commissionPlanSource: 'INHERITED' | 'OVERRIDE' | null;
+  salesperson: { id: string; firstName: string; lastName: string } | null;
+  salespersonDefaultCommissionPlanId: string | null;
   createdAt: string;
   updatedAt: string;
 }

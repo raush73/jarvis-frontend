@@ -5,6 +5,12 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 
+type CommissionPlanOption = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+};
+
 type SalespersonRecord = {
   id: string;
   firstName: string;
@@ -13,6 +19,8 @@ type SalespersonRecord = {
   phone: string | null;
   isActive: boolean;
   userId: string | null;
+  defaultCommissionPlanId: string | null;
+  defaultCommissionPlan: { id: string; name: string } | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -35,6 +43,8 @@ export default function SalespersonDetailPage() {
   const [recordId, setRecordId] = useState("");
   const [createdAt, setCreatedAt] = useState("");
   const [updatedAt, setUpdatedAt] = useState("");
+  const [defaultCommissionPlanId, setDefaultCommissionPlanId] = useState<string>("");
+  const [commissionPlans, setCommissionPlans] = useState<CommissionPlanOption[]>([]);
 
   const isProtected =
     (firstName.trim() === "House" && lastName.trim() === "Account") ||
@@ -46,9 +56,10 @@ export default function SalespersonDetailPage() {
       setLoading(true);
       setError("");
       try {
-        const data = await apiFetch<SalespersonRecord>(
-          `/salespeople/${salespersonId}`
-        );
+        const [data, plans] = await Promise.all([
+          apiFetch<SalespersonRecord>(`/salespeople/${salespersonId}`),
+          apiFetch<CommissionPlanOption[]>("/commissions/plans"),
+        ]);
         if (!alive) return;
         setFirstName(data.firstName ?? "");
         setLastName(data.lastName ?? "");
@@ -58,6 +69,8 @@ export default function SalespersonDetailPage() {
         setRecordId(data.id);
         setCreatedAt(data.createdAt ?? "");
         setUpdatedAt(data.updatedAt ?? "");
+        setDefaultCommissionPlanId(data.defaultCommissionPlanId ?? "");
+        setCommissionPlans(plans.filter((p: any) => p.isActive !== false));
       } catch (e: any) {
         if (!alive) return;
         setError(e?.message ?? "Failed to load salesperson.");
@@ -85,6 +98,7 @@ export default function SalespersonDetailPage() {
           email: email.trim() || null,
           phone: phone.trim() || null,
           isActive,
+          defaultCommissionPlanId: defaultCommissionPlanId || null,
         }),
       });
       router.push("/admin/salespeople");
@@ -250,7 +264,18 @@ export default function SalespersonDetailPage() {
           <div className="card-body">
             <div className="info-row">
               <span className="info-label">Default Commission Plan</span>
-              <span className="info-value">{"\u2014"}</span>
+              <select
+                className="edit-select"
+                value={defaultCommissionPlanId}
+                onChange={(e) => setDefaultCommissionPlanId(e.target.value)}
+              >
+                <option value="">None (Global Default will apply)</option>
+                {commissionPlans.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.isDefault ? " (Global Default)" : ""}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="info-row toggle-row">
               <span className="info-label">Default on New Customers</span>
@@ -473,6 +498,24 @@ export default function SalespersonDetailPage() {
         }
 
         .edit-input:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+
+        .edit-select {
+          padding: 6px 10px;
+          font-size: 13px;
+          color: #fff;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 6px;
+          transition: border-color 0.15s ease;
+          text-align: right;
+          max-width: 260px;
+          width: 100%;
+        }
+
+        .edit-select:focus {
           outline: none;
           border-color: #3b82f6;
         }

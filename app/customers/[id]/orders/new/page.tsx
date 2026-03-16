@@ -118,6 +118,10 @@ export default function CreateOrderPage() {
   const [commissionPlans, setCommissionPlans] = useState<CommissionPlanOption[]>([]);
   const [selectedCommissionPlanId, setSelectedCommissionPlanId] = useState("");
   const [isCommissionSplit, setIsCommissionSplit] = useState(false);
+  const [inheritedSalesperson, setInheritedSalesperson] = useState<{ id: string; firstName: string; lastName: string } | null>(null);
+  const [inheritedPlanId, setInheritedPlanId] = useState<string | null>(null);
+  const [inheritedPlanName, setInheritedPlanName] = useState<string | null>(null);
+  const [commissionOverride, setCommissionOverride] = useState(false);
 
   // --- Registry data ---
   const [trades, setTrades] = useState<TradeListItem[]>([]);
@@ -144,7 +148,7 @@ export default function CreateOrderPage() {
     async function load() {
       const errors: string[] = [];
       try {
-        const [tradesRes, ppeRes, toolsRes, certsRes, compReqRes, compVarRes, plansRes, contactsRes] =
+        const [tradesRes, ppeRes, toolsRes, certsRes, compReqRes, compVarRes, plansRes, contactsRes, custRes] =
           await Promise.all([
             apiFetch<TradeListItem[]>("/trades").catch((e) => { errors.push(`Trades: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<PpeTypeOption[]>("/ppe-types?activeOnly=true").catch((e) => { errors.push(`PPE: ${e instanceof Error ? e.message : "failed"}`); return []; }),
@@ -154,6 +158,7 @@ export default function CreateOrderPage() {
             apiFetch<ComplianceVariantOption[]>("/compliance-variants").catch((e) => { errors.push(`Compliance Variants: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<CommissionPlanOption[]>("/commissions/plans").catch((e) => { errors.push(`Commission Plans: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<CustomerContactOption[]>(`/customer-contacts/customer/${customerId}`).catch((e) => { errors.push(`Customer Contacts: ${e instanceof Error ? e.message : "failed"}`); return []; }),
+            apiFetch<any>(`/customers/${customerId}`).catch((e) => { errors.push(`Customer: ${e instanceof Error ? e.message : "failed"}`); return null; }),
           ]);
         if (!alive) return;
         const tradeList = Array.isArray(tradesRes) ? tradesRes : [];
@@ -166,6 +171,16 @@ export default function CreateOrderPage() {
         setCommissionPlans(Array.isArray(plansRes) ? plansRes : []);
         setCustomerContacts(Array.isArray(contactsRes) ? contactsRes : []);
         setTradeLines([createEmptyTradeLine(tradeList[0]?.id ?? "")]);
+
+        if (custRes?.registrySalesperson) {
+          const sp = custRes.registrySalesperson;
+          setInheritedSalesperson({ id: sp.id, firstName: sp.firstName, lastName: sp.lastName });
+          if (sp.defaultCommissionPlan) {
+            setInheritedPlanId(sp.defaultCommissionPlanId);
+            setInheritedPlanName(sp.defaultCommissionPlan.name);
+            setSelectedCommissionPlanId(sp.defaultCommissionPlanId);
+          }
+        }
         if (errors.length > 0) setRegistryLoadErrors(errors);
       } catch {
         if (alive) setRegistryLoadErrors(["Registry loading failed unexpectedly"]);
@@ -685,20 +700,75 @@ export default function CreateOrderPage() {
         )}
       </div>
 
-      {/* Commission — split-aware */}
+      {/* Commission — inheritance-first */}
       <div className="form-section">
         <h2>Commission</h2>
-        <div className="form-row" style={{ marginBottom: 16 }}>
-          <label className="form-label">Commission Plan</label>
-          <select className="form-select" value={selectedCommissionPlanId}
-            onChange={(e) => setSelectedCommissionPlanId(e.target.value)}>
-            <option value="">Use Global Default Plan</option>
-            {commissionPlans.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}{p.isDefault ? " (Default)" : ""}</option>
-            ))}
-          </select>
+
+        {/* Inherited salesperson + plan display */}
+        <div className="commission-inherited-block">
+          <div className="commission-inherited-row">
+            <span className="commission-inherited-label">Salesperson</span>
+            <span className="commission-inherited-value">
+              {inheritedSalesperson
+                ? `${inheritedSalesperson.firstName} ${inheritedSalesperson.lastName}`
+                : <span className="commission-warning-text">No salesperson assigned to this customer</span>}
+            </span>
+          </div>
+          <div className="commission-inherited-row">
+            <span className="commission-inherited-label">Commission Plan</span>
+            <span className="commission-inherited-value">
+              {inheritedPlanName
+                ? inheritedPlanName
+                : (inheritedSalesperson
+                  ? <span className="commission-warning-text">No default plan assigned — Global Default will apply</span>
+                  : <span className="commission-warning-text">N/A</span>)}
+            </span>
+          </div>
+          {inheritedPlanName && !commissionOverride && (
+            <div className="commission-source-label">Inherited from Salesperson</div>
+          )}
         </div>
-        <div className="toggle-header">
+
+        {/* Override toggle */}
+        <div className="toggle-header" style={{ marginTop: 16 }}>
+          <label className="toggle-label">
+            <input
+              type="checkbox"
+              checked={commissionOverride}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setCommissionOverride(checked);
+                if (!checked && inheritedPlanId) {
+                  setSelectedCommissionPlanId(inheritedPlanId);
+                }
+              }}
+            />
+            <span>Override Commission Plan</span>
+          </label>
+        </div>
+
+        {commissionOverride && (
+          <div className="commission-override-block">
+            <div className="commission-override-warning">
+              Overriding the inherited commission plan will require management approval before this order can be activated.
+            </div>
+            <div className="form-row" style={{ marginTop: 12 }}>
+              <label className="form-label">Override Plan</label>
+              <select className="form-select" value={selectedCommissionPlanId}
+                onChange={(e) => setSelectedCommissionPlanId(e.target.value)}>
+                <option value="">Select a plan...</option>
+                {commissionPlans
+                  .filter((p) => p.id !== inheritedPlanId)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}{p.isDefault ? " (Global Default)" : ""}</option>
+                  ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Split commission toggle */}
+        <div className="toggle-header" style={{ marginTop: 12 }}>
           <label className="toggle-label">
             <input
               type="checkbox"
@@ -710,12 +780,12 @@ export default function CreateOrderPage() {
         </div>
         {isCommissionSplit && (
           <div className="split-notice">
-            <div className="split-notice-icon">⚡</div>
+            <div className="split-notice-icon">&#x26A1;</div>
             <div>
               <p className="split-notice-title">Split Commission Mode</p>
               <p className="split-notice-text">
-                This order uses split commission allocation. The selected plan above applies to the total commissionable amount.
-                Split commission detail allocation will be configured in the next commission wiring pass.
+                This order uses split commission allocation. The active plan applies to the total commissionable amount.
+                Split commission detail allocation will be configured after order creation.
               </p>
             </div>
           </div>
@@ -1191,6 +1261,15 @@ export default function CreateOrderPage() {
         .sd-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; max-width: 500px; margin-top: 16px; }
 
         /* Commission split notice */
+        .commission-inherited-block { padding: 14px 16px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; }
+        .commission-inherited-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+        .commission-inherited-row + .commission-inherited-row { border-top: 1px solid rgba(255,255,255,0.04); }
+        .commission-inherited-label { font-size: 12px; color: rgba(255,255,255,0.5); flex-shrink: 0; }
+        .commission-inherited-value { font-size: 13px; color: #fff; font-weight: 500; text-align: right; }
+        .commission-warning-text { color: #f59e0b; font-weight: 400; font-size: 12px; }
+        .commission-source-label { margin-top: 8px; font-size: 11px; color: rgba(59,130,246,0.8); font-weight: 500; letter-spacing: 0.2px; }
+        .commission-override-block { margin-top: 12px; padding: 14px 16px; background: rgba(239,68,68,0.04); border: 1px solid rgba(239,68,68,0.15); border-radius: 8px; }
+        .commission-override-warning { font-size: 12px; color: #ef4444; font-weight: 500; line-height: 1.5; }
         .split-notice { display: flex; gap: 12px; margin-top: 14px; padding: 14px 16px; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 8px; }
         .split-notice-icon { font-size: 18px; flex-shrink: 0; line-height: 1.4; }
         .split-notice-title { font-size: 13px; font-weight: 600; color: #f59e0b; margin: 0 0 4px; }
