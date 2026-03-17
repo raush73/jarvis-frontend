@@ -14,8 +14,14 @@ import type {
   CreateComplianceRequirement,
   CreateJobOrderContactPayload,
   RequirementEnforcement,
+  CreateRampRow,
 } from "@/lib/types/order";
 import { ENFORCEMENT_LABELS } from "@/lib/types/order";
+import {
+  classifyMarginHealth,
+  HEALTH_STATUS_COLORS,
+  HEALTH_STATUS_LABELS,
+} from "@/lib/constants/margin-health";
 
 type CommissionPlanOption = { id: string; name: string; isDefault: boolean };
 type PpeTypeOption = { id: string; name: string; active?: boolean };
@@ -45,6 +51,12 @@ type TradePpeBaselineResponse = { tradeId: string; ppeTypeIds: string[] };
 type CustomerToolBaselineResponse = { customerId: string; baselines: Array<{ tradeId: string; toolIds: string[] }> };
 type CustomerPpeBaselineResponse = { customerId: string; baselines: Array<{ tradeId: string; ppeIds?: string[]; ppeTypeIds?: string[] }> };
 
+type RampRowState = {
+  startDate: string;
+  endDate: string;
+  headcount: number;
+};
+
 type TradeLineState = {
   tradeId: string;
   basePayRate: string;
@@ -61,6 +73,8 @@ type TradeLineState = {
   toolItems: ReqItem[];
   certItems: ReqItem[];
   complianceItems: Array<{ requirementTypeId: string; variantId: string }>;
+  rampEnabled: boolean;
+  rampRows: RampRowState[];
 };
 
 function createEmptyTradeLine(defaultTradeId: string): TradeLineState {
@@ -80,6 +94,8 @@ function createEmptyTradeLine(defaultTradeId: string): TradeLineState {
     toolItems: [],
     certItems: [],
     complianceItems: [],
+    rampEnabled: false,
+    rampRows: [],
   };
 }
 
@@ -461,7 +477,17 @@ export default function CreateOrderPage() {
             ...(c.variantId ? { variantId: c.variantId } : {}),
           }));
 
-        return {
+        const rampSchedule: CreateRampRow[] = tl.rampEnabled
+          ? tl.rampRows
+              .filter((r) => r.startDate && r.endDate && r.headcount >= 1)
+              .map((r) => ({
+                startDate: r.startDate,
+                endDate: r.endDate,
+                headcount: r.headcount,
+              }))
+          : [];
+
+          return {
           tradeId: tl.tradeId,
           basePayRate: tl.basePayRate || undefined,
           baseBillRate: tl.baseBillRate || undefined,
@@ -474,6 +500,7 @@ export default function CreateOrderPage() {
           ...(toolRequirements.length > 0 ? { toolRequirements } : {}),
           ...(certRequirements.length > 0 ? { certRequirements } : {}),
           ...(complianceRequirements.length > 0 ? { complianceRequirements } : {}),
+          ...(rampSchedule.length > 0 ? { rampSchedule } : {}),
         };
       });
 
@@ -813,6 +840,19 @@ export default function CreateOrderPage() {
             <div key={idx} className="tl-card">
               <div className="tl-header">
                 <span className="tl-num">Trade Line {idx + 1}</span>
+                {(() => {
+                  const pay = parseFloat(tl.basePayRate);
+                  const bill = parseFloat(tl.baseBillRate);
+                  if (!isNaN(pay) && !isNaN(bill) && bill > 0) {
+                    const gm = ((bill - pay) / bill) * 100;
+                    const status = classifyMarginHealth(gm);
+                    return (
+                      <span className="tl-health-dot" style={{ background: HEALTH_STATUS_COLORS[status] }}
+                        title={`Estimated GM: ${gm.toFixed(1)}% (burden not included — preview only)`} />
+                    );
+                  }
+                  return null;
+                })()}
                 {tradeLines.length > 1 && (
                   <button type="button" className="rm-btn" onClick={() => removeTradeLine(idx)}>×</button>
                 )}
@@ -886,6 +926,85 @@ export default function CreateOrderPage() {
                       </option>
                     ))}
                   </select>
+                )}
+              </div>
+
+              {/* --- Ramp Schedule --- */}
+              <div className="ramp-section" style={{ marginTop: 12 }}>
+                <label className="form-label supervisor-toggle-label">
+                  <input type="checkbox" checked={tl.rampEnabled}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      updateTradeLine(idx, {
+                        rampEnabled: checked,
+                        rampRows: checked && tl.rampRows.length === 0
+                          ? [{ startDate: tl.startDate, endDate: tl.expectedEndDate, headcount: tl.requestedHeadcount || 1 }]
+                          : tl.rampRows,
+                      });
+                    }} />
+                  <span>Add Ramp Schedule</span>
+                </label>
+                {tl.rampEnabled && (
+                  <div className="ramp-editor">
+                    <div className="ramp-info-text">
+                      Ramp defines phased staffing demand over time. Gaps between rows represent zero-demand periods. End date is exclusive — the next row begins on that date.
+                    </div>
+                    {tl.rampRows.map((row, rIdx) => (
+                      <div key={rIdx} className="ramp-row-editor">
+                        {rIdx > 0 && (() => {
+                          const prevEnd = tl.rampRows[rIdx - 1].endDate;
+                          if (prevEnd && row.startDate && new Date(row.startDate) > new Date(prevEnd)) {
+                            return <div className="ramp-gap-indicator">Gap — 0 demand period</div>;
+                          }
+                          return null;
+                        })()}
+                        <div className="ramp-row-fields">
+                          <div className="form-row" style={{ flex: 1 }}>
+                            <label className="form-label">Start</label>
+                            <input type="date" className="form-input-sm" value={row.startDate}
+                              onChange={(e) => {
+                                const rows = [...tl.rampRows];
+                                rows[rIdx] = { ...rows[rIdx], startDate: e.target.value };
+                                updateTradeLine(idx, { rampRows: rows });
+                              }} />
+                          </div>
+                          <div className="form-row" style={{ flex: 1 }}>
+                            <label className="form-label">End</label>
+                            <input type="date" className="form-input-sm" value={row.endDate}
+                              onChange={(e) => {
+                                const rows = [...tl.rampRows];
+                                rows[rIdx] = { ...rows[rIdx], endDate: e.target.value };
+                                updateTradeLine(idx, { rampRows: rows });
+                              }} />
+                          </div>
+                          <div className="form-row" style={{ flex: 0.5 }}>
+                            <label className="form-label">Workers</label>
+                            <input type="number" className="form-input-sm num-input" value={row.headcount} min={1}
+                              onChange={(e) => {
+                                const rows = [...tl.rampRows];
+                                rows[rIdx] = { ...rows[rIdx], headcount: parseInt(e.target.value) || 1 };
+                                updateTradeLine(idx, { rampRows: rows });
+                              }} />
+                          </div>
+                          <button type="button" className="rm-btn" style={{ marginTop: 18 }}
+                            onClick={() => {
+                              const rows = tl.rampRows.filter((_, i) => i !== rIdx);
+                              updateTradeLine(idx, { rampRows: rows });
+                            }}>×</button>
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button" className="add-btn-sm" onClick={() => {
+                      const lastRow = tl.rampRows[tl.rampRows.length - 1];
+                      updateTradeLine(idx, {
+                        rampRows: [...tl.rampRows, {
+                          startDate: lastRow?.endDate || tl.startDate,
+                          endDate: "",
+                          headcount: lastRow?.headcount || tl.requestedHeadcount || 1,
+                        }],
+                      });
+                    }}>+ Add Ramp Period</button>
+                  </div>
                 )}
               </div>
 
@@ -1348,6 +1467,17 @@ export default function CreateOrderPage() {
         .create-btn { padding: 12px 24px; font-size: 14px; font-weight: 500; color: #fff; background: #3b82f6; border: none; border-radius: 6px; cursor: pointer; }
         .create-btn:hover:not(:disabled) { background: #2563eb; }
         .create-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Health dot on trade line */
+        .tl-health-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+        /* Ramp editor */
+        .ramp-section { }
+        .ramp-editor { margin-top: 10px; padding: 12px; background: rgba(59,130,246,0.04); border: 1px solid rgba(59,130,246,0.12); border-radius: 8px; }
+        .ramp-info-text { font-size: 11px; color: rgba(255,255,255,0.4); font-style: italic; margin-bottom: 10px; }
+        .ramp-row-editor { margin-bottom: 6px; }
+        .ramp-row-fields { display: flex; gap: 8px; align-items: flex-start; }
+        .ramp-gap-indicator { padding: 4px 12px; margin-bottom: 4px; font-size: 10px; color: rgba(255,255,255,0.35); font-style: italic; border-left: 2px dashed rgba(255,255,255,0.15); margin-left: 16px; }
       `}</style>
     </div>
   );

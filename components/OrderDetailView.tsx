@@ -6,8 +6,10 @@ import { apiFetch } from "@/lib/api";
 import type {
   OrderDetailResponse,
   OrderTradeRequirementResponse,
+  MarginHealthStatus,
 } from "@/lib/types/order";
 import { ENFORCEMENT_LABELS, type RequirementEnforcement } from "@/lib/types/order";
+import { HEALTH_STATUS_COLORS, HEALTH_STATUS_LABELS } from "@/lib/constants/margin-health";
 import {
   getOrderPhase,
   getPhaseLabel,
@@ -229,6 +231,19 @@ export function OrderDetailView({
               >
                 {getPhaseLabel(phase, approvalStatus)}
               </span>
+              {order.marginHealth && (
+                <span
+                  className="od-health-badge"
+                  style={{
+                    background: `${HEALTH_STATUS_COLORS[order.marginHealth.orderHealthStatus]}18`,
+                    color: HEALTH_STATUS_COLORS[order.marginHealth.orderHealthStatus],
+                    border: `1px solid ${HEALTH_STATUS_COLORS[order.marginHealth.orderHealthStatus]}40`,
+                  }}
+                  title={`Health Preview: ${order.marginHealth.orderBlendedMarginPct}% blended GM`}
+                >
+                  {HEALTH_STATUS_LABELS[order.marginHealth.orderHealthStatus]} — {order.marginHealth.orderBlendedMarginPct}% GM
+                </span>
+              )}
               {isReadOnly &&
                 phase !== "COMPLETED" &&
                 phase !== "CANCELLED" && (
@@ -569,9 +584,18 @@ export function OrderDetailView({
             {order.tradeRequirements.length === 0 ? (
               <p className="od-empty">No trade requirements on this order.</p>
             ) : (
-              order.tradeRequirements.map((tr) => (
-                <TradeRequirementCard key={tr.id} tr={tr} />
-              ))
+              order.tradeRequirements.map((tr) => {
+                const tradeHealth = order.marginHealth?.trades.find(
+                  (t) => t.tradeRequirementId === tr.id,
+                );
+                return (
+                  <TradeRequirementCard
+                    key={tr.id}
+                    tr={tr}
+                    tradeHealth={tradeHealth ?? null}
+                  />
+                );
+              })
             )}
           </div>
 
@@ -614,14 +638,45 @@ export function OrderDetailView({
    Trade Requirement Card (sub-component with scoped styles)
    ================================================================ */
 
-function TradeRequirementCard({ tr }: { tr: OrderTradeRequirementResponse }) {
+function TradeRequirementCard({
+  tr,
+  tradeHealth,
+}: {
+  tr: OrderTradeRequirementResponse;
+  tradeHealth: {
+    totalBurdenPercent: number;
+    trueLaborCost: number;
+    grossProfit: number;
+    grossMarginPct: number;
+    healthStatus: MarginHealthStatus;
+  } | null;
+}) {
   return (
     <div className="trc-card">
       <div className="trc-header">
         <span className="trc-name">{tr.trade?.name ?? tr.tradeId}</span>
+        {tradeHealth && (
+          <span
+            className="trc-health-dot"
+            style={{
+              background: HEALTH_STATUS_COLORS[tradeHealth.healthStatus],
+            }}
+            title={`GM: ${tradeHealth.grossMarginPct}% | Burden: ${tradeHealth.totalBurdenPercent}% | TLC: $${tradeHealth.trueLaborCost}`}
+          />
+        )}
         <span className="trc-hc">
           {tr.requestedHeadcount ?? "—"} workers
         </span>
+        {tradeHealth && (
+          <span
+            className="trc-health-label"
+            style={{
+              color: HEALTH_STATUS_COLORS[tradeHealth.healthStatus],
+            }}
+          >
+            {tradeHealth.grossMarginPct}% GM
+          </span>
+        )}
       </div>
       <div className="trc-fields">
         <div className="trc-field">
@@ -687,6 +742,35 @@ function TradeRequirementCard({ tr }: { tr: OrderTradeRequirementResponse }) {
         })}
       />
 
+      {/* Ramp Schedule */}
+      {tr.rampSchedule && tr.rampSchedule.length > 0 && (
+        <div className="trc-ramp-section">
+          <span className="trc-ramp-title">Ramp Schedule</span>
+          <div className="trc-ramp-timeline">
+            {tr.rampSchedule.map((row, i) => {
+              const prevEnd = i > 0 ? new Date(tr.rampSchedule[i - 1].endDate) : null;
+              const currStart = new Date(row.startDate);
+              const hasGap = prevEnd && currStart.getTime() > prevEnd.getTime();
+              return (
+                <div key={row.id}>
+                  {hasGap && (
+                    <div className="trc-ramp-gap">
+                      <span className="trc-ramp-gap-label">0 demand</span>
+                    </div>
+                  )}
+                  <div className="trc-ramp-row">
+                    <span className="trc-ramp-dates">
+                      {fmtDate(row.startDate)} — {fmtDate(row.endDate)}
+                    </span>
+                    <span className="trc-ramp-hc">{row.headcount} workers</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <style jsx>{`
         .trc-card {
           margin-bottom: 16px;
@@ -714,6 +798,67 @@ function TradeRequirementCard({ tr }: { tr: OrderTradeRequirementResponse }) {
           font-size: 12px;
           color: rgba(255, 255, 255, 0.6);
           font-family: var(--font-geist-mono), monospace;
+        }
+        .trc-health-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+        .trc-health-label {
+          font-size: 11px;
+          font-weight: 600;
+          font-family: var(--font-geist-mono), monospace;
+        }
+        .trc-ramp-section {
+          margin-top: 12px;
+          padding-top: 10px;
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .trc-ramp-title {
+          display: block;
+          font-size: 10px;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.45);
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          margin-bottom: 8px;
+        }
+        .trc-ramp-timeline {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .trc-ramp-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 6px 10px;
+          background: rgba(59, 130, 246, 0.06);
+          border-radius: 4px;
+        }
+        .trc-ramp-dates {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.7);
+        }
+        .trc-ramp-hc {
+          font-size: 12px;
+          font-weight: 600;
+          color: #3b82f6;
+          font-family: var(--font-geist-mono), monospace;
+        }
+        .trc-ramp-gap {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 3px 10px;
+          border-left: 2px dashed rgba(255, 255, 255, 0.15);
+          margin-left: 16px;
+        }
+        .trc-ramp-gap-label {
+          font-size: 10px;
+          color: rgba(255, 255, 255, 0.35);
+          font-style: italic;
         }
         .trc-fields {
           display: grid;
@@ -920,6 +1065,7 @@ const shellStyles = `
   .od-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .od-id-badge { font-family: var(--font-geist-mono), monospace; font-size: 12px; padding: 4px 10px; background: rgba(59,130,246,0.15); color: #3b82f6; border-radius: 6px; }
   .od-readonly-badge { padding: 4px 12px; font-size: 11px; font-weight: 500; border-radius: 6px; background: rgba(148,163,184,0.15); color: rgba(148,163,184,0.8); border: 1px dashed rgba(148,163,184,0.3); }
+  .od-health-badge { padding: 4px 12px; font-size: 11px; font-weight: 600; border-radius: 6px; font-family: var(--font-geist-mono), monospace; cursor: default; }
   ${PHASE_BADGE_STYLES}
 
   /* Approval banners */

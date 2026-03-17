@@ -37,6 +37,12 @@ export interface CreateComplianceRequirement {
 
 // -- Trade requirement payload (create) --
 
+export interface CreateRampRow {
+  startDate: string;
+  endDate: string;
+  headcount: number;
+}
+
 export interface CreateTradeRequirement {
   tradeId: string;
   basePayRate?: string;
@@ -51,6 +57,7 @@ export interface CreateTradeRequirement {
   toolRequirements?: CreateToolRequirement[];
   certRequirements?: CreateCertRequirement[];
   complianceRequirements?: CreateComplianceRequirement[];
+  rampSchedule?: CreateRampRow[];
 }
 
 // -- Job order contact payload (create) --
@@ -148,6 +155,14 @@ export interface OrderComplianceRequirementResponse {
   notes: string | null;
 }
 
+export interface RampRowResponse {
+  id: string;
+  startDate: string;
+  endDate: string;
+  headcount: number;
+  sortOrder: number;
+}
+
 export interface OrderTradeRequirementResponse {
   id: string;
   orderId: string;
@@ -169,6 +184,7 @@ export interface OrderTradeRequirementResponse {
   toolRequirements: OrderToolRequirementResponse[];
   certRequirements: OrderCertRequirementResponse[];
   complianceRequirements: OrderComplianceRequirementResponse[];
+  rampSchedule: RampRowResponse[];
 }
 
 export interface JobOrderContactResponse {
@@ -177,6 +193,28 @@ export interface JobOrderContactResponse {
   contactName: string;
   role: string;
   isPrimary: boolean;
+}
+
+export type MarginHealthStatus = "RED" | "YELLOW" | "GREEN";
+
+export interface TradeHealthDetail {
+  tradeRequirementId: string;
+  tradeName: string;
+  basePayRate: number;
+  baseBillRate: number;
+  requestedHeadcount: number;
+  totalBurdenPercent: number;
+  trueLaborCost: number;
+  grossProfit: number;
+  grossMarginPct: number;
+  healthStatus: MarginHealthStatus;
+}
+
+export interface OrderMarginHealthPreview {
+  orderHealthStatus: MarginHealthStatus;
+  orderBlendedMarginPct: number;
+  thresholds: { redBelowPct: number; yellowBelowPct: number };
+  trades: TradeHealthDetail[];
 }
 
 export interface OrderDetailResponse {
@@ -215,6 +253,7 @@ export interface OrderDetailResponse {
   commissionPlanSource: 'INHERITED' | 'OVERRIDE' | null;
   salesperson: { id: string; firstName: string; lastName: string } | null;
   salespersonDefaultCommissionPlanId: string | null;
+  marginHealth: OrderMarginHealthPreview | null;
   createdAt: string;
   updatedAt: string;
 }
