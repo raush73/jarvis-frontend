@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import type {
@@ -153,6 +153,15 @@ export default function CreateOrderPage() {
 
   // --- Trade lines ---
   const [tradeLines, setTradeLines] = useState<TradeLineState[]>([]);
+
+  // --- Trade-level burden previews (keyed by trade line index) ---
+  // Populated by calling the canonical /payroll-burden-rates/preview endpoint
+  // so the health dot matches saved-order truth.
+  const [tradeHealthPreviews, setTradeHealthPreviews] = useState<
+    Record<number, { regCost: number; totalBurdenPercent: number } | null>
+  >({});
+  // Debounce timers per trade line index
+  const burdenDebounceTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   // --- Collapsible sections: key = "{tradeIdx}-{section}" ---
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -443,6 +452,44 @@ export default function CreateOrderPage() {
       return next;
     });
   };
+
+  // --- Canonical burden preview per trade line ---
+  // Fires a debounced call to POST /payroll-burden-rates/preview (same endpoint
+  // as Admin Burden Preview) so the health dot uses true loaded cost, not pay-only.
+  const scheduleBurdenPreview = (idx: number) => {
+    clearTimeout(burdenDebounceTimers.current[idx]);
+    burdenDebounceTimers.current[idx] = setTimeout(async () => {
+      const tl = tradeLines[idx];
+      if (!tl) return;
+      const pay = parseFloat(tl.basePayRate);
+      const state = jobSiteState.trim().toUpperCase();
+      if (!tl.tradeId || isNaN(pay) || pay <= 0 || state.length !== 2) {
+        setTradeHealthPreviews((prev) => ({ ...prev, [idx]: null }));
+        return;
+      }
+      try {
+        const result = await apiFetch<{ regCost: number; totalBurdenPercent: number }>(
+          "/payroll-burden-rates/preview",
+          {
+            method: "POST",
+            body: JSON.stringify({ payRate: pay, stateCode: state, tradeId: tl.tradeId }),
+          },
+        );
+        setTradeHealthPreviews((prev) => ({
+          ...prev,
+          [idx]: { regCost: result.regCost, totalBurdenPercent: result.totalBurdenPercent },
+        }));
+      } catch {
+        setTradeHealthPreviews((prev) => ({ ...prev, [idx]: null }));
+      }
+    }, 600);
+  };
+
+  // Re-run burden preview when relevant inputs change
+  useEffect(() => {
+    tradeLines.forEach((_, idx) => scheduleBurdenPreview(idx));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tradeLines.map((t) => `${t.tradeId}|${t.basePayRate}`).join(","), jobSiteState]);
 
   // --- Validation ---
   const canSubmit =
@@ -841,14 +888,26 @@ export default function CreateOrderPage() {
               <div className="tl-header">
                 <span className="tl-num">Trade Line {idx + 1}</span>
                 {(() => {
-                  const pay = parseFloat(tl.basePayRate);
+                  const preview = tradeHealthPreviews[idx];
                   const bill = parseFloat(tl.baseBillRate);
-                  if (!isNaN(pay) && !isNaN(bill) && bill > 0) {
-                    const gm = ((bill - pay) / bill) * 100;
+                  if (preview && !isNaN(bill) && bill > 0) {
+                    const grossProfit = bill - preview.regCost;
+                    const gm = (grossProfit / bill) * 100;
                     const status = classifyMarginHealth(gm);
                     return (
-                      <span className="tl-health-dot" style={{ background: HEALTH_STATUS_COLORS[status] }}
-                        title={`Estimated GM: ${gm.toFixed(1)}% (burden not included — preview only)`} />
+                      <span className="tl-health-indicator">
+                        <span
+                          className="tl-health-dot"
+                          style={{ background: HEALTH_STATUS_COLORS[status] }}
+                        />
+                        <span
+                          className="tl-health-gm"
+                          style={{ color: HEALTH_STATUS_COLORS[status] }}
+                          title={`Burden: ${preview.totalBurdenPercent.toFixed(2)}% | TLC: $${preview.regCost.toFixed(2)}/hr`}
+                        >
+                          GM {gm.toFixed(1)}%
+                        </span>
+                      </span>
                     );
                   }
                   return null;
@@ -1468,8 +1527,10 @@ export default function CreateOrderPage() {
         .create-btn:hover:not(:disabled) { background: #2563eb; }
         .create-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* Health dot on trade line */
+        /* Health indicator on trade line */
+        .tl-health-indicator { display: inline-flex; align-items: center; gap: 5px; }
         .tl-health-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .tl-health-gm { font-size: 11px; font-weight: 600; font-family: var(--font-geist-mono), monospace; cursor: default; }
 
         /* Ramp editor */
         .ramp-section { }

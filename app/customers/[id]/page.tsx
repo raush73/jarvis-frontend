@@ -7,6 +7,7 @@ import { formatPhone } from "@/lib/format";
 import { apiFetch } from "@/lib/api";
 import type { OrderListItem } from "@/lib/types/order";
 import { getOrderPhase, getPhaseLabel, getPhaseBadgeClass } from "@/lib/order-lifecycle";
+import { HEALTH_STATUS_COLORS } from "@/lib/constants/margin-health";
 
 // Trade row type for labor plan
 type TradeRow = {
@@ -1862,6 +1863,22 @@ export default function CustomerDetailPage() {
                     <span className={`order-status ${getPhaseBadgeClass(getOrderPhase(order.status))}`}>
                       {getPhaseLabel(getOrderPhase(order.status))}
                     </span>
+                    {order.marginHealth && (
+                      <span
+                        className="order-health-badge"
+                        style={{
+                          color: HEALTH_STATUS_COLORS[order.marginHealth.orderHealthStatus],
+                          borderColor: `${HEALTH_STATUS_COLORS[order.marginHealth.orderHealthStatus]}40`,
+                        }}
+                        title={`Blended Order GM — ${order.marginHealth.orderBlendedMarginPct.toFixed(1)}%`}
+                      >
+                        <span
+                          className="order-health-dot"
+                          style={{ background: HEALTH_STATUS_COLORS[order.marginHealth.orderHealthStatus] }}
+                        />
+                        {order.marginHealth.orderBlendedMarginPct.toFixed(1)}%
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -3508,6 +3525,27 @@ export default function CustomerDetailPage() {
           border-radius: 12px;
           text-transform: uppercase;
           letter-spacing: 0.3px;
+        }
+
+        .order-health-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 11px;
+          font-weight: 700;
+          font-family: var(--font-geist-mono), monospace;
+          padding: 3px 9px;
+          border-radius: 6px;
+          border: 1px solid;
+          cursor: default;
+          white-space: nowrap;
+        }
+
+        .order-health-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          flex-shrink: 0;
         }
 
         .order-status.phase-draft {

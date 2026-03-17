@@ -100,6 +100,7 @@ export interface OrderListItem {
   createdAt: string;
   updatedAt: string;
   customer?: { id: string; name: string } | null;
+  marginHealth?: { orderHealthStatus: MarginHealthStatus; orderBlendedMarginPct: number } | null;
 }
 
 // -- Create order response (from POST /orders) --

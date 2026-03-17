@@ -231,25 +231,27 @@ export function OrderDetailView({
               >
                 {getPhaseLabel(phase, approvalStatus)}
               </span>
-              {order.marginHealth && (
-                <span
-                  className="od-health-badge"
-                  style={{
-                    background: `${HEALTH_STATUS_COLORS[order.marginHealth.orderHealthStatus]}18`,
-                    color: HEALTH_STATUS_COLORS[order.marginHealth.orderHealthStatus],
-                    border: `1px solid ${HEALTH_STATUS_COLORS[order.marginHealth.orderHealthStatus]}40`,
-                  }}
-                  title={`Health Preview: ${order.marginHealth.orderBlendedMarginPct}% blended GM`}
-                >
-                  {HEALTH_STATUS_LABELS[order.marginHealth.orderHealthStatus]} — {order.marginHealth.orderBlendedMarginPct}% GM
-                </span>
-              )}
               {isReadOnly &&
                 phase !== "COMPLETED" &&
                 phase !== "CANCELLED" && (
                   <span className="od-readonly-badge">Read-Only View</span>
                 )}
             </div>
+            {order.marginHealth && (
+              <div className="od-health-row">
+                <span
+                  className="od-health-dot-lg"
+                  style={{ background: HEALTH_STATUS_COLORS[order.marginHealth.orderHealthStatus] }}
+                />
+                <span
+                  className="od-health-label-lg"
+                  style={{ color: HEALTH_STATUS_COLORS[order.marginHealth.orderHealthStatus] }}
+                  title={`Blended order GM — ${order.marginHealth.orderBlendedMarginPct.toFixed(1)}% (weighted by revenue × headcount)`}
+                >
+                  {HEALTH_STATUS_LABELS[order.marginHealth.orderHealthStatus]} — Order GM {order.marginHealth.orderBlendedMarginPct.toFixed(1)}%
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -656,27 +658,23 @@ function TradeRequirementCard({
       <div className="trc-header">
         <span className="trc-name">{tr.trade?.name ?? tr.tradeId}</span>
         {tradeHealth && (
-          <span
-            className="trc-health-dot"
-            style={{
-              background: HEALTH_STATUS_COLORS[tradeHealth.healthStatus],
-            }}
-            title={`GM: ${tradeHealth.grossMarginPct}% | Burden: ${tradeHealth.totalBurdenPercent}% | TLC: $${tradeHealth.trueLaborCost}`}
-          />
+          <span className="trc-health-indicator">
+            <span
+              className="trc-health-dot"
+              style={{ background: HEALTH_STATUS_COLORS[tradeHealth.healthStatus] }}
+              title={`Burden: ${tradeHealth.totalBurdenPercent.toFixed(2)}% | TLC: $${tradeHealth.trueLaborCost.toFixed(2)}/hr`}
+            />
+            <span
+              className="trc-health-label"
+              style={{ color: HEALTH_STATUS_COLORS[tradeHealth.healthStatus] }}
+            >
+              GM {tradeHealth.grossMarginPct.toFixed(1)}%
+            </span>
+          </span>
         )}
         <span className="trc-hc">
           {tr.requestedHeadcount ?? "—"} workers
         </span>
-        {tradeHealth && (
-          <span
-            className="trc-health-label"
-            style={{
-              color: HEALTH_STATUS_COLORS[tradeHealth.healthStatus],
-            }}
-          >
-            {tradeHealth.grossMarginPct}% GM
-          </span>
-        )}
       </div>
       <div className="trc-fields">
         <div className="trc-field">
@@ -798,6 +796,11 @@ function TradeRequirementCard({
           font-size: 12px;
           color: rgba(255, 255, 255, 0.6);
           font-family: var(--font-geist-mono), monospace;
+        }
+        .trc-health-indicator {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
         }
         .trc-health-dot {
           width: 10px;
@@ -1066,6 +1069,9 @@ const shellStyles = `
   .od-id-badge { font-family: var(--font-geist-mono), monospace; font-size: 12px; padding: 4px 10px; background: rgba(59,130,246,0.15); color: #3b82f6; border-radius: 6px; }
   .od-readonly-badge { padding: 4px 12px; font-size: 11px; font-weight: 500; border-radius: 6px; background: rgba(148,163,184,0.15); color: rgba(148,163,184,0.8); border: 1px dashed rgba(148,163,184,0.3); }
   .od-health-badge { padding: 4px 12px; font-size: 11px; font-weight: 600; border-radius: 6px; font-family: var(--font-geist-mono), monospace; cursor: default; }
+  .od-health-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .od-health-dot-lg { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .od-health-label-lg { font-size: 13px; font-weight: 700; font-family: var(--font-geist-mono), monospace; letter-spacing: 0.2px; cursor: default; }
   ${PHASE_BADGE_STYLES}
 
   /* Approval banners */
