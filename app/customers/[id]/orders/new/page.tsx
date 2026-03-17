@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import type {
@@ -162,6 +162,33 @@ export default function CreateOrderPage() {
   >({});
   // Debounce timers per trade line index
   const burdenDebounceTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+
+  // --- Header-level blended GM (pre-save, live) ---
+  // Aggregates dollars across all trade lines that have valid canonical burden previews.
+  // Follows the same weighted-revenue formula used by the saved-order evaluateOrderHealth:
+  //   revenue_i = billRate_i × headcount_i
+  //   tlc_i     = regCost_i  × headcount_i
+  //   blended   = Σ(billRate_i - regCost_i) × headcount_i  ÷  Σ(billRate_i × headcount_i)
+  // Does NOT average percentages. Does NOT introduce new burden math.
+  const headerBlendedGm = useMemo(() => {
+    let totalRevenue = 0;
+    let totalGP = 0;
+    let hasAny = false;
+
+    tradeLines.forEach((tl, idx) => {
+      const preview = tradeHealthPreviews[idx];
+      const bill = parseFloat(tl.baseBillRate);
+      const headcount = tl.requestedHeadcount > 0 ? tl.requestedHeadcount : 1;
+      if (!preview || isNaN(bill) || bill <= 0) return;
+      hasAny = true;
+      totalRevenue += bill * headcount;
+      totalGP += (bill - preview.regCost) * headcount;
+    });
+
+    if (!hasAny || totalRevenue <= 0) return null;
+    const pct = (totalGP / totalRevenue) * 100;
+    return { pct, status: classifyMarginHealth(pct) };
+  }, [tradeLines, tradeHealthPreviews]);
 
   // --- Collapsible sections: key = "{tradeIdx}-{section}" ---
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -605,6 +632,23 @@ export default function CreateOrderPage() {
         <button className="back-btn" onClick={handleCancel}>← Back to Customer</button>
         <h1>Create Order</h1>
         <span className="cust-badge">{customerId}</span>
+        {headerBlendedGm && (
+          <span
+            className="header-gm-indicator"
+            title={`Blended order GM — ${headerBlendedGm.pct.toFixed(1)}% (aggregated from trade line previews, pre-save)`}
+          >
+            <span
+              className="header-gm-dot"
+              style={{ background: HEALTH_STATUS_COLORS[headerBlendedGm.status] }}
+            />
+            <span
+              className="header-gm-text"
+              style={{ color: HEALTH_STATUS_COLORS[headerBlendedGm.status] }}
+            >
+              {HEALTH_STATUS_LABELS[headerBlendedGm.status]} — Order GM {headerBlendedGm.pct.toFixed(1)}%
+            </span>
+          </span>
+        )}
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -1531,6 +1575,11 @@ export default function CreateOrderPage() {
         .tl-health-indicator { display: inline-flex; align-items: center; gap: 5px; }
         .tl-health-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
         .tl-health-gm { font-size: 11px; font-weight: 600; font-family: var(--font-geist-mono), monospace; cursor: default; }
+
+        /* Blended order GM in page header (pre-save) */
+        .header-gm-indicator { display: inline-flex; align-items: center; gap: 7px; padding: 5px 14px; border-radius: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); margin-left: 4px; cursor: default; }
+        .header-gm-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .header-gm-text { font-size: 13px; font-weight: 700; font-family: var(--font-geist-mono), monospace; letter-spacing: 0.2px; }
 
         /* Ramp editor */
         .ramp-section { }
