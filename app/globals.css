@@ -290,3 +290,11 @@ body {
   background:#0f172a;
   color:#ffffff;
 }
+
+body.order-detail-page .page-content {
+  min-height: calc(100vh - 52px);
+}
+
+body.order-detail-page .order-nav {
+  top: 52px;
+}

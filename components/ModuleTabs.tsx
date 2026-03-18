@@ -60,10 +60,13 @@ export default function ModuleTabs() {
     ? firstSegment
     : DEFAULT_DOMAIN;
 
-  const tabs = MODULE_TABS[currentDomain] || [];
+    const isOrderDetailPage =
+    currentDomain === "orders" && segments.length > 1;
+
+  const tabs = isOrderDetailPage ? [] : (MODULE_TABS[currentDomain] || []);
 
   // Listen for hash changes
-  useEffect(() => {
+    useEffect(() => {
     const updateHash = () => {
       setHash(window.location.hash.replace("#", ""));
     };
@@ -72,6 +75,18 @@ export default function ModuleTabs() {
     window.addEventListener("hashchange", updateHash);
     return () => window.removeEventListener("hashchange", updateHash);
   }, []);
+
+  useEffect(() => {
+    if (isOrderDetailPage) {
+      document.body.classList.add("order-detail-page");
+    } else {
+      document.body.classList.remove("order-detail-page");
+    }
+
+    return () => {
+      document.body.classList.remove("order-detail-page");
+    };
+  }, [isOrderDetailPage]);
 
   // Derive active tab from hash, default to first tab
   const activeTab =
@@ -108,3 +123,5 @@ export default function ModuleTabs() {
     </div>
   );
 }
+
+

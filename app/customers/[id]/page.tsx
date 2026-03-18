@@ -529,24 +529,6 @@ export default function CustomerDetailPage() {
     loadCustomerPpeReqs();
   }, [customerId]);
 
-  const loadCustomerToolTypes = async () => {
-    try {
-      const data = await apiFetch<{ customer: any; trades: CustomerToolTrade[] }>(
-        `/customers/${customerId}/tool-types`
-      );
-      setCustomerToolTrades(data.trades ?? []);
-    } catch (e: any) {
-      console.error("Failed to load customer tool types:", e);
-      setCustomerToolTrades([]);
-    } finally {
-      setCustomerToolsLoaded(true);
-    }
-  };
-
-  useEffect(() => {
-    loadCustomerToolTypes();
-  }, [customerId]);
-
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -639,9 +621,7 @@ export default function CustomerDetailPage() {
 
   // Tools modal state (trade-aware)
   const [showAddToolModal, setShowAddToolModal] = useState(false);
-  const [showEditToolModal, setShowEditToolModal] = useState(false);
-  const [showDeleteToolModal, setShowDeleteToolModal] = useState(false);
-  const [addToolForTrade, setAddToolForTrade] = useState<string | null>(null);
+  const [showEditToolModal, setShowEditToolModal] = useState(false);  const [addToolForTrade, setAddToolForTrade] = useState<string | null>(null);
   const [editingTool, setEditingTool] = useState<{
     id: string;
     name: string;
@@ -769,8 +749,7 @@ export default function CustomerDetailPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "contacts", label: "Contacts" },
-    { key: "tools", label: "Tools" },
-    { key: "toolsByTrade", label: "Tools [by trade]" },
+        { key: "toolsByTrade", label: "Tools [by trade]" },
     { key: "ppe", label: "PPE" },
     { key: "orders", label: "Orders" },
     { key: "quotes", label: "Quotes" },
@@ -1035,111 +1014,6 @@ export default function CustomerDetailPage() {
 
   const handleSaveEditTool = async () => {
     if (!editingTool || !editingToolTrade) return;
-
-    // API-backed tool: PATCH notes only
-    if (editingTool.toolTypeId && editingTool.apiTradeId) {
-      try {
-        const updated = await apiFetch<CustomerToolTypeItem>(`/customers/${customerId}/tool-types`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            tradeId: editingTool.apiTradeId,
-            toolTypeId: editingTool.toolTypeId,
-            notes: editingTool.notes.trim() || null,
-          }),
-        });
-        setCustomerToolTrades((prev) =>
-          prev.map((t) =>
-            t.trade.id === editingTool.apiTradeId
-              ? { ...t, items: t.items.map((i) => (i.id === editingTool.id ? { ...i, notes: updated.notes } : i)) }
-              : t
-          )
-        );
-      } catch (e: any) {
-        console.error("Failed to save tool notes:", e);
-      }
-      setShowEditToolModal(false);
-      setEditingTool(null);
-      setEditingToolTrade(null);
-      return;
-    }
-  };
-
-  // Delete Tool handlers (trade-scoped)
-  const handleOpenDeleteToolModal = (tool: { id: string; name: string; isUiTool?: boolean }, tradeId: string) => {
-    setDeletingTool({
-      id: tool.id,
-      name: tool.name,
-      isUiTool: tool.isUiTool ?? false,
-    });
-    setDeletingToolTrade(tradeId);
-    setShowDeleteToolModal(true);
-  };
-
-  const handleCloseDeleteToolModal = () => {
-    setShowDeleteToolModal(false);
-    setDeletingTool(null);
-    setDeletingToolTrade(null);
-  };
-
-  const handleConfirmDeleteTool = () => {
-    if (!deletingTool || !deletingToolTrade) return;
-
-    const uiList = uiToolsByTrade[deletingToolTrade] || [];
-    const hidden = uiToolHiddenIdsByTrade[deletingToolTrade] || new Set();
-
-    if (deletingTool.isUiTool) {
-      setUiToolsByTrade({
-        ...uiToolsByTrade,
-        [deletingToolTrade]: uiList.filter((t) => t.id !== deletingTool.id),
-      });
-    } else {
-      setUiToolHiddenIdsByTrade({
-        ...uiToolHiddenIdsByTrade,
-        [deletingToolTrade]: new Set([...hidden, deletingTool.id]),
-      });
-    }
-
-    // Also remove from defaults set for that trade (UI-only cleanup)
-    const currentDefaults = uiToolDefaultIdsByTrade[deletingToolTrade] ?? new Set();
-    if (currentDefaults.has(deletingTool.id)) {
-      const newDefaults = new Set(currentDefaults);
-      newDefaults.delete(deletingTool.id);
-      setUiToolDefaultIdsByTrade({
-        ...uiToolDefaultIdsByTrade,
-        [deletingToolTrade]: newDefaults,
-      });
-    }
-
-    setShowDeleteToolModal(false);
-    setDeletingTool(null);
-    setDeletingToolTrade(null);
-  };
-
-  // Toggle isDefault for a CustomerToolType item (persisted via PATCH)
-  const handleToggleToolDefault = async (item: CustomerToolTypeItem, tradeId: string) => {
-    const newDefault = !item.isDefault;
-    setCustomerToolTrades((prev) =>
-      prev.map((t) =>
-        t.trade.id === tradeId
-          ? { ...t, items: t.items.map((i) => (i.id === item.id ? { ...i, isDefault: newDefault } : i)) }
-          : t
-      )
-    );
-    try {
-      await apiFetch<any>(`/customers/${customerId}/tool-types`, {
-        method: "PATCH",
-        body: JSON.stringify({ tradeId, toolTypeId: item.toolType.id, isDefault: newDefault }),
-      });
-    } catch (e: any) {
-      console.error("Failed to toggle tool default:", e);
-      setCustomerToolTrades((prev) =>
-        prev.map((t) =>
-          t.trade.id === tradeId
-            ? { ...t, items: t.items.map((i) => (i.id === item.id ? { ...i, isDefault: item.isDefault } : i)) }
-            : t
-        )
-      );
-    }
   };
 
   // Compute rendered tools per trade: base (filtered, overrides) + ui-created for that trade only
@@ -1572,84 +1446,6 @@ export default function CustomerDetailPage() {
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
-
-        {/* Tools Tab — trade-grouped */}
-        {activeTab === "tools" && (
-          <div className="tools-panel">
-            <div className="panel-header">
-              <h2>Customer Tools by Trade</h2>
-              <span className="panel-note">Tools commonly required at this customer&apos;s sites, grouped by trade</span>
-            </div>
-            {!customerToolsLoaded ? (
-                <div style={{ textAlign: "center", padding: "24px 16px", color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}>
-                  Loading tool types…
-                </div>
-              ) : customerToolTrades.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "24px 16px", color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}>
-                  No customer tool types configured yet.
-                </div>
-              ) : customerToolTrades.map(({ trade, items }) => {
-              const defaultCount = items.filter((i) => i.isDefault).length;
-              const catalogCount = items.length;
-              return (
-                <div key={trade.id} className="tools-trade-section">
-                  <div className="tools-trade-section-header">
-                    <div className="tools-trade-header-left">
-                      <h3 className="tools-trade-title">{trade.name}</h3>
-                      <span className="tools-trade-helper">
-                        Default tools are the typical baseline for this customer&apos;s {trade.name}. Job Orders may add one-off tools.
-                      </span>
-                    </div>
-                    <div className="tools-trade-header-right">
-                      <span className="tools-trade-counts">Default: {defaultCount} • Catalog: {catalogCount}</span>
-                    </div>
-                  </div>
-                  <div className="tools-table-wrap">
-                    <table className="tools-table">
-                      <thead>
-                        <tr>
-                          <th>Tool Name</th>
-                          <th>Notes</th>
-                          <th className="tool-default-col">Default</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {items.map((item) => (
-                          <tr key={item.id}>
-                            <td className="tool-name">{item.toolType.name}</td>
-                            <td className="tool-notes">{item.notes || "—"}</td>
-                            <td className="tool-default-cell">
-                              <input
-                                type="checkbox"
-                                className="tool-default-checkbox"
-                                checked={item.isDefault}
-                                onChange={() => handleToggleToolDefault(item, trade.id)}
-                                title={item.isDefault ? "Remove from defaults" : "Mark as default"}
-                              />
-                            </td>
-                            <td className="tool-actions">
-                              <button
-                                type="button"
-                                className="tool-action-link"
-                                onClick={() => handleOpenEditToolModal(item, trade.id, trade.name)}
-                              >
-                                Edit Notes
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              );
-            })}
-            <p className="text-xs text-slate-400" style={{ marginTop: "1.5rem" }}>
-              Tools listed are sourced from the Tool Catalog. Checked tools define this customer&apos;s default baseline. Orders snapshot required tools at creation.
-            </p>
           </div>
         )}
 
@@ -2752,34 +2548,6 @@ export default function CustomerDetailPage() {
         </div>
       )}
 
-      {/* Delete Tool Modal (trade-aware) */}
-      {showDeleteToolModal && deletingTool && deletingToolTrade && (
-        <div className="modal-overlay" onClick={handleCloseDeleteToolModal}>
-          <div className="modal-content modal-content-sm" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Delete Tool — {deletingToolTrade}</h3>
-              <button className="modal-close-btn" onClick={handleCloseDeleteToolModal}>×</button>
-            </div>
-            <div className="modal-body">
-              <p className="delete-confirm-text">
-                Are you sure you want to delete <strong>{deletingTool.name}</strong>?
-              </p>
-              <p className="delete-confirm-note">
-                This removes the item from the UI only (no persistence).
-              </p>
-            </div>
-            <div className="modal-footer">
-              <button className="cancel-btn" onClick={handleCloseDeleteToolModal}>Cancel</button>
-              <button
-                className="delete-btn"
-                onClick={handleConfirmDeleteTool}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Add PPE Modal */}
       {showAddPpeModal && (
@@ -4698,6 +4466,8 @@ export default function CustomerDetailPage() {
     </div>
   );
 }
+
+
 
 
 
