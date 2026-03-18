@@ -180,7 +180,25 @@ export interface OrderTradeRequirementResponse {
   supervisorOverride: boolean;
   supervisorContactId: string | null;
   supervisorContact?: { id: string; firstName: string; lastName: string } | null;
-  assignments: Array<{ id: string; userId: string; status: string; endDate: string | null }>;
+  effectiveState?: {
+    requestedHeadcount: number | null;
+    baseBillRate: string | null;
+    basePayRate: string | null;
+    startDate: string | null;
+    backfillPolicy: string;
+    appliedChangeOrderIds: string[];
+  } | null;
+  assignments: Array<{
+    id: string;
+    userId: string;
+    status: string;
+    endDate: string | null;
+    effectiveAssignmentState?: {
+      payRate: string | null;
+      billRate: string | null;
+      source: "ASSIGNMENT" | "TRADE";
+    } | null;
+  }>;
   ppeRequirements: OrderPpeRequirementResponse[];
   toolRequirements: OrderToolRequirementResponse[];
   certRequirements: OrderCertRequirementResponse[];
@@ -255,6 +273,10 @@ export interface OrderDetailResponse {
   salesperson: { id: string; firstName: string; lastName: string } | null;
   salespersonDefaultCommissionPlanId: string | null;
   marginHealth: OrderMarginHealthPreview | null;
+  effectiveTotals?: {
+    baselineTotalHeadcount: number;
+    effectiveTotalHeadcount: number;
+  } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -272,3 +294,70 @@ export const ENFORCEMENT_LABELS: Record<RequirementEnforcement, string> = {
   FILTER: "Block Dispatch",
   FLAG: "Allow Dispatch",
 };
+
+// ---------------------------------------------------------------------------
+// Change Order Types
+// ---------------------------------------------------------------------------
+
+export type ChangeOrderType =
+  | "RATE_CHANGE"
+  | "HEADCOUNT_INCREASE"
+  | "HEADCOUNT_DECREASE"
+  | "START_DATE_CHANGE"
+  | "BACKFILL_POLICY_CHANGE";
+
+export type ChangeOrderStatus =
+  | "DRAFT"
+  | "PENDING_APPROVAL"
+  | "APPROVED"
+  | "REJECTED"
+  | "CANCELLED";
+
+export interface ChangeOrderResponse {
+  id: string;
+  orderId: string;
+  orderTradeRequirementId: string;
+  assignmentId: string | null;
+  type: ChangeOrderType;
+  status: ChangeOrderStatus;
+  sequenceNumber: number;
+  changePayload: Record<string, any>;
+  effectiveDate: string;
+  requestedDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdByUserId: string;
+  reason: string | null;
+  internalNotes: string | null;
+  approvedAt: string | null;
+  approvedByUserId: string | null;
+  rejectedAt: string | null;
+  rejectedByUserId: string | null;
+  rejectionReason: string | null;
+  orderTradeRequirement?: {
+    id: string;
+    tradeId: string;
+    baseBillRate: string | null;
+    basePayRate: string | null;
+    requestedHeadcount: number | null;
+    startDate: string | null;
+  };
+  assignment?: {
+    id: string;
+    userId: string;
+    status: string;
+  } | null;
+  createdBy?: { id: string; fullName: string; email: string };
+  approvedBy?: { id: string; fullName: string; email: string } | null;
+  rejectedBy?: { id: string; fullName: string; email: string } | null;
+}
+
+export interface CreateChangeOrderPayload {
+  orderTradeRequirementId: string;
+  assignmentId?: string;
+  type: ChangeOrderType;
+  changePayload: Record<string, any>;
+  effectiveDate: string;
+  reason?: string;
+  internalNotes?: string;
+}

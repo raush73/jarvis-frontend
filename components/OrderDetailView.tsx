@@ -8,6 +8,7 @@ import type {
   OrderTradeRequirementResponse,
   MarginHealthStatus,
 } from "@/lib/types/order";
+import { ChangeOrdersTab } from "./ChangeOrdersTab";
 import { ENFORCEMENT_LABELS, type RequirementEnforcement } from "@/lib/types/order";
 import { HEALTH_STATUS_COLORS, HEALTH_STATUS_LABELS } from "@/lib/constants/margin-health";
 import {
@@ -622,13 +623,11 @@ export function OrderDetailView({
 
       {/* ── Change Orders Tab ─────────────────────────────── */}
       {activeTab === "changeOrders" && (
-        <div className="od-section">
-          <h2>Change Orders</h2>
-          <p className="od-empty">
-            Change order management is a deferred system and will be wired in a
-            future phase.
-          </p>
-        </div>
+        <ChangeOrdersTab
+          orderId={orderId}
+          order={order}
+          onOrderRefresh={loadOrder}
+        />
       )}
 
       <style jsx>{shellStyles}</style>
@@ -698,6 +697,89 @@ function TradeRequirementCard({
           <span className="trc-val">{fmtDate(tr.expectedEndDate)}</span>
         </div>
       </div>
+
+      {tr.effectiveState &&
+        tr.effectiveState.appliedChangeOrderIds.length > 0 && (
+          <div className="trc-eff">
+            <span className="trc-eff-title">
+              Effective State ({tr.effectiveState.appliedChangeOrderIds.length}{" "}
+              CO{tr.effectiveState.appliedChangeOrderIds.length !== 1 ? "s" : ""}{" "}
+              applied)
+            </span>
+            <div className="trc-eff-fields">
+              <div className="trc-eff-item">
+                <span className="trc-eff-label">Eff. Headcount</span>
+                <span className="trc-eff-val">
+                  {tr.effectiveState.requestedHeadcount ?? "—"}
+                  {tr.effectiveState.requestedHeadcount !== tr.requestedHeadcount && (
+                    <span className="trc-eff-delta">
+                      (was {tr.requestedHeadcount ?? "—"})
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="trc-eff-item">
+                <span className="trc-eff-label">Eff. Pay Rate</span>
+                <span className="trc-eff-val">
+                  ${tr.effectiveState.basePayRate ?? "—"}
+                  {tr.effectiveState.basePayRate !== tr.basePayRate && (
+                    <span className="trc-eff-delta">
+                      (was ${tr.basePayRate ?? "—"})
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="trc-eff-item">
+                <span className="trc-eff-label">Eff. Bill Rate</span>
+                <span className="trc-eff-val">
+                  ${tr.effectiveState.baseBillRate ?? "—"}
+                  {tr.effectiveState.baseBillRate !== tr.baseBillRate && (
+                    <span className="trc-eff-delta">
+                      (was ${tr.baseBillRate ?? "—"})
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="trc-eff-item">
+                <span className="trc-eff-label">Eff. Start Date</span>
+                <span className="trc-eff-val">
+                  {fmtDate(tr.effectiveState.startDate)}
+                </span>
+              </div>
+              <div className="trc-eff-item">
+                <span className="trc-eff-label">Backfill Policy</span>
+                <span className="trc-eff-val">
+                  {tr.effectiveState.backfillPolicy}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {tr.assignments.length > 0 && (
+        <div className="trc-assignments">
+          <span className="trc-asn-title">
+            Assignments ({tr.assignments.length})
+          </span>
+          {tr.assignments.map((a) => (
+            <div key={a.id} className="trc-asn-row">
+              <span className="trc-asn-id">{a.userId.slice(0, 8)}…</span>
+              <span className="trc-asn-status">{a.status}</span>
+              {a.effectiveAssignmentState && (
+                <span className="trc-asn-eff">
+                  Pay: ${a.effectiveAssignmentState.payRate ?? "—"} · Bill: $
+                  {a.effectiveAssignmentState.billRate ?? "—"}
+                  <span
+                    className={`trc-asn-source ${a.effectiveAssignmentState.source === "ASSIGNMENT" ? "trc-asn-source-asn" : ""}`}
+                  >
+                    {a.effectiveAssignmentState.source}
+                  </span>
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {tr.notes && <p className="trc-notes">{tr.notes}</p>}
 
@@ -862,6 +944,107 @@ function TradeRequirementCard({
           font-size: 10px;
           color: rgba(255, 255, 255, 0.35);
           font-style: italic;
+        }
+        .trc-eff {
+          margin: 10px 0;
+          padding: 10px 12px;
+          background: rgba(34, 197, 94, 0.04);
+          border: 1px solid rgba(34, 197, 94, 0.15);
+          border-radius: 8px;
+        }
+        .trc-eff-title {
+          display: block;
+          font-size: 10px;
+          font-weight: 600;
+          color: #22c55e;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          margin-bottom: 8px;
+        }
+        .trc-eff-fields {
+          display: flex;
+          gap: 16px;
+          flex-wrap: wrap;
+        }
+        .trc-eff-item {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .trc-eff-label {
+          font-size: 9px;
+          color: rgba(255, 255, 255, 0.4);
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+        }
+        .trc-eff-val {
+          font-size: 13px;
+          color: #86efac;
+          font-family: var(--font-geist-mono), monospace;
+          font-weight: 600;
+        }
+        .trc-eff-delta {
+          font-size: 10px;
+          color: rgba(255, 255, 255, 0.35);
+          margin-left: 6px;
+          font-weight: 400;
+        }
+        .trc-assignments {
+          margin: 10px 0;
+          padding-top: 10px;
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .trc-asn-title {
+          display: block;
+          font-size: 10px;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.45);
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          margin-bottom: 6px;
+        }
+        .trc-asn-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 5px 10px;
+          background: rgba(255, 255, 255, 0.02);
+          border-radius: 4px;
+          margin-bottom: 3px;
+          flex-wrap: wrap;
+        }
+        .trc-asn-id {
+          font-size: 11px;
+          font-family: var(--font-geist-mono), monospace;
+          color: rgba(255, 255, 255, 0.6);
+        }
+        .trc-asn-status {
+          font-size: 10px;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.45);
+          text-transform: uppercase;
+        }
+        .trc-asn-eff {
+          font-size: 11px;
+          color: rgba(255, 255, 255, 0.7);
+          font-family: var(--font-geist-mono), monospace;
+          margin-left: auto;
+        }
+        .trc-asn-source {
+          display: inline-block;
+          margin-left: 8px;
+          padding: 1px 6px;
+          font-size: 9px;
+          font-weight: 600;
+          border-radius: 3px;
+          background: rgba(59, 130, 246, 0.1);
+          color: rgba(59, 130, 246, 0.8);
+          border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+        .trc-asn-source-asn {
+          background: rgba(168, 85, 247, 0.1);
+          color: rgba(168, 85, 247, 0.9);
+          border-color: rgba(168, 85, 247, 0.25);
         }
         .trc-fields {
           display: grid;
