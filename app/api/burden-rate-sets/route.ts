@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND = "http://127.0.0.1:3000";
 
-function getAuthHeader(req: NextRequest) {
+function getAuthHeader(req: NextRequest): Record<string, string> {
+  const headers: Record<string, string> = {};
   const auth = req.headers.get("authorization");
-  return auth ? { Authorization: auth } : {};
+  if (auth) {
+    headers.Authorization = auth;
+  }
+  return headers;
 }
 
 export async function GET(req: NextRequest) {
@@ -32,3 +36,6 @@ export async function POST(req: NextRequest) {
   const data = await res.text();
   return new NextResponse(data, { status: res.status });
 }
+
+
+
