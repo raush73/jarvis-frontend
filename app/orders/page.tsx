@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from 'next/navigation';
 // Mock job orders data
@@ -137,7 +137,7 @@ export default function OrdersPage() {
         return orders;
     }
   }, [activeFilter]);
-
+
 
   if (!isAuthorized) {
     return null;
@@ -244,10 +244,15 @@ export default function OrdersPage() {
       </div>
 
       <style jsx>{`
+        /* ============================================================
+           INDUSTRIAL LIGHT V1 — Orders List Page
+        ============================================================ */
         .orders-container {
           padding: 32px 40px;
           max-width: 1400px;
           margin: 0 auto;
+          background: #f8fafc;
+          min-height: 100vh;
         }
 
         .orders-header {
@@ -265,15 +270,15 @@ export default function OrdersPage() {
 
         .header-left h1 {
           font-size: 26px;
-          font-weight: 600;
-          color: #fff;
+          font-weight: 700;
+          color: #111827;
           margin: 0;
-          letter-spacing: -0.5px;
+          letter-spacing: -0.3px;
         }
 
         .order-count {
           font-size: 14px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
         }
 
         .header-right {
@@ -281,64 +286,54 @@ export default function OrdersPage() {
           gap: 12px;
         }
 
-        .logout-btn {
-          padding: 8px 18px;
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 6px;
-          font-size: 13px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.7);
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-
-        .logout-btn:hover {
-          background: rgba(239, 68, 68, 0.15);
-          border-color: rgba(239, 68, 68, 0.3);
-          color: #f87171;
-        }
-
+        /* Filter/control row */
         .staffing-filter {
           display: flex;
           align-items: center;
           gap: 10px;
           margin-bottom: 16px;
+          padding: 12px 16px;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
         }
 
         .staffing-filter label {
-          font-size: 14px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.7);
+          font-size: 13px;
+          font-weight: 600;
+          color: #374151;
         }
 
         .staffing-filter select {
-          padding: 8px 12px;
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          padding: 7px 11px;
+          background: #ffffff;
+          border: 1px solid #d1d5db;
           border-radius: 6px;
-          font-size: 14px;
-          color: #fff;
+          font-size: 13px;
+          color: #111827;
           cursor: pointer;
           outline: none;
+          transition: border-color 0.12s ease;
         }
 
         .staffing-filter select:hover {
-          border-color: rgba(255, 255, 255, 0.2);
+          border-color: #9ca3af;
         }
 
         .staffing-filter select:focus {
-          border-color: #3b82f6;
+          border-color: #2563eb;
+          box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
         }
 
         .staffing-filter select option {
-          background: #1a1a2e;
-          color: #fff;
+          background: #ffffff;
+          color: #111827;
         }
 
+        /* Table */
         .orders-table-wrap {
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
           border-radius: 12px;
           overflow: hidden;
         }
@@ -349,34 +344,34 @@ export default function OrdersPage() {
         }
 
         .orders-table thead {
-          background: rgba(255, 255, 255, 0.03);
+          background: #f1f5f9;
         }
 
         .orders-table th {
-          padding: 14px 20px;
+          padding: 13px 20px;
           text-align: left;
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
+          color: #374151;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          border-bottom: 1px solid #d1d5db;
         }
 
         .orders-table td {
-          padding: 16px 20px;
+          padding: 15px 20px;
           font-size: 14px;
-          color: rgba(255, 255, 255, 0.85);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+          color: #111827;
+          border-bottom: 1px solid #f1f5f9;
         }
 
         .order-row {
           cursor: pointer;
-          transition: background 0.15s ease;
+          transition: background 0.12s ease;
         }
 
         .order-row:hover {
-          background: rgba(59, 130, 246, 0.08);
+          background: #f9fafb;
         }
 
         .order-row:last-child td {
@@ -385,21 +380,23 @@ export default function OrdersPage() {
 
         .order-id {
           font-family: var(--font-geist-mono), monospace;
-          font-weight: 500;
-          color: #3b82f6 !important;
+          font-weight: 600;
+          color: #2563eb !important;
         }
 
         .customer {
-          font-weight: 500;
+          font-weight: 600;
+          color: #111827;
         }
 
         .site {
-          color: rgba(255, 255, 255, 0.6) !important;
+          color: #6b7280 !important;
           max-width: 280px;
         }
 
         .start-date {
           white-space: nowrap;
+          color: #374151;
         }
 
         .trades {
@@ -408,7 +405,7 @@ export default function OrdersPage() {
         }
 
         .last-updated {
-          color: rgba(255, 255, 255, 0.45) !important;
+          color: #9ca3af !important;
           font-size: 13px !important;
           white-space: nowrap;
         }
@@ -426,15 +423,15 @@ export default function OrdersPage() {
         }
 
         .staffing-badge.has-openings {
-          background: rgba(245, 158, 11, 0.15);
-          color: #f59e0b;
-          border: 1px solid rgba(245, 158, 11, 0.3);
+          background: #fffbeb;
+          color: #d97706;
+          border: 1px solid #fde68a;
         }
 
         .staffing-badge.fully-staffed {
-          background: rgba(34, 197, 94, 0.15);
-          color: #22c55e;
-          border: 1px solid rgba(34, 197, 94, 0.3);
+          background: #f0fdf4;
+          color: #16a34a;
+          border: 1px solid #bbf7d0;
         }
       `}</style>
 
@@ -444,7 +441,7 @@ export default function OrdersPage() {
           align-items: center;
           gap: 6px;
           padding: 4px 10px;
-          background: rgba(255, 255, 255, 0.04);
+          background: #f8fafc;
           border: 1px solid;
           border-radius: 5px;
           font-size: 12px;
@@ -452,7 +449,7 @@ export default function OrdersPage() {
 
         .trade-label {
           font-weight: 600;
-          color: rgba(255, 255, 255, 0.6);
+          color: #374151;
         }
 
         .trade-count {

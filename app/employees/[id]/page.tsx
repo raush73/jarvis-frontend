@@ -1,646 +1,1235 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
-import { MOCK_EMPLOYEES, Employee } from "@/data/mockEmployeeData";
-import { EventSpineTimelineSnapshot } from "@/components/EventSpineTimelineSnapshot";
+import { useEffect, useState, useCallback } from "react";
+import { apiFetch } from "@/lib/api";
+
+/* ------------------------------------------------------------------ */
+/*  Types — Candidate-shaped employee detail                           */
+/* ------------------------------------------------------------------ */
+
+type TradeRow = {
+  id: string;
+  tradeId: string;
+  tradeName: string;
+  proficiency: string;
+  notes: string | null;
+  source: string;
+};
+
+type CertRow = {
+  id: string;
+  certTypeId: string;
+  certTypeName: string;
+  certTypeCode: string;
+  categoryName: string | null;
+  status: string;
+  issuedAt: string | null;
+  expiresAt: string | null;
+  verification: string;
+  notes: string | null;
+  source: string;
+};
+
+type ToolRow = {
+  id: string;
+  toolTypeId: string;
+  toolTypeName: string;
+  status: string;
+  notes: string | null;
+  source: string;
+};
+
+type PpeRow = {
+  id: string;
+  ppeTypeId: string;
+  ppeTypeName: string;
+  status: string;
+  notes: string | null;
+  source: string;
+};
+
+type ApplicationRow = {
+  id: string;
+  status: string;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  createdAt: string;
+};
+
+type EmployeeDetail = {
+  id: string;
+  email: string | null;
+  phone: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  trades: TradeRow[];
+  certifications: CertRow[];
+  tools: ToolRow[];
+  ppe: PpeRow[];
+  applications: ApplicationRow[];
+};
+
+type ComplianceRecord = {
+  id: string;
+  employeeId: string;
+  requirementTypeId: string;
+  requirementTypeName: string;
+  categoryName: string | null;
+  variantId: string | null;
+  variantName: string | null;
+  status: string;
+  issueDate: string | null;
+  expirationDate: string | null;
+  documentFile: string | null;
+  notes: string | null;
+  issuedBy: string | null;
+  verifiedBy: string | null;
+  verifiedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ComplianceRequirementType = {
+  id: string;
+  categoryId: string;
+  name: string;
+  description: string | null;
+  requiresExpiration: boolean;
+  isActive: boolean;
+};
+
+type ComplianceVariant = {
+  id: string;
+  requirementTypeId: string;
+  name: string;
+  isActive: boolean;
+};
+
+/* ------------------------------------------------------------------ */
+/*  Tab list (locked order)                                            */
+/* ------------------------------------------------------------------ */
+
+const TABS = [
+  "Overview",
+  "Certifications",
+  "Compliance",
+  "Tools",
+  "PPE",
+  "Work History",
+  "Timesheets",
+  "Payroll",
+  "Safety",
+  "Documents",
+  "Job Application",
+  "Notes",
+] as const;
+
+type TabKey = (typeof TABS)[number];
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+function fmtDate(v: string | null | undefined): string {
+  if (!v) return "\u2014";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "\u2014";
+  return d.toLocaleDateString();
+}
+
+function statusColor(status: string): { bg: string; color: string; border: string } {
+  switch (status) {
+    case "COMPLETED":
+    case "VERIFIED":
+      return { bg: "rgba(34,197,94,0.08)", color: "#16a34a", border: "rgba(34,197,94,0.25)" };
+    case "PENDING":
+    case "SELF_ATTESTED":
+    case "UNKNOWN":
+      return { bg: "rgba(245,158,11,0.08)", color: "#d97706", border: "rgba(245,158,11,0.25)" };
+    case "FAILED":
+    case "MISSING":
+      return { bg: "rgba(239,68,68,0.08)", color: "#dc2626", border: "rgba(239,68,68,0.25)" };
+    case "EXPIRED":
+      return { bg: "rgba(107,114,128,0.08)", color: "#6b7280", border: "rgba(107,114,128,0.25)" };
+    default:
+      return { bg: "rgba(107,114,128,0.08)", color: "#6b7280", border: "rgba(107,114,128,0.25)" };
+  }
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const sc = statusColor(status);
+  return (
+    <span style={{
+      display: "inline-block", padding: "3px 8px", borderRadius: "4px",
+      fontSize: "11px", fontWeight: 600, background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`,
+    }}>
+      {status}
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Downstream placeholder                                             */
+/* ------------------------------------------------------------------ */
+
+function DownstreamTab({ label }: { label: string }) {
+  return (
+    <div style={{ padding: "40px 20px", textAlign: "center" }}>
+      <p style={{ fontSize: "14px", color: "#6b7280", margin: 0 }}>
+        {label}
+      </p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main component                                                     */
+/* ------------------------------------------------------------------ */
 
 export default function EmployeeDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params?.id as string;
 
-  // Find employee in mock data
-  const employee: Employee | undefined = MOCK_EMPLOYEES.find(
-    (emp) => emp.id === id
-  );
+  const [activeTab, setActiveTab] = useState<TabKey>("Overview");
+  const [employee, setEmployee] = useState<EmployeeDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Not found state
-  if (!employee) {
+  // Compliance state
+  const [compRecords, setCompRecords] = useState<ComplianceRecord[]>([]);
+  const [compLoading, setCompLoading] = useState(false);
+  const [compReqTypes, setCompReqTypes] = useState<ComplianceRequirementType[]>([]);
+  const [compVariants, setCompVariants] = useState<ComplianceVariant[]>([]);
+  const [showCompModal, setShowCompModal] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<ComplianceRecord | null>(null);
+  const [compForm, setCompForm] = useState({
+    requirementTypeId: "",
+    variantId: "",
+    status: "PENDING",
+    issueDate: "",
+    expirationDate: "",
+    notes: "",
+    issuedBy: "",
+  });
+  const [compSaving, setCompSaving] = useState(false);
+  const [compError, setCompError] = useState<string | null>(null);
+
+  /* ---------- Load employee ---------- */
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiFetch<EmployeeDetail>(`/employees/${id}`);
+        if (!alive) return;
+        setEmployee(data);
+      } catch (e: any) {
+        if (!alive) return;
+        setError(e?.message ?? "Failed to load employee.");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [id]);
+
+  /* ---------- Load compliance records when tab is active ---------- */
+  const loadCompliance = useCallback(async () => {
+    setCompLoading(true);
+    try {
+      const [records, reqTypes, variants] = await Promise.all([
+        apiFetch<ComplianceRecord[]>(`/employees/${id}/compliance-records`),
+        apiFetch<ComplianceRequirementType[]>("/compliance-requirement-types?activeOnly=true"),
+        apiFetch<ComplianceVariant[]>("/compliance-variants?activeOnly=true"),
+      ]);
+      setCompRecords(Array.isArray(records) ? records : []);
+      setCompReqTypes(Array.isArray(reqTypes) ? reqTypes : []);
+      setCompVariants(Array.isArray(variants) ? variants : []);
+    } catch {
+      setCompRecords([]);
+    } finally {
+      setCompLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (activeTab === "Compliance") loadCompliance();
+  }, [activeTab, loadCompliance]);
+
+  /* ---------- Compliance CRUD ---------- */
+  function openAddCompliance() {
+    setEditingRecord(null);
+    setCompForm({ requirementTypeId: "", variantId: "", status: "PENDING", issueDate: "", expirationDate: "", notes: "", issuedBy: "" });
+    setCompError(null);
+    setShowCompModal(true);
+  }
+
+  function openEditCompliance(rec: ComplianceRecord) {
+    setEditingRecord(rec);
+    setCompForm({
+      requirementTypeId: rec.requirementTypeId,
+      variantId: rec.variantId ?? "",
+      status: rec.status,
+      issueDate: rec.issueDate ? rec.issueDate.slice(0, 10) : "",
+      expirationDate: rec.expirationDate ? rec.expirationDate.slice(0, 10) : "",
+      notes: rec.notes ?? "",
+      issuedBy: rec.issuedBy ?? "",
+    });
+    setCompError(null);
+    setShowCompModal(true);
+  }
+
+  async function saveCompliance() {
+    setCompSaving(true);
+    setCompError(null);
+    try {
+      if (editingRecord) {
+        await apiFetch(`/employees/${id}/compliance-records/${editingRecord.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            variantId: compForm.variantId || undefined,
+            status: compForm.status,
+            issueDate: compForm.issueDate || undefined,
+            expirationDate: compForm.expirationDate || undefined,
+            notes: compForm.notes || undefined,
+            issuedBy: compForm.issuedBy || undefined,
+          }),
+        });
+      } else {
+        if (!compForm.requirementTypeId) {
+          setCompError("Requirement type is required.");
+          setCompSaving(false);
+          return;
+        }
+        await apiFetch(`/employees/${id}/compliance-records`, {
+          method: "POST",
+          body: JSON.stringify({
+            employeeId: id,
+            requirementTypeId: compForm.requirementTypeId,
+            variantId: compForm.variantId || undefined,
+            status: compForm.status,
+            issueDate: compForm.issueDate || undefined,
+            expirationDate: compForm.expirationDate || undefined,
+            notes: compForm.notes || undefined,
+            issuedBy: compForm.issuedBy || undefined,
+          }),
+        });
+      }
+      setShowCompModal(false);
+      await loadCompliance();
+    } catch (e: any) {
+      setCompError(e?.message ?? "Save failed.");
+    } finally {
+      setCompSaving(false);
+    }
+  }
+
+  async function deleteCompliance(recordId: string) {
+    if (!confirm("Delete this compliance record?")) return;
+    try {
+      await apiFetch(`/employees/${id}/compliance-records/${recordId}`, { method: "DELETE" });
+      await loadCompliance();
+    } catch {
+      // silent
+    }
+  }
+
+  /* ---------- Loading / Error ---------- */
+  if (loading) {
     return (
-      <div className="employee-detail-container">
-        <div className="not-found-state">
-          <div className="not-found-icon">?</div>
-          <h2>Employee Not Found</h2>
-          <p>No employee found with ID: {id}</p>
-          <button
-            className="btn-back"
-            onClick={() => router.push("/employees")}
-          >
-            Back to Employees
-          </button>
+      <div className="detail-container">
+        <div style={{ padding: "60px 20px", textAlign: "center", color: "#6b7280" }}>
+          Loading employee...
         </div>
-
-        <style jsx>{`
-          .employee-detail-container {
-            padding: 32px 40px;
-            max-width: 1200px;
-            margin: 0 auto;
-          }
-
-          .not-found-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 80px 40px;
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            text-align: center;
-          }
-
-          .not-found-icon {
-            width: 64px;
-            height: 64px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 32px;
-            font-weight: 700;
-            color: rgba(255, 255, 255, 0.3);
-            background: rgba(255, 255, 255, 0.04);
-            border-radius: 50%;
-            margin-bottom: 20px;
-          }
-
-          .not-found-state h2 {
-            font-size: 20px;
-            font-weight: 600;
-            color: #fff;
-            margin: 0 0 8px;
-          }
-
-          .not-found-state p {
-            font-size: 14px;
-            color: rgba(255, 255, 255, 0.5);
-            margin: 0 0 24px;
-          }
-
-          .btn-back {
-            padding: 10px 24px;
-            background: #3b82f6;
-            border: none;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 600;
-            color: #fff;
-            cursor: pointer;
-            transition: all 0.15s ease;
-          }
-
-          .btn-back:hover {
-            background: #2563eb;
-          }
-        `}</style>
+        <style jsx>{`${baseStyles}`}</style>
       </div>
     );
   }
 
-  // Status badge color helper
-  const getStatusColor = (status: Employee["status"]) => {
-    switch (status) {
-      case "Active":
-        return "#22c55e";
-      case "Inactive":
-        return "#6b7280";
-      case "Do Not Dispatch":
-        return "#ef4444";
-      default:
-        return "#6b7280";
-    }
-  };
-
-  // Availability badge color helper
-  const getAvailabilityColor = (availability: Employee["availability"]) => {
-    switch (availability) {
-      case "Available":
-        return "#22c55e";
-      case "On Assignment":
-        return "#3b82f6";
-      case "Unavailable":
-        return "#f59e0b";
-      default:
-        return "#6b7280";
-    }
-  };
-
-  return (
-    <div className="employee-detail-container">
-      {/* HEADER */}
-      <div className="page-header">
-        {/* Breadcrumb */}
-        <nav className="breadcrumb">
-          <Link href="/employees" className="breadcrumb-link">
-            Employees
-          </Link>
-          <span className="breadcrumb-sep">/</span>
-          <span className="breadcrumb-current">
-            {employee.lastName}, {employee.firstName}
-          </span>
-        </nav>
-
-        {/* Title Row */}
-        <div className="header-title-row">
-          <div className="header-title-content">
-            <h1>
-              {employee.firstName} {employee.lastName}
-            </h1>
-            <p className="header-subtitle">Employee ID: {employee.id}</p>
-          </div>
-          <div className="header-actions">
-            <button className="btn-action" disabled>
-              Edit
-            </button>
-            <button className="btn-action" disabled>
-              Message
-            </button>
-            <button
-              className="btn-back-link"
-              onClick={() => router.push("/employees")}
-            >
-              Back to Employees
-            </button>
-          </div>
+  if (error || !employee) {
+    return (
+      <div className="detail-container">
+        <button className="back-btn" onClick={() => router.push("/employees")}>&larr; Back to Employees</button>
+        <div style={{ padding: "60px 20px", textAlign: "center" }}>
+          <h2 style={{ fontSize: "20px", fontWeight: 700, color: "#111827", margin: "0 0 8px" }}>Employee Not Found</h2>
+          <p style={{ fontSize: "14px", color: "#6b7280", margin: 0 }}>{error || `No employee with ID: ${id}`}</p>
         </div>
-
-        {/* Mock Data Banner */}
-        <div className="mock-banner">
-          UI Shell (Mock Data) — No backend connected.
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="tab-nav">
-          <button className="tab-item tab-active">Overview</button>
-          <Link href="/my/timeline" className="tab-item">
-            Timeline
-          </Link>
-        </div>
+        <style jsx>{`${baseStyles}`}</style>
       </div>
+    );
+  }
 
-      {/* SUMMARY CARDS */}
-      <div className="summary-cards">
-        <div className="summary-card">
-          <span className="summary-label">Status</span>
-          <span
-            className="summary-value status-badge"
-            style={{
-              backgroundColor: `${getStatusColor(employee.status)}15`,
-              color: getStatusColor(employee.status),
-              borderColor: `${getStatusColor(employee.status)}40`,
-            }}
-          >
-            {employee.status || "Unknown"}
-          </span>
-        </div>
+  const emp = employee;
+  const primaryTrade = emp.trades[0]?.tradeName ?? null;
+  const variantsForType = compVariants.filter(
+    (v) => v.requirementTypeId === compForm.requirementTypeId
+  );
 
-        <div className="summary-card">
-          <span className="summary-label">Trade</span>
-          <span className="summary-value">{employee.trade || "—"}</span>
-        </div>
-
-        <div className="summary-card">
-          <span className="summary-label">Availability</span>
-          <span
-            className="summary-value availability-text"
-            style={{ color: getAvailabilityColor(employee.availability) }}
-          >
-            {employee.availability || "Unknown"}
-          </span>
-        </div>
-      </div>
-
-      {/* BODY - 2 Columns */}
-      <div className="body-grid">
-        {/* LEFT - Profile */}
-        <div className="body-card">
-          <h3 className="card-title">Profile</h3>
-          <div className="profile-fields">
-            <div className="profile-field">
-              <span className="field-label">Phone</span>
-              <span className="field-value">{employee.phone || "—"}</span>
+  /* ---------- Tab content renderer ---------- */
+  function renderTab() {
+    switch (activeTab) {
+      /* ========== OVERVIEW ========== */
+      case "Overview":
+        return (
+          <div>
+            <div className="panel-header">
+              <h2 className="panel-title">Employee Overview</h2>
             </div>
-            <div className="profile-field">
-              <span className="field-label">Email</span>
-              <span className="field-value field-email">
-                {employee.email || "—"}
-              </span>
-            </div>
-            <div className="profile-field">
-              <span className="field-label">Location</span>
-              <span className="field-value">
-                {employee.city && employee.state
-                  ? `${employee.city}, ${employee.state}`
-                  : "—"}
-              </span>
-            </div>
-            <div className="profile-field">
-              <span className="field-label">Hire Date</span>
-              <span className="field-value">{employee.hireDate || "—"}</span>
-            </div>
-            <div className="profile-field">
-              <span className="field-label">Last Dispatch</span>
-              <span className="field-value">
-                {employee.lastDispatchDate || "—"}
-              </span>
-            </div>
-            <div className="profile-field">
-              <span className="field-label">Notes</span>
-              <span className="field-value field-placeholder">—</span>
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT - Compliance */}
-        <div className="body-card">
-          <h3 className="card-title">Compliance</h3>
-          <div className="compliance-sections">
-            {/* Certifications */}
-            <div className="compliance-section">
-              <span className="compliance-label">Certifications</span>
-              {employee.certifications && employee.certifications.length > 0 ? (
-                <div className="tag-list">
-                  {employee.certifications.map((cert, idx) => (
-                    <span key={idx} className="tag">
-                      {cert}
-                    </span>
-                  ))}
+            <div className="overview-grid">
+              <div className="overview-section">
+                <h3 className="section-title">Contact Information</h3>
+                <div className="field-list">
+                  <div className="field-row"><span className="field-label">EMAIL</span><span className="field-value" style={{ color: emp.email ? "#2563eb" : undefined }}>{emp.email || "\u2014"}</span></div>
+                  <div className="field-row"><span className="field-label">PHONE</span><span className="field-value">{emp.phone || "\u2014"}</span></div>
+                  <div className="field-row"><span className="field-label">STATUS</span><span className="field-value"><StatusBadge status={emp.status} /></span></div>
                 </div>
-              ) : (
-                <span className="empty-text">No certifications listed</span>
-              )}
+              </div>
+              <div className="overview-section">
+                <h3 className="section-title">Trade Information</h3>
+                {emp.trades.length > 0 ? (
+                  <div className="field-list">
+                    {emp.trades.map((t) => (
+                      <div className="field-row" key={t.id}>
+                        <span className="field-label">{t.tradeName}</span>
+                        <span className="field-value">{t.proficiency}{t.source !== "SELF" ? ` (${t.source})` : ""}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="no-data-text">No trades declared.</p>
+                )}
+              </div>
             </div>
+          </div>
+        );
 
-            {/* Tools - NOT in mock data */}
-            <div className="compliance-section">
-              <span className="compliance-label">Tools</span>
-              <span className="empty-text">No tools listed</span>
+      /* ========== CERTIFICATIONS (LIVE from CandidateCertification) ========== */
+      case "Certifications":
+        return (
+          <div>
+            <div className="panel-header">
+              <h2 className="panel-title">Certifications</h2>
+              <span className="panel-note">Worker-held certifications</span>
             </div>
+            {emp.certifications.length === 0 ? (
+              <DownstreamTab label="No certifications on record for this worker." />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Certification</th>
+                      <th>Category</th>
+                      <th>Status</th>
+                      <th>Issued</th>
+                      <th>Expires</th>
+                      <th>Verification</th>
+                      <th>Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {emp.certifications.map((cc) => (
+                      <tr key={cc.id}>
+                        <td style={{ fontWeight: 500 }}>{cc.certTypeName}</td>
+                        <td>{cc.categoryName || "\u2014"}</td>
+                        <td><StatusBadge status={cc.status} /></td>
+                        <td>{fmtDate(cc.issuedAt)}</td>
+                        <td>{fmtDate(cc.expiresAt)}</td>
+                        <td>{cc.verification}</td>
+                        <td>{cc.source}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
 
-            {/* PPE - NOT in mock data */}
-            <div className="compliance-section">
-              <span className="compliance-label">PPE</span>
-              <span className="empty-text">No PPE listed</span>
+      /* ========== COMPLIANCE (LIVE) ========== */
+      case "Compliance":
+        return (
+          <div>
+            <div className="panel-header">
+              <h2 className="panel-title">Compliance Records</h2>
+              <span className="panel-note">Worker-owned compliance items</span>
+              <button className="btn-primary" onClick={openAddCompliance}>+ Add Record</button>
             </div>
+            {compLoading ? (
+              <div style={{ padding: "32px 20px", textAlign: "center", color: "#6b7280" }}>Loading compliance records...</div>
+            ) : compRecords.length === 0 ? (
+              <div style={{ padding: "32px 20px", textAlign: "center", color: "#6b7280" }}>No compliance records yet.</div>
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Requirement</th>
+                      <th>Category</th>
+                      <th>Variant</th>
+                      <th>Status</th>
+                      <th>Issue Date</th>
+                      <th>Expiration</th>
+                      <th>Issued By</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {compRecords.map((rec) => (
+                      <tr key={rec.id}>
+                        <td style={{ fontWeight: 500 }}>{rec.requirementTypeName}</td>
+                        <td>{rec.categoryName || "\u2014"}</td>
+                        <td>{rec.variantName || "\u2014"}</td>
+                        <td><StatusBadge status={rec.status} /></td>
+                        <td>{fmtDate(rec.issueDate)}</td>
+                        <td>{fmtDate(rec.expirationDate)}</td>
+                        <td>{rec.issuedBy || "\u2014"}</td>
+                        <td>
+                          <span className="action-link" onClick={() => openEditCompliance(rec)}>Edit</span>
+                          <span className="action-delete" onClick={() => deleteCompliance(rec.id)}>Delete</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+
+      /* ========== TOOLS (LIVE from CandidateTool) ========== */
+      case "Tools":
+        return (
+          <div>
+            <div className="panel-header">
+              <h2 className="panel-title">Tools</h2>
+              <span className="panel-note">Worker-declared tools</span>
+            </div>
+            {emp.tools.length === 0 ? (
+              <DownstreamTab label="No tools declared by this worker." />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Tool</th>
+                      <th>Status</th>
+                      <th>Source</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {emp.tools.map((t) => (
+                      <tr key={t.id}>
+                        <td style={{ fontWeight: 500 }}>{t.toolTypeName}</td>
+                        <td><StatusBadge status={t.status} /></td>
+                        <td>{t.source}</td>
+                        <td>{t.notes || "\u2014"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+
+      /* ========== PPE (LIVE from CandidatePpe) ========== */
+      case "PPE":
+        return (
+          <div>
+            <div className="panel-header">
+              <h2 className="panel-title">PPE</h2>
+              <span className="panel-note">Worker-declared PPE</span>
+            </div>
+            {emp.ppe.length === 0 ? (
+              <DownstreamTab label="No PPE declared by this worker." />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>PPE Item</th>
+                      <th>Status</th>
+                      <th>Source</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {emp.ppe.map((p) => (
+                      <tr key={p.id}>
+                        <td style={{ fontWeight: 500 }}>{p.ppeTypeName}</td>
+                        <td><StatusBadge status={p.status} /></td>
+                        <td>{p.source}</td>
+                        <td>{p.notes || "\u2014"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+
+      /* ========== JOB APPLICATION (LIVE from Application) ========== */
+      case "Job Application":
+        return (
+          <div>
+            <div className="panel-header">
+              <h2 className="panel-title">Job Application</h2>
+              <span className="panel-note">Candidate intake records</span>
+            </div>
+            {emp.applications.length === 0 ? (
+              <DownstreamTab label="No application records for this worker." />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Application ID</th>
+                      <th>Status</th>
+                      <th>Submitted</th>
+                      <th>Reviewed</th>
+                      <th>Review Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {emp.applications.map((app) => (
+                      <tr key={app.id}>
+                        <td style={{ fontFamily: "var(--font-geist-mono), monospace", fontSize: "12px" }}>{app.id.slice(0, 12)}</td>
+                        <td><StatusBadge status={app.status} /></td>
+                        <td>{fmtDate(app.submittedAt)}</td>
+                        <td>{fmtDate(app.reviewedAt)}</td>
+                        <td>{app.reviewNote || "\u2014"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+
+      /* ========== DOWNSTREAM TABS (honest placeholders) ========== */
+      case "Work History":
+        return <div><div className="panel-header"><h2 className="panel-title">Work History</h2></div><DownstreamTab label="Work history is not connected yet. This tab will show MW4H assignment history and external work history once available." /></div>;
+      case "Timesheets":
+        return <div><div className="panel-header"><h2 className="panel-title">Timesheets</h2></div><DownstreamTab label="Timesheets are not connected yet. This tab will show hours entries once worker-scoped timesheet queries are available." /></div>;
+      case "Payroll":
+        return <div><div className="panel-header"><h2 className="panel-title">Payroll</h2></div><DownstreamTab label="Payroll visibility is not connected yet. This tab will show pay history once employee-scoped payroll queries are available." /></div>;
+      case "Safety":
+        return <div><div className="panel-header"><h2 className="panel-title">Safety</h2></div><DownstreamTab label="Safety module is not connected yet. No incident or medical screen management is available in this build." /></div>;
+      case "Documents":
+        return <div><div className="panel-header"><h2 className="panel-title">Documents</h2></div><DownstreamTab label="Document management is not connected yet. No document model or file upload system exists in this build." /></div>;
+      case "Notes":
+        return <div><div className="panel-header"><h2 className="panel-title">Notes</h2></div><DownstreamTab label="Internal notes are not connected yet. No Note model exists in this build." /></div>;
+      default:
+        return null;
+    }
+  }
+
+  /* ---------- Render ---------- */
+  return (
+    <div className="detail-container">
+      {/* HEADER */}
+      <button className="back-btn" onClick={() => router.push("/employees")}>&larr; Back to Employees</button>
+
+      <div className="header-row">
+        <div>
+          <h1 className="page-title">{emp.email || `Candidate ${emp.id.slice(0, 8)}`}</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "6px" }}>
+            <span className="id-badge">{emp.id.slice(0, 12)}</span>
+            <span className={`status-pill ${emp.status === "ACTIVE_SEEKING" ? "sp-active" : "sp-inactive"}`}>
+              {emp.status === "ACTIVE_SEEKING" ? "Active" : "Not Active"}
+            </span>
+            {primaryTrade && <span className="trade-pill">{primaryTrade}</span>}
           </div>
         </div>
       </div>
 
-      {/* BOTTOM - Work History */}
-      <div className="work-history-section">
-        <h3 className="card-title">Work History</h3>
-        <div className="work-history-empty">
-          <span className="empty-icon">—</span>
-          <span className="empty-text">No assignments yet</span>
+      {/* SUMMARY ROW */}
+      <div className="summary-row">
+        <div className="summary-item">
+          <span className="summary-label">EMAIL</span>
+          <span className="summary-value" style={{ color: emp.email ? "#2563eb" : undefined }}>{emp.email || "\u2014"}</span>
+        </div>
+        <div className="summary-item">
+          <span className="summary-label">PHONE</span>
+          <span className="summary-value">{emp.phone || "\u2014"}</span>
+        </div>
+        <div className="summary-item">
+          <span className="summary-label">PRIMARY TRADE</span>
+          <span className="summary-value">{primaryTrade || "\u2014"}</span>
+        </div>
+        <div className="summary-item">
+          <span className="summary-label">STATUS</span>
+          <span className="summary-value">{emp.status === "ACTIVE_SEEKING" ? "Active / Seeking" : "Not Active"}</span>
         </div>
       </div>
 
-      {/* EVENT SPINE TIMELINE (UI-Only) */}
-      <div className="timeline-section">
-        <EventSpineTimelineSnapshot
-          mode="full"
-          contextLabel="Timeline (Event Spine — UI Only)"
-          workerName={`${employee.firstName} ${employee.lastName}`}
-          orderRef="ORD-2026-0042"
-        />
+      {/* TABS */}
+      <div className="tabs-nav">
+        {TABS.map((tab) => (
+          <button
+            key={tab}
+            className={`tab-btn ${activeTab === tab ? "tab-active" : ""}`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab}
+          </button>
+        ))}
       </div>
 
-      <style jsx>{`
-        .employee-detail-container {
-          padding: 32px 40px;
-          max-width: 1200px;
-          margin: 0 auto;
-        }
+      {/* TAB CONTENT */}
+      <div className="tab-content">
+        {renderTab()}
+      </div>
 
-        /* HEADER */
-        .page-header {
-          margin-bottom: 28px;
-        }
+      {/* COMPLIANCE MODAL */}
+      {showCompModal && (
+        <div className="modal-overlay" onClick={() => setShowCompModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{editingRecord ? "Edit Compliance Record" : "Add Compliance Record"}</h3>
+            </div>
+            <div className="modal-body">
+              {compError && (
+                <div style={{ padding: "10px 12px", borderRadius: "6px", border: "1px solid #fecaca", background: "#fff1f2", color: "#991b1b", fontSize: "13px", marginBottom: "16px" }}>
+                  {compError}
+                </div>
+              )}
 
-        .breadcrumb {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 16px;
-          font-size: 13px;
-        }
+              <div className="form-field">
+                <label>Requirement Type *</label>
+                <select
+                  value={compForm.requirementTypeId}
+                  onChange={(e) => setCompForm((f) => ({ ...f, requirementTypeId: e.target.value, variantId: "" }))}
+                  disabled={!!editingRecord}
+                >
+                  <option value="">Select...</option>
+                  {compReqTypes.map((rt) => (
+                    <option key={rt.id} value={rt.id}>{rt.name}</option>
+                  ))}
+                </select>
+              </div>
 
-        .breadcrumb-link {
-          color: #3b82f6;
-          text-decoration: none;
-          transition: color 0.15s ease;
-        }
+              {variantsForType.length > 0 && (
+                <div className="form-field">
+                  <label>Variant</label>
+                  <select
+                    value={compForm.variantId}
+                    onChange={(e) => setCompForm((f) => ({ ...f, variantId: e.target.value }))}
+                  >
+                    <option value="">None</option>
+                    {variantsForType.map((v) => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
-        .breadcrumb-link:hover {
-          color: #60a5fa;
-        }
+              <div className="form-field">
+                <label>Status *</label>
+                <select
+                  value={compForm.status}
+                  onChange={(e) => setCompForm((f) => ({ ...f, status: e.target.value }))}
+                >
+                  <option value="PENDING">Pending</option>
+                  <option value="COMPLETED">Completed</option>
+                  <option value="FAILED">Failed</option>
+                  <option value="EXPIRED">Expired</option>
+                </select>
+              </div>
 
-        .breadcrumb-sep {
-          color: rgba(255, 255, 255, 0.3);
-        }
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div className="form-field">
+                  <label>Issue Date</label>
+                  <input type="date" value={compForm.issueDate} onChange={(e) => setCompForm((f) => ({ ...f, issueDate: e.target.value }))} />
+                </div>
+                <div className="form-field">
+                  <label>Expiration Date</label>
+                  <input type="date" value={compForm.expirationDate} onChange={(e) => setCompForm((f) => ({ ...f, expirationDate: e.target.value }))} />
+                </div>
+              </div>
 
-        .breadcrumb-current {
-          color: rgba(255, 255, 255, 0.6);
-        }
+              <div className="form-field">
+                <label>Issued By</label>
+                <input type="text" value={compForm.issuedBy} onChange={(e) => setCompForm((f) => ({ ...f, issuedBy: e.target.value }))} placeholder="e.g. LabCorp, DISA" />
+              </div>
 
-        .header-title-row {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 24px;
-          margin-bottom: 16px;
-        }
+              <div className="form-field">
+                <label>Notes</label>
+                <textarea rows={3} value={compForm.notes} onChange={(e) => setCompForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Optional notes..." />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setShowCompModal(false)}>Cancel</button>
+              <button className="btn-primary" onClick={saveCompliance} disabled={compSaving}>
+                {compSaving ? "Saving..." : editingRecord ? "Save Changes" : "Add Record"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-        .header-title-content h1 {
-          font-size: 28px;
-          font-weight: 600;
-          color: #fff;
-          margin: 0 0 6px;
-          letter-spacing: -0.5px;
-        }
-
-        .header-subtitle {
-          font-size: 14px;
-          color: rgba(255, 255, 255, 0.5);
-          margin: 0;
-          font-family: var(--font-geist-mono), monospace;
-        }
-
-        .header-actions {
-          display: flex;
-          gap: 10px;
-          flex-shrink: 0;
-        }
-
-        .btn-action {
-          padding: 8px 16px;
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 6px;
-          font-size: 13px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.5);
-          cursor: not-allowed;
-          opacity: 0.6;
-        }
-
-        .btn-back-link {
-          padding: 8px 16px;
-          background: #3b82f6;
-          border: none;
-          border-radius: 6px;
-          font-size: 13px;
-          font-weight: 600;
-          color: #fff;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-
-        .btn-back-link:hover {
-          background: #2563eb;
-        }
-
-        .mock-banner {
-          padding: 10px 16px;
-          background: rgba(245, 158, 11, 0.1);
-          border: 1px solid rgba(245, 158, 11, 0.25);
-          border-radius: 6px;
-          font-size: 12px;
-          font-weight: 500;
-          color: #f59e0b;
-          text-align: center;
-        }
-
-        /* TAB NAVIGATION */
-        .tab-nav {
-          display: flex;
-          gap: 4px;
-          margin-top: 20px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-          padding-bottom: 0;
-        }
-
-        .tab-item {
-          padding: 10px 20px;
-          font-size: 13px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.5);
-          background: transparent;
-          border: none;
-          border-bottom: 2px solid transparent;
-          cursor: pointer;
-          transition: all 0.15s ease;
-          text-decoration: none;
-          margin-bottom: -1px;
-        }
-
-        .tab-item:hover {
-          color: rgba(255, 255, 255, 0.8);
-        }
-
-        .tab-active {
-          color: #3b82f6;
-          border-bottom-color: #3b82f6;
-        }
-
-        /* SUMMARY CARDS */
-        .summary-cards {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
-          margin-bottom: 24px;
-        }
-
-        .summary-card {
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 10px;
-          padding: 20px;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .summary-label {
-          font-size: 11px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.45);
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .summary-value {
-          font-size: 16px;
-          font-weight: 600;
-          color: #fff;
-        }
-
-        .status-badge {
-          display: inline-block;
-          padding: 6px 12px;
-          border: 1px solid;
-          border-radius: 5px;
-          font-size: 13px;
-          width: fit-content;
-        }
-
-        .availability-text {
-          font-weight: 600;
-        }
-
-        /* BODY GRID */
-        .body-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 20px;
-          margin-bottom: 24px;
-        }
-
-        .body-card {
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 10px;
-          padding: 24px;
-        }
-
-        .card-title {
-          font-size: 14px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.7);
-          margin: 0 0 20px;
-          padding-bottom: 12px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        /* PROFILE FIELDS */
-        .profile-fields {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-
-        .profile-field {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .field-label {
-          font-size: 11px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.4);
-          text-transform: uppercase;
-          letter-spacing: 0.4px;
-        }
-
-        .field-value {
-          font-size: 14px;
-          color: rgba(255, 255, 255, 0.85);
-        }
-
-        .field-email {
-          color: #3b82f6;
-        }
-
-        .field-placeholder {
-          color: rgba(255, 255, 255, 0.35);
-          font-style: italic;
-        }
-
-        /* COMPLIANCE SECTIONS */
-        .compliance-sections {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-
-        .compliance-section {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .compliance-label {
-          font-size: 11px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.4);
-          text-transform: uppercase;
-          letter-spacing: 0.4px;
-        }
-
-        .tag-list {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
-        .tag {
-          padding: 5px 10px;
-          background: rgba(59, 130, 246, 0.12);
-          border: 1px solid rgba(59, 130, 246, 0.25);
-          border-radius: 4px;
-          font-size: 12px;
-          font-weight: 500;
-          color: #60a5fa;
-        }
-
-        .empty-text {
-          font-size: 13px;
-          color: rgba(255, 255, 255, 0.35);
-          font-style: italic;
-        }
-
-        /* WORK HISTORY */
-        .work-history-section {
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 10px;
-          padding: 24px;
-        }
-
-        .work-history-empty {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 40px 20px;
-          gap: 10px;
-        }
-
-        .empty-icon {
-          font-size: 24px;
-          color: rgba(255, 255, 255, 0.2);
-        }
-
-        /* TIMELINE SECTION */
-        .timeline-section {
-          margin-top: 24px;
-        }
-
-        /* RESPONSIVE */
-        @media (max-width: 900px) {
-          .employee-detail-container {
-            padding: 20px;
-          }
-
-          .header-title-row {
-            flex-direction: column;
-          }
-
-          .header-actions {
-            width: 100%;
-            justify-content: flex-start;
-          }
-
-          .summary-cards {
-            grid-template-columns: 1fr;
-          }
-
-          .body-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
+      <style jsx>{`${baseStyles}`}</style>
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Styles (Industrial Light V1, mirroring Customer Profile)           */
+/* ------------------------------------------------------------------ */
+
+const baseStyles = `
+  .detail-container {
+    padding: 24px 40px 60px;
+    max-width: 1600px;
+    margin: 0 auto;
+    background: #f8fafc;
+    min-height: 100vh;
+  }
+
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 7px;
+    cursor: pointer;
+    margin-bottom: 16px;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+
+  .back-btn:hover {
+    background: #f1f5f9;
+    border-color: #d1d5db;
+  }
+
+  .header-row {
+    margin-bottom: 20px;
+  }
+
+  .page-title {
+    font-size: 26px;
+    font-weight: 700;
+    color: #111827;
+    margin: 0;
+    letter-spacing: -0.3px;
+  }
+
+  .id-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1d4ed8;
+    font-family: var(--font-geist-mono), monospace;
+  }
+
+  .status-pill {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    color: #374151;
+  }
+
+  .sp-active {
+    background: rgba(34, 197, 94, 0.08);
+    color: #16a34a;
+    border-color: rgba(34, 197, 94, 0.25);
+  }
+
+  .sp-inactive {
+    background: rgba(107, 114, 128, 0.08);
+    color: #6b7280;
+    border-color: rgba(107, 114, 128, 0.25);
+  }
+
+  .trade-pill {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    color: #374151;
+  }
+
+  /* Summary row */
+  .summary-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+
+  .summary-item {
+    padding: 14px 18px;
+    border-right: 1px solid #e5e7eb;
+  }
+
+  .summary-item:last-child {
+    border-right: none;
+  }
+
+  .summary-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 4px;
+  }
+
+  .summary-value {
+    font-size: 14px;
+    font-weight: 500;
+    color: #111827;
+  }
+
+  /* Tabs */
+  .tabs-nav {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 0;
+  }
+
+  .tab-btn {
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    white-space: nowrap;
+  }
+
+  .tab-btn:hover {
+    background: #f1f5f9;
+    border-color: #d1d5db;
+  }
+
+  .tab-active {
+    background: #2563eb !important;
+    border-color: #2563eb !important;
+    color: #ffffff !important;
+  }
+
+  /* Tab content */
+  .tab-content {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 22px;
+    margin-top: 12px;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+
+  .panel-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #111827;
+    margin: 0;
+  }
+
+  .panel-note {
+    font-size: 13px;
+    color: #6b7280;
+    flex: 1;
+  }
+
+  .no-data-text {
+    font-size: 13px;
+    color: #9ca3af;
+    font-style: italic;
+    margin: 0;
+  }
+
+  /* Overview */
+  .overview-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  .overview-section {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 18px;
+  }
+
+  .section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #111827;
+    margin: 0 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .field-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .field-row {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+  }
+
+  .field-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    min-width: 130px;
+    flex-shrink: 0;
+  }
+
+  .field-value {
+    font-size: 14px;
+    font-weight: 500;
+    color: #111827;
+  }
+
+  /* Table */
+  .table-wrap {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .data-table thead {
+    background: #f1f5f9;
+  }
+
+  .data-table th {
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    color: #374151;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #d1d5db;
+    white-space: nowrap;
+  }
+
+  .data-table td {
+    padding: 12px;
+    font-size: 13px;
+    color: #111827;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+  }
+
+  .data-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .data-table tbody tr:hover td {
+    background: #f9fafb;
+  }
+
+  .action-link {
+    font-size: 13px;
+    font-weight: 500;
+    color: #2563eb;
+    cursor: pointer;
+    margin-right: 12px;
+  }
+
+  .action-link:hover {
+    text-decoration: underline;
+  }
+
+  .action-delete {
+    font-size: 13px;
+    font-weight: 500;
+    color: #dc2626;
+    cursor: pointer;
+  }
+
+  .action-delete:hover {
+    text-decoration: underline;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 9px 16px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    background: #2563eb;
+    border: none;
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: #1d4ed8;
+  }
+
+  .btn-primary:disabled {
+    background: #93c5fd;
+    cursor: not-allowed;
+  }
+
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 9px 16px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    cursor: pointer;
+    transition: all 0.12s ease;
+  }
+
+  .btn-secondary:hover {
+    background: #f1f5f9;
+    border-color: #d1d5db;
+  }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+  }
+
+  .modal-content {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 520px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .modal-header {
+    padding: 20px 24px 0;
+  }
+
+  .modal-header h3 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #111827;
+    margin: 0;
+  }
+
+  .modal-body {
+    padding: 20px 24px;
+  }
+
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 24px;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  /* Form fields */
+  .form-field {
+    margin-bottom: 14px;
+  }
+
+  .form-field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 5px;
+  }
+
+  .form-field input,
+  .form-field select,
+  .form-field textarea {
+    width: 100%;
+    padding: 9px 11px;
+    font-size: 13px;
+    color: #111827;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 7px;
+    outline: none;
+    transition: border-color 0.12s ease;
+    box-sizing: border-box;
+  }
+
+  .form-field input:focus,
+  .form-field select:focus,
+  .form-field textarea:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  }
+
+  .form-field select:disabled {
+    background: #f8fafc;
+    color: #6b7280;
+    cursor: not-allowed;
+  }
+
+  .form-field textarea {
+    resize: vertical;
+    min-height: 60px;
+  }
+`;

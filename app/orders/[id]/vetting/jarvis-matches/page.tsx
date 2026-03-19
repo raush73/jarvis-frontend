@@ -82,46 +82,40 @@ export default function JarvisMatchesPage() {
       </main>
 
       <style jsx>{`
+        /* ============================================================
+           INDUSTRIAL LIGHT V1 — Jarvis Matches Shell Page
+        ============================================================ */
         .jarvis-matches-page {
           min-height: 100vh;
-          background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-          color: #fff;
-          padding: 24px;
+          background: #f8fafc;
+          padding: 24px 40px 60px;
         }
 
-        /* Header Styles */
-        .page-header {
-          margin-bottom: 24px;
-        }
+        .page-header { margin-bottom: 24px; }
 
         .breadcrumb {
           display: flex;
           align-items: center;
           gap: 8px;
-          margin-bottom: 16px;
+          margin-bottom: 14px;
           font-size: 13px;
         }
 
         .breadcrumb-link {
           background: none;
           border: none;
-          color: rgba(255, 255, 255, 0.6);
+          color: #6b7280;
           cursor: pointer;
           padding: 0;
           font-size: 13px;
+          transition: color 0.12s ease;
         }
 
-        .breadcrumb-link:hover {
-          color: #fff;
-          text-decoration: underline;
-        }
-
-        .breadcrumb-sep {
-          color: rgba(255, 255, 255, 0.3);
-        }
+        .breadcrumb-link:hover { color: #2563eb; text-decoration: underline; }
+        .breadcrumb-sep { color: #d1d5db; }
 
         .breadcrumb-current {
-          color: #fff;
+          color: #374151;
           font-weight: 500;
         }
 
@@ -132,32 +126,31 @@ export default function JarvisMatchesPage() {
         }
 
         .title-icon {
-          font-size: 32px;
-          width: 56px;
-          height: 56px;
+          font-size: 28px;
+          width: 52px;
+          height: 52px;
           display: flex;
           align-items: center;
           justify-content: center;
-          background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(59, 130, 246, 0.2) 100%);
-          border: 1px solid rgba(139, 92, 246, 0.3);
-          border-radius: 12px;
+          background: #f5f3ff;
+          border: 1px solid #ddd6fe;
+          border-radius: 10px;
         }
 
-        .title-content {
-          flex: 1;
-        }
+        .title-content { flex: 1; }
 
         .page-title {
           margin: 0;
           font-size: 24px;
           font-weight: 700;
-          color: #fff;
+          color: #111827;
+          letter-spacing: -0.3px;
         }
 
         .page-subtitle {
           margin: 4px 0 0 0;
           font-size: 14px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #6b7280;
         }
 
         /* Info Banner */
@@ -165,33 +158,24 @@ export default function JarvisMatchesPage() {
           display: flex;
           align-items: flex-start;
           gap: 12px;
-          padding: 16px 20px;
-          background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
-          border: 1px solid rgba(59, 130, 246, 0.2);
+          padding: 14px 18px;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
           border-radius: 10px;
-          margin-bottom: 32px;
+          margin-bottom: 28px;
         }
 
-        .banner-icon {
-          font-size: 20px;
-          flex-shrink: 0;
-        }
-
-        .banner-content {
-          flex: 1;
-        }
+        .banner-icon { font-size: 18px; flex-shrink: 0; }
+        .banner-content { flex: 1; }
 
         .banner-text {
           margin: 0;
-          font-size: 14px;
+          font-size: 13px;
           line-height: 1.6;
-          color: rgba(255, 255, 255, 0.85);
+          color: #374151;
         }
 
-        /* Main Content */
-        .main-content {
-          flex: 1;
-        }
+        .main-content { flex: 1; }
 
         /* Empty State */
         .empty-state {
@@ -200,8 +184,8 @@ export default function JarvisMatchesPage() {
           align-items: center;
           justify-content: center;
           padding: 80px 40px;
-          background: rgba(0, 0, 0, 0.2);
-          border: 1px dashed rgba(255, 255, 255, 0.15);
+          background: #ffffff;
+          border: 1px dashed #d1d5db;
           border-radius: 12px;
           text-align: center;
         }
@@ -209,23 +193,22 @@ export default function JarvisMatchesPage() {
         .empty-icon {
           font-size: 48px;
           margin-bottom: 16px;
-          opacity: 0.7;
+          opacity: 0.6;
         }
 
         .empty-title {
           margin: 0 0 8px 0;
           font-size: 20px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.9);
+          font-weight: 700;
+          color: #111827;
         }
 
         .empty-description {
-          margin: 0 0 32px 0;
+          margin: 0 0 28px 0;
           font-size: 14px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
         }
 
-        /* Action Buttons */
         .action-buttons {
           display: flex;
           gap: 12px;
@@ -237,33 +220,27 @@ export default function JarvisMatchesPage() {
           display: flex;
           align-items: center;
           gap: 8px;
-          padding: 12px 20px;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 500;
+          padding: 10px 18px;
+          border-radius: 7px;
+          font-size: 13px;
+          font-weight: 600;
           cursor: not-allowed;
-          transition: all 0.2s ease;
         }
 
         .action-btn.primary {
-          background: linear-gradient(135deg, rgba(139, 92, 246, 0.3) 0%, rgba(59, 130, 246, 0.3) 100%);
-          border: 1px solid rgba(139, 92, 246, 0.4);
-          color: rgba(255, 255, 255, 0.5);
+          background: #f5f3ff;
+          border: 1px solid #ddd6fe;
+          color: #9ca3af;
         }
 
         .action-btn.secondary {
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.15);
-          color: rgba(255, 255, 255, 0.5);
+          background: #f8fafc;
+          border: 1px solid #e5e7eb;
+          color: #9ca3af;
         }
 
-        .action-btn:disabled {
-          opacity: 0.6;
-        }
-
-        .btn-icon {
-          font-size: 16px;
-        }
+        .action-btn:disabled { opacity: 0.6; }
+        .btn-icon { font-size: 15px; }
       `}</style>
     </div>
   );

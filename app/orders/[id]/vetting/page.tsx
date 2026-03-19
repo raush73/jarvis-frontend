@@ -364,33 +364,27 @@ export default function VettingPage() {
       )}
 
       <style jsx>{`
+        /* ============================================================
+           INDUSTRIAL LIGHT V1 — Vetting / Kanban Page
+        ============================================================ */
         .vetting-page {
           min-height: 100vh;
-          background: linear-gradient(180deg, #0c0f14 0%, #111827 100%);
-          color: #fff;
+          background: #f8fafc;
           padding: 24px;
-          font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
         }
 
-        /* Split view section below lanes */
-        .split-view-section {
-          margin-bottom: 20px;
-        }
+        .split-view-section { margin-bottom: 20px; }
+        .worker-timeline-section { margin-bottom: 20px; }
 
-        /* Worker Timeline Section (Event Spine) */
-        .worker-timeline-section {
-          margin-bottom: 20px;
-        }
-
-        /* Order Header */
+        /* Order Header Card */
         .order-header {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
           padding: 16px 20px;
-          background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+          background: #ffffff;
           border-radius: 12px;
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          border: 1px solid #e5e7eb;
           margin-bottom: 12px;
         }
 
@@ -398,12 +392,12 @@ export default function VettingPage() {
           display: flex;
           align-items: center;
           gap: 8px;
-          margin-bottom: 6px;
+          margin-bottom: 8px;
         }
 
         .breadcrumb-item {
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
         }
 
         .breadcrumb-link {
@@ -411,28 +405,31 @@ export default function VettingPage() {
           border: none;
           padding: 0;
           cursor: pointer;
+          color: #6b7280;
+          font-size: 13px;
+          transition: color 0.12s ease;
         }
 
         .breadcrumb-link:hover {
+          color: #2563eb;
           text-decoration: underline;
         }
 
         .breadcrumb-item.active {
-          color: rgba(255, 255, 255, 0.8);
+          color: #374151;
+          font-weight: 500;
         }
 
         .breadcrumb-sep {
-          color: rgba(255, 255, 255, 0.3);
+          color: #d1d5db;
         }
 
         .order-title {
           margin: 0 0 8px 0;
           font-size: 20px;
           font-weight: 700;
-          background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
+          color: #111827;
+          letter-spacing: -0.2px;
         }
 
         .order-meta {
@@ -446,7 +443,7 @@ export default function VettingPage() {
           align-items: center;
           gap: 6px;
           font-size: 12px;
-          color: rgba(255, 255, 255, 0.7);
+          color: #4b5563;
         }
 
         .meta-icon {
@@ -471,30 +468,30 @@ export default function VettingPage() {
           align-items: center;
           gap: 4px;
           padding: 4px 8px;
-          background: rgba(59, 130, 246, 0.15);
-          border: 1px solid rgba(59, 130, 246, 0.3);
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
           border-radius: 4px;
           font-size: 11px;
         }
 
         .chip-code {
           font-weight: 700;
-          color: #60a5fa;
+          color: #1d4ed8;
         }
 
         .chip-counts {
-          color: rgba(255, 255, 255, 0.8);
+          color: #374151;
           font-family: 'SF Mono', monospace;
         }
 
-        /* Discovery Strip (Zone 1 - Compressed) */
+        /* Discovery Strip */
         .discovery-strip {
           display: flex;
           gap: 12px;
           padding: 12px 16px;
-          background: rgba(0, 0, 0, 0.3);
+          background: #ffffff;
           border-radius: 8px;
-          border: 1px solid rgba(255, 255, 255, 0.06);
+          border: 1px solid #e5e7eb;
           margin-bottom: 16px;
         }
 
@@ -503,17 +500,17 @@ export default function VettingPage() {
           align-items: center;
           gap: 12px;
           padding: 8px 12px;
-          background: rgba(255, 255, 255, 0.03);
+          background: #f8fafc;
           border-radius: 6px;
           flex: 1;
         }
 
         .jarvis-discovery {
-          border-left: 3px solid #3b82f6;
+          border-left: 3px solid #2563eb;
         }
 
         .manual-discovery {
-          border-left: 3px solid #10b981;
+          border-left: 3px solid #16a34a;
         }
 
         .discovery-icon {
@@ -529,55 +526,49 @@ export default function VettingPage() {
         .discovery-label {
           font-size: 12px;
           font-weight: 600;
-          color: rgba(255, 255, 255, 0.9);
+          color: #111827;
         }
 
         .discovery-count {
           font-size: 11px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
         }
 
         .discovery-btn {
           padding: 6px 12px;
-          background: rgba(255, 255, 255, 0.08);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          border-radius: 4px;
-          color: rgba(255, 255, 255, 0.9);
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 6px;
+          color: #374151;
           font-size: 11px;
-          font-weight: 500;
+          font-weight: 600;
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: background 0.12s ease, border-color 0.12s ease;
         }
 
         .discovery-btn:hover {
-          background: rgba(255, 255, 255, 0.15);
-          border-color: rgba(255, 255, 255, 0.2);
+          background: #f1f5f9;
+          border-color: #d1d5db;
         }
 
         /* Main Content */
-        .main-content {
-          margin-bottom: 20px;
-        }
+        .main-content { margin-bottom: 20px; }
 
         /* Pipeline Section */
-        .pipeline-section {
-          flex: 1;
-        }
+        .pipeline-section { flex: 1; }
 
-        .pipeline-header {
-          margin-bottom: 12px;
-        }
+        .pipeline-header { margin-bottom: 12px; }
 
         .section-title {
           font-size: 15px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.9);
+          font-weight: 700;
+          color: #111827;
           margin: 0 0 4px 0;
         }
 
         .section-desc {
           font-size: 12px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
           margin: 0;
         }
 
@@ -596,8 +587,8 @@ export default function VettingPage() {
 
         /* Trade Summary Section */
         .trade-summary-section {
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
           border-radius: 10px;
           padding: 16px;
         }
@@ -611,7 +602,7 @@ export default function VettingPage() {
         .trade-summary-table td {
           padding: 10px 14px;
           text-align: left;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          border-bottom: 1px solid #f1f5f9;
         }
 
         .trade-summary-table th {
@@ -619,37 +610,28 @@ export default function VettingPage() {
           font-weight: 600;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          color: rgba(255, 255, 255, 0.5);
-          background: rgba(0, 0, 0, 0.2);
+          color: #374151;
+          background: #f1f5f9;
         }
 
         .trade-name-cell {
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.9);
+          color: #111827;
+          font-weight: 500;
         }
 
         .count-cell {
           font-size: 13px;
           font-family: 'SF Mono', monospace;
-          color: rgba(255, 255, 255, 0.7);
+          color: #374151;
           text-align: center;
         }
 
-        .count-cell.dispatched {
-          color: #34d399;
-        }
+        .count-cell.dispatched { color: #16a34a; }
+        .count-cell.open { color: #2563eb; }
 
-        .count-cell.open {
-          color: #60a5fa;
-        }
-
-        .totals-row {
-          background: rgba(255, 255, 255, 0.03);
-        }
-
-        .totals-row td {
-          border-bottom: none;
-        }
+        .totals-row { background: #f8fafc; }
+        .totals-row td { border-bottom: none; }
       `}</style>
     </div>
   );
@@ -734,13 +716,14 @@ function LaneColumn({
       )}
 
       <style jsx>{`
+        /* Lane Column — IL V1 light kanban */
         .lane-column {
           min-width: 240px;
           max-width: 280px;
           flex-shrink: 0;
-          background: rgba(0, 0, 0, 0.2);
+          background: #ffffff;
           border-radius: 10px;
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          border: 1px solid #e5e7eb;
           display: flex;
           flex-direction: column;
         }
@@ -748,7 +731,7 @@ function LaneColumn({
         .lane-header {
           padding: 12px;
           border-bottom: 2px solid;
-          background: rgba(255, 255, 255, 0.02);
+          background: #f8fafc;
           border-radius: 10px 10px 0 0;
         }
 
@@ -762,8 +745,8 @@ function LaneColumn({
         .lane-name {
           margin: 0;
           font-size: 12px;
-          font-weight: 600;
-          color: #fff;
+          font-weight: 700;
+          color: #111827;
         }
 
         .lane-count {
@@ -776,7 +759,7 @@ function LaneColumn({
 
         .lane-desc {
           font-size: 10px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
           display: block;
         }
 
@@ -790,44 +773,34 @@ function LaneColumn({
           gap: 6px;
         }
 
-        .lane-candidates::-webkit-scrollbar {
-          width: 5px;
-        }
-
-        .lane-candidates::-webkit-scrollbar-track {
-          background: rgba(0, 0, 0, 0.2);
-          border-radius: 3px;
-        }
-
-        .lane-candidates::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.15);
-          border-radius: 3px;
-        }
+        .lane-candidates::-webkit-scrollbar { width: 5px; }
+        .lane-candidates::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 3px; }
+        .lane-candidates::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
 
         .empty-state {
           text-align: center;
           padding: 20px;
-          color: rgba(255, 255, 255, 0.4);
+          color: #9ca3af;
           font-size: 12px;
           font-style: italic;
         }
 
         .lane-actions {
           padding: 10px;
-          border-top: 1px solid rgba(255, 255, 255, 0.06);
+          border-top: 1px solid #f1f5f9;
         }
 
         .action-btn {
           width: 100%;
           padding: 8px;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: #f8fafc;
+          border: 1px solid #e5e7eb;
           border-radius: 5px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #9ca3af;
           font-size: 11px;
           font-weight: 500;
           cursor: not-allowed;
-          opacity: 0.6;
+          opacity: 0.7;
         }
       `}</style>
     </div>
@@ -941,18 +914,19 @@ function VettingCandidateCard({
       )}
 
       <style jsx>{`
+        /* Candidate Card — IL V1 light */
         .candidate-card {
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
           border-radius: 6px;
           padding: 8px;
-          transition: all 0.2s ease;
+          transition: border-color 0.12s ease, background 0.12s ease;
           cursor: pointer;
         }
 
         .candidate-card:hover {
-          background: rgba(255, 255, 255, 0.06);
-          border-color: rgba(99, 102, 241, 0.4);
+          background: #f9fafb;
+          border-color: #bfdbfe;
         }
 
         .card-header {
@@ -969,20 +943,21 @@ function VettingCandidateCard({
 
         .candidate-name {
           font-size: 12px;
-          font-weight: 600;
-          color: #fff;
+          font-weight: 700;
+          color: #111827;
         }
 
         .candidate-trade {
           font-size: 10px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #6b7280;
         }
 
         .confidence {
           font-size: 10px;
           font-weight: 700;
-          color: #60a5fa;
-          background: rgba(59, 130, 246, 0.15);
+          color: #1d4ed8;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
           padding: 2px 6px;
           border-radius: 3px;
         }
@@ -1000,14 +975,13 @@ function VettingCandidateCard({
           gap: 3px;
           font-size: 9px;
           padding: 2px 6px;
-          background: rgba(255, 255, 255, 0.08);
+          background: #f8fafc;
+          border: 1px solid #e5e7eb;
           border-radius: 3px;
-          color: rgba(255, 255, 255, 0.8);
+          color: #374151;
         }
 
-        .source-icon {
-          font-size: 10px;
-        }
+        .source-icon { font-size: 10px; }
 
         .readiness-badge {
           font-size: 9px;
@@ -1019,14 +993,13 @@ function VettingCandidateCard({
         .eligibility-badge {
           font-size: 9px;
           padding: 2px 6px;
-          background: rgba(139, 92, 246, 0.15);
-          color: #a78bfa;
+          background: #f5f3ff;
+          border: 1px solid #ddd6fe;
+          color: #5b21b6;
           border-radius: 3px;
         }
 
-        .blockers {
-          color: #f87171;
-        }
+        .blockers { color: #dc2626; }
 
         .card-details {
           display: flex;
@@ -1036,21 +1009,16 @@ function VettingCandidateCard({
 
         .detail {
           font-size: 10px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #6b7280;
         }
 
         .availability {
           font-size: 10px;
-          font-weight: 500;
+          font-weight: 600;
         }
 
-        .avail-available {
-          color: #34d399;
-        }
-
-        .avail-partial {
-          color: #fbbf24;
-        }
+        .avail-available { color: #16a34a; }
+        .avail-partial { color: #d97706; }
 
         .certs {
           display: flex;
@@ -1061,14 +1029,14 @@ function VettingCandidateCard({
         .cert {
           font-size: 8px;
           padding: 2px 4px;
-          background: rgba(255, 255, 255, 0.06);
+          background: #f1f5f9;
           border-radius: 2px;
-          color: rgba(255, 255, 255, 0.7);
+          color: #374151;
         }
 
         .cert.more {
           background: transparent;
-          color: rgba(255, 255, 255, 0.5);
+          color: #9ca3af;
         }
 
         .dispatch-date-edit {
@@ -1076,48 +1044,45 @@ function VettingCandidateCard({
           align-items: center;
           gap: 6px;
           padding: 6px;
-          background: rgba(16, 185, 129, 0.1);
+          background: #f0fdf4;
+          border: 1px solid #bbf7d0;
           border-radius: 4px;
           margin-top: 6px;
         }
 
         .date-label {
           font-size: 9px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #6b7280;
         }
 
         .date-input {
           flex: 1;
           padding: 4px 6px;
-          background: rgba(0, 0, 0, 0.3);
-          border: 1px solid rgba(16, 185, 129, 0.3);
+          background: #ffffff;
+          border: 1px solid #bbf7d0;
           border-radius: 3px;
-          color: #34d399;
+          color: #16a34a;
           font-size: 10px;
           font-weight: 600;
+          outline: none;
         }
 
         .dispatch-btn {
           width: 100%;
           padding: 6px;
           margin-top: 6px;
-          background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+          background: #16a34a;
           border: none;
           border-radius: 4px;
           color: #fff;
           font-size: 11px;
-          font-weight: 600;
+          font-weight: 700;
           cursor: pointer;
+          transition: background 0.12s ease;
         }
 
-        .dispatch-btn:hover:not(:disabled) {
-          transform: translateY(-1px);
-        }
-
-        .dispatch-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
+        .dispatch-btn:hover:not(:disabled) { background: #15803d; }
+        .dispatch-btn:disabled { background: #bbf7d0; color: #6b7280; cursor: not-allowed; }
       `}</style>
     </div>
   );
@@ -1175,13 +1140,14 @@ function ExceptionsLane({
       </div>
 
       <style jsx>{`
+        /* Exceptions Lane — IL V1 (semantic red preserved for no-show context) */
         .exceptions-lane {
           min-width: 220px;
           max-width: 240px;
           flex-shrink: 0;
-          background: rgba(239, 68, 68, 0.08);
+          background: #fff1f2;
           border-radius: 10px;
-          border: 1px solid rgba(239, 68, 68, 0.2);
+          border: 1px solid #fecaca;
           display: flex;
           flex-direction: column;
         }
@@ -1189,7 +1155,7 @@ function ExceptionsLane({
         .lane-header {
           padding: 12px;
           border-bottom: 2px solid #ef4444;
-          background: rgba(239, 68, 68, 0.1);
+          background: #fff1f2;
           border-radius: 10px 10px 0 0;
         }
 
@@ -1203,8 +1169,8 @@ function ExceptionsLane({
         .lane-name {
           margin: 0;
           font-size: 12px;
-          font-weight: 600;
-          color: #f87171;
+          font-weight: 700;
+          color: #dc2626;
         }
 
         .lane-count {
@@ -1218,7 +1184,7 @@ function ExceptionsLane({
 
         .lane-desc {
           font-size: 10px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
         }
 
         .lane-candidates {
@@ -1234,22 +1200,21 @@ function ExceptionsLane({
         .empty-state {
           text-align: center;
           padding: 20px;
-          color: rgba(255, 255, 255, 0.4);
+          color: #9ca3af;
           font-size: 12px;
           font-style: italic;
         }
 
         .exception-card {
-          background: rgba(239, 68, 68, 0.1);
-          border: 1px solid rgba(239, 68, 68, 0.25);
+          background: #ffffff;
+          border: 1px solid #fecaca;
           border-radius: 6px;
           padding: 8px;
           cursor: pointer;
+          transition: background 0.12s ease;
         }
 
-        .exception-card:hover {
-          background: rgba(239, 68, 68, 0.15);
-        }
+        .exception-card:hover { background: #fff1f2; }
 
         .card-header {
           display: flex;
@@ -1260,16 +1225,17 @@ function ExceptionsLane({
 
         .candidate-name {
           font-size: 12px;
-          font-weight: 600;
-          color: #fff;
+          font-weight: 700;
+          color: #111827;
         }
 
         .noshow-badge {
           font-size: 9px;
-          font-weight: 600;
+          font-weight: 700;
           padding: 2px 6px;
-          background: rgba(239, 68, 68, 0.3);
-          color: #fca5a5;
+          background: #fff1f2;
+          border: 1px solid #fecaca;
+          color: #dc2626;
           border-radius: 3px;
         }
 
@@ -1283,36 +1249,32 @@ function ExceptionsLane({
         .trade-badge {
           font-size: 9px;
           padding: 2px 5px;
-          background: rgba(99, 102, 241, 0.2);
-          color: #a5b4fc;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          color: #1d4ed8;
           border-radius: 3px;
         }
 
         .dispatch-date {
           font-size: 10px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
         }
 
         .redispatch-btn {
           width: 100%;
           padding: 6px;
-          background: rgba(59, 130, 246, 0.2);
-          border: 1px solid rgba(59, 130, 246, 0.3);
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
           border-radius: 4px;
-          color: #60a5fa;
+          color: #1d4ed8;
           font-size: 10px;
-          font-weight: 600;
+          font-weight: 700;
           cursor: pointer;
+          transition: background 0.12s ease;
         }
 
-        .redispatch-btn:hover:not(:disabled) {
-          background: rgba(59, 130, 246, 0.3);
-        }
-
-        .redispatch-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
+        .redispatch-btn:hover:not(:disabled) { background: #dbeafe; }
+        .redispatch-btn:disabled { opacity: 0.45; cursor: not-allowed; }
       `}</style>
     </div>
   );
@@ -1409,19 +1371,18 @@ function CustomerApprovalGate({
       )}
 
       <style jsx>{`
+        /* Customer Approval Gate — IL V1 amber semantic panel */
         .approval-gate {
           min-width: 200px;
           max-width: 220px;
-          background: rgba(245, 158, 11, 0.05);
-          border: 1px dashed rgba(245, 158, 11, 0.3);
+          background: #fffbeb;
+          border: 1px dashed #fde68a;
           border-radius: 10px;
           padding: 12px;
           flex-shrink: 0;
         }
 
-        .gate-header {
-          margin-bottom: 12px;
-        }
+        .gate-header { margin-bottom: 12px; }
 
         .gate-title {
           display: flex;
@@ -1430,17 +1391,15 @@ function CustomerApprovalGate({
           margin-bottom: 8px;
         }
 
-        .gate-icon {
-          font-size: 14px;
-        }
+        .gate-icon { font-size: 14px; }
 
         .gate-title h3 {
           margin: 0;
           font-size: 11px;
-          font-weight: 600;
+          font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          color: #fbbf24;
+          color: #92400e;
         }
 
         .gate-toggle {
@@ -1450,15 +1409,13 @@ function CustomerApprovalGate({
           cursor: pointer;
         }
 
-        .gate-toggle input {
-          display: none;
-        }
+        .gate-toggle input { display: none; }
 
         .toggle-slider {
           position: relative;
           width: 32px;
           height: 18px;
-          background: rgba(255, 255, 255, 0.15);
+          background: #e5e7eb;
           border-radius: 9px;
           transition: 0.3s;
         }
@@ -1475,22 +1432,18 @@ function CustomerApprovalGate({
           transition: 0.3s;
         }
 
-        .gate-toggle input:checked + .toggle-slider {
-          background: #f59e0b;
-        }
-
-        .gate-toggle input:checked + .toggle-slider::before {
-          transform: translateX(14px);
-        }
+        .gate-toggle input:checked + .toggle-slider { background: #f59e0b; }
+        .gate-toggle input:checked + .toggle-slider::before { transform: translateX(14px); }
 
         .toggle-label {
           font-size: 10px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
+          font-weight: 500;
         }
 
         .toggle-label.active {
-          color: #fbbf24;
-          font-weight: 600;
+          color: #92400e;
+          font-weight: 700;
         }
 
         .gate-status {
@@ -1498,7 +1451,8 @@ function CustomerApprovalGate({
           align-items: center;
           gap: 6px;
           padding: 8px 10px;
-          background: rgba(245, 158, 11, 0.1);
+          background: #fffbeb;
+          border: 1px solid #fde68a;
           border-radius: 6px;
           margin-bottom: 10px;
         }
@@ -1522,13 +1476,13 @@ function CustomerApprovalGate({
         .status-text {
           flex: 1;
           font-size: 10px;
-          color: rgba(255, 255, 255, 0.7);
+          color: #4b5563;
         }
 
         .status-count {
           font-size: 11px;
           font-weight: 700;
-          color: #fbbf24;
+          color: #d97706;
         }
 
         .gate-candidates {
@@ -1546,54 +1500,55 @@ function CustomerApprovalGate({
           align-items: center;
           gap: 4px;
           padding: 8px;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(245, 158, 11, 0.2);
+          background: #ffffff;
+          border: 1px solid #fde68a;
           border-radius: 5px;
           cursor: pointer;
+          transition: background 0.12s ease;
         }
 
-        .gate-card:hover {
-          background: rgba(255, 255, 255, 0.06);
-        }
+        .gate-card:hover { background: #fffbeb; }
 
         .gate-card .candidate-name {
           font-size: 11px;
-          font-weight: 600;
-          color: #fff;
+          font-weight: 700;
+          color: #111827;
           flex: 1;
         }
 
         .gate-card .candidate-trade {
           font-size: 9px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
           width: 100%;
         }
 
         .pending-badge {
           font-size: 8px;
           padding: 2px 5px;
-          background: rgba(245, 158, 11, 0.2);
-          color: #fbbf24;
+          background: #fffbeb;
+          border: 1px solid #fde68a;
+          color: #d97706;
           border-radius: 3px;
+          font-weight: 700;
         }
 
         .approve-btn {
           width: 100%;
           padding: 8px;
-          background: rgba(245, 158, 11, 0.15);
-          border: 1px solid rgba(245, 158, 11, 0.3);
+          background: #fffbeb;
+          border: 1px solid #fde68a;
           border-radius: 5px;
-          color: #fbbf24;
+          color: #d97706;
           font-size: 10px;
-          font-weight: 600;
+          font-weight: 700;
           cursor: not-allowed;
-          opacity: 0.7;
+          opacity: 0.75;
         }
 
-        /* Approval Context Block (Read-only, Informational) */
+        /* Approval Context (read-only info block) */
         .approval-context {
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
           border-radius: 6px;
           padding: 10px;
           margin-bottom: 12px;
@@ -1602,15 +1557,15 @@ function CustomerApprovalGate({
         .context-header {
           margin-bottom: 8px;
           padding-bottom: 6px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          border-bottom: 1px solid #f1f5f9;
         }
 
         .context-label {
           font-size: 9px;
-          font-weight: 600;
+          font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
         }
 
         .context-rows {
@@ -1629,31 +1584,22 @@ function CustomerApprovalGate({
 
         .context-key {
           font-size: 10px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #4b5563;
         }
 
         .context-value {
           font-size: 10px;
-          font-weight: 600;
+          font-weight: 700;
         }
 
-        .context-value.yes {
-          color: #fbbf24;
-        }
-
-        .context-value.no {
-          color: rgba(255, 255, 255, 0.5);
-        }
-
-        .context-value.package {
-          color: rgba(255, 255, 255, 0.8);
-          font-style: italic;
-        }
+        .context-value.yes { color: #d97706; }
+        .context-value.no { color: #9ca3af; }
+        .context-value.package { color: #374151; font-style: italic; }
 
         .context-helper {
           margin: 0;
           font-size: 9px;
-          color: rgba(255, 255, 255, 0.4);
+          color: #9ca3af;
           line-height: 1.4;
           font-style: italic;
         }
@@ -1826,11 +1772,12 @@ function SplitViewPanel({
         </div>
       </div>
 
-      <style jsx>{`
+        <style jsx>{`
+        /* Split View Panel — IL V1 light */
         .split-view-panel {
-          background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+          background: #ffffff;
           border-radius: 12px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          border: 1px solid #e5e7eb;
           overflow: hidden;
           display: flex;
           flex-direction: column;
@@ -1843,38 +1790,36 @@ function SplitViewPanel({
           justify-content: space-between;
           align-items: center;
           padding: 14px 16px;
-          background: rgba(0, 0, 0, 0.3);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          background: #f1f5f9;
+          border-bottom: 1px solid #e5e7eb;
         }
 
         .panel-header h2 {
           margin: 0;
           font-size: 14px;
-          font-weight: 600;
-          color: #fff;
+          font-weight: 700;
+          color: #111827;
         }
 
         .close-btn {
           width: 28px;
           height: 28px;
-          background: rgba(255, 255, 255, 0.1);
-          border: none;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
           border-radius: 6px;
-          color: rgba(255, 255, 255, 0.7);
+          color: #374151;
           font-size: 18px;
           cursor: pointer;
+          transition: background 0.12s ease;
         }
 
-        .close-btn:hover {
-          background: rgba(255, 255, 255, 0.15);
-          color: #fff;
-        }
+        .close-btn:hover { background: #f1f5f9; }
 
         .panel-content {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 1px;
-          background: rgba(255, 255, 255, 0.06);
+          background: #e5e7eb;
           flex: 1;
           overflow-y: auto;
         }
@@ -1882,7 +1827,7 @@ function SplitViewPanel({
         .profile-section,
         .eligibility-section {
           padding: 14px;
-          background: #0f172a;
+          background: #ffffff;
           overflow-y: auto;
         }
 
@@ -1892,35 +1837,37 @@ function SplitViewPanel({
           gap: 8px;
           margin-bottom: 12px;
           padding-bottom: 8px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          border-bottom: 1px solid #f1f5f9;
         }
 
         .section-header h3 {
           margin: 0;
           font-size: 12px;
-          font-weight: 600;
-          color: #fff;
+          font-weight: 700;
+          color: #111827;
         }
 
         .section-badge {
           font-size: 8px;
-          font-weight: 600;
+          font-weight: 700;
           text-transform: uppercase;
           padding: 2px 6px;
           border-radius: 3px;
-          background: rgba(59, 130, 246, 0.2);
-          color: #60a5fa;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          color: #1d4ed8;
         }
 
         .section-badge.order {
-          background: rgba(139, 92, 246, 0.2);
-          color: #a78bfa;
+          background: #f5f3ff;
+          border-color: #ddd6fe;
+          color: #5b21b6;
         }
 
         .profile-card {
           padding: 12px;
-          background: rgba(59, 130, 246, 0.1);
-          border: 1px solid rgba(59, 130, 246, 0.2);
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
           border-radius: 8px;
           margin-bottom: 12px;
           text-align: center;
@@ -1929,27 +1876,25 @@ function SplitViewPanel({
         .profile-name {
           font-size: 14px;
           font-weight: 700;
-          color: #fff;
+          color: #111827;
         }
 
         .profile-trade {
           font-size: 11px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #6b7280;
         }
 
         .profile-group,
-        .checklist-group {
-          margin-bottom: 12px;
-        }
+        .checklist-group { margin-bottom: 12px; }
 
         .profile-group h4,
         .checklist-group h4 {
           margin: 0 0 6px 0;
           font-size: 10px;
-          font-weight: 600;
+          font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
         }
 
         .placeholder-content {
@@ -1958,15 +1903,14 @@ function SplitViewPanel({
           gap: 4px;
         }
 
-        .placeholder-content.safe {
-          color: #34d399;
-        }
+        .placeholder-content.safe { color: #16a34a; }
 
         .placeholder-item {
           font-size: 11px;
-          color: rgba(255, 255, 255, 0.7);
+          color: #374151;
           padding: 4px 8px;
-          background: rgba(255, 255, 255, 0.04);
+          background: #f8fafc;
+          border: 1px solid #f1f5f9;
           border-radius: 4px;
         }
 
@@ -1983,24 +1927,26 @@ function SplitViewPanel({
         }
 
         .cert-item.verified {
-          background: rgba(34, 197, 94, 0.1);
-          color: #34d399;
+          background: #f0fdf4;
+          color: #16a34a;
+          border: 1px solid #bbf7d0;
         }
 
         .cert-item.pending {
-          background: rgba(245, 158, 11, 0.1);
-          color: #fbbf24;
+          background: #fffbeb;
+          color: #d97706;
+          border: 1px solid #fde68a;
         }
 
         .placeholder-btn {
           padding: 8px 12px;
-          background: rgba(255, 255, 255, 0.08);
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: #f1f5f9;
+          border: 1px solid #e5e7eb;
           border-radius: 5px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #6b7280;
           font-size: 10px;
           cursor: not-allowed;
-          opacity: 0.7;
+          opacity: 0.75;
         }
 
         .checklist {
@@ -2022,31 +1968,33 @@ function SplitViewPanel({
         }
 
         .checklist li.satisfied {
-          background: rgba(34, 197, 94, 0.1);
-          color: #34d399;
+          background: #f0fdf4;
+          color: #16a34a;
+          border: 1px solid #bbf7d0;
         }
 
         .checklist li.missing {
-          background: rgba(239, 68, 68, 0.1);
-          color: #f87171;
+          background: #fff1f2;
+          color: #dc2626;
+          border: 1px solid #fecaca;
         }
 
         .checklist li.all-good {
-          background: rgba(34, 197, 94, 0.1);
-          color: #34d399;
+          background: #f0fdf4;
+          color: #16a34a;
+          border: 1px solid #bbf7d0;
         }
 
-        .check-icon {
-          font-size: 11px;
-        }
+        .check-icon { font-size: 11px; }
 
         .missing-tag {
           margin-left: auto;
           font-size: 8px;
           font-weight: 700;
           padding: 2px 4px;
-          background: rgba(239, 68, 68, 0.3);
-          color: #fca5a5;
+          background: #fff1f2;
+          border: 1px solid #fecaca;
+          color: #dc2626;
           border-radius: 2px;
         }
 
@@ -2058,9 +2006,10 @@ function SplitViewPanel({
 
         .travel-item {
           font-size: 10px;
-          color: rgba(255, 255, 255, 0.7);
+          color: #374151;
           padding: 4px 8px;
-          background: rgba(255, 255, 255, 0.04);
+          background: #f8fafc;
+          border: 1px solid #f1f5f9;
           border-radius: 4px;
         }
       `}</style>
@@ -2146,11 +2095,12 @@ function DispatchModal({
         </div>
 
         <style jsx>{`
+          /* Dispatch Modal — IL V1 light */
           .modal-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(4px);
+            background: rgba(17, 24, 39, 0.45);
+            backdrop-filter: blur(2px);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -2160,10 +2110,11 @@ function DispatchModal({
           .modal-content {
             width: 100%;
             max-width: 420px;
-            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-            border-radius: 14px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: #ffffff;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
             overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.12);
           }
 
           .modal-header {
@@ -2171,43 +2122,40 @@ function DispatchModal({
             justify-content: space-between;
             align-items: center;
             padding: 14px 18px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background: #f1f5f9;
+            border-bottom: 1px solid #e5e7eb;
           }
 
           .modal-header h2 {
             margin: 0;
-            font-size: 16px;
-            font-weight: 600;
-            color: #fff;
+            font-size: 15px;
+            font-weight: 700;
+            color: #111827;
           }
 
           .close-btn {
             width: 28px;
             height: 28px;
-            background: rgba(255, 255, 255, 0.1);
-            border: none;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
             border-radius: 6px;
-            color: rgba(255, 255, 255, 0.7);
+            color: #374151;
             font-size: 18px;
             cursor: pointer;
+            transition: background 0.12s ease;
           }
 
-          .close-btn:hover {
-            background: rgba(255, 255, 255, 0.15);
-            color: #fff;
-          }
+          .close-btn:hover { background: #f1f5f9; }
 
-          .modal-body {
-            padding: 18px;
-          }
+          .modal-body { padding: 18px; }
 
           .worker-preview {
             display: flex;
             flex-direction: column;
             align-items: center;
             padding: 14px;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.2);
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
             border-radius: 8px;
             margin-bottom: 16px;
           }
@@ -2215,80 +2163,77 @@ function DispatchModal({
           .worker-name {
             font-size: 16px;
             font-weight: 700;
-            color: #fff;
+            color: #111827;
           }
 
           .worker-trade {
             font-size: 12px;
-            color: rgba(255, 255, 255, 0.6);
+            color: #6b7280;
           }
 
-          .form-group {
-            margin-bottom: 16px;
-          }
+          .form-group { margin-bottom: 16px; }
 
           .form-label {
             display: block;
             font-size: 12px;
             font-weight: 600;
-            color: rgba(255, 255, 255, 0.9);
+            color: #374151;
             margin-bottom: 6px;
           }
 
-          .required {
-            color: #f87171;
-          }
+          .required { color: #dc2626; }
 
           .date-input {
             width: 100%;
-            padding: 10px 12px;
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 9px 11px;
+            background: #ffffff;
+            border: 1px solid #d1d5db;
             border-radius: 6px;
-            color: #fff;
+            color: #111827;
             font-size: 13px;
+            outline: none;
+            transition: border-color 0.12s ease;
           }
 
           .date-input:focus {
-            outline: none;
-            border-color: #22c55e;
+            border-color: #16a34a;
+            box-shadow: 0 0 0 2px rgba(22,163,74,0.12);
           }
 
           .dispatch-preview {
-            background: rgba(0, 0, 0, 0.2);
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
             border-radius: 6px;
             padding: 12px;
           }
 
           .dispatch-preview h4 {
             margin: 0 0 10px 0;
-            font-size: 11px;
-            font-weight: 600;
+            font-size: 10px;
+            font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: rgba(255, 255, 255, 0.6);
+            color: #6b7280;
           }
 
           .preview-row {
             display: flex;
             justify-content: space-between;
             padding: 5px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid #f1f5f9;
           }
 
-          .preview-row:last-child {
-            border-bottom: none;
-          }
+          .preview-row:last-child { border-bottom: none; }
 
           .preview-label {
             font-size: 12px;
-            color: rgba(255, 255, 255, 0.6);
+            color: #6b7280;
           }
 
           .preview-value {
             font-size: 12px;
-            font-weight: 500;
-            color: #fff;
+            font-weight: 600;
+            color: #111827;
           }
 
           .modal-footer {
@@ -2296,45 +2241,37 @@ function DispatchModal({
             justify-content: flex-end;
             gap: 10px;
             padding: 14px 18px;
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            border-top: 1px solid #e5e7eb;
           }
 
           .cancel-btn {
             padding: 8px 16px;
-            background: transparent;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 6px;
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 13px;
-            font-weight: 500;
-            cursor: pointer;
-          }
-
-          .cancel-btn:hover {
-            border-color: rgba(255, 255, 255, 0.3);
-            color: #fff;
-          }
-
-          .confirm-btn {
-            padding: 8px 20px;
-            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-            border: none;
-            border-radius: 6px;
-            color: #fff;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 7px;
+            color: #374151;
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
+            transition: background 0.12s ease;
           }
 
-          .confirm-btn:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+          .cancel-btn:hover { background: #f1f5f9; border-color: #d1d5db; }
+
+          .confirm-btn {
+            padding: 8px 20px;
+            background: #16a34a;
+            border: none;
+            border-radius: 7px;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.12s ease;
           }
 
-          .confirm-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-          }
+          .confirm-btn:hover:not(:disabled) { background: #15803d; }
+          .confirm-btn:disabled { background: #bbf7d0; color: #6b7280; cursor: not-allowed; }
         `}</style>
       </div>
     </div>

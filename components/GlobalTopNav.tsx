@@ -246,13 +246,12 @@ export default function GlobalTopNav() {
           width: min(520px, 70vw);
           max-height: 420px;
           overflow: auto;
-          background: rgba(12, 15, 20, 0.98);
-          border: 1px solid rgba(255, 255, 255, 0.09);
+          background: #0f1f38;
+          border: 1px solid rgba(255, 255, 255, 0.10);
           border-radius: 12px;
-          box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
           padding: 6px;
           z-index: 200;
-          backdrop-filter: blur(10px);
         }
 
         .global-search-item {

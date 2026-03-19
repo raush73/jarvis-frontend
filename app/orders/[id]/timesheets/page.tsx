@@ -131,25 +131,29 @@ export default function InternalTimesheetsHubPage() {
       <CustomerTimesheetsHubPage __internal />
 
       <style jsx>{`
-        /* Timesheet Snapshot Header */
+        /* ============================================================
+           INDUSTRIAL LIGHT V1 — Timesheets Hub Page
+        ============================================================ */
+
+        /* Snapshot Header Card */
         .ts-snapshot-header {
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
           border-radius: 12px;
           padding: 20px 24px;
           margin-bottom: 20px;
         }
 
         .ts-header-title {
-          font-size: 18px;
-          font-weight: 600;
-          color: #fff;
-          margin-bottom: 6px;
+          font-size: 17px;
+          font-weight: 700;
+          color: #111827;
+          margin-bottom: 5px;
         }
 
         .ts-header-subtext {
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
           font-style: italic;
           margin-bottom: 14px;
         }
@@ -164,35 +168,38 @@ export default function InternalTimesheetsHubPage() {
           font-size: 11px;
           padding: 5px 10px;
           border-radius: 6px;
-          background: rgba(255, 255, 255, 0.05);
-          color: rgba(255, 255, 255, 0.7);
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: #f8fafc;
+          color: #374151;
+          border: 1px solid #e5e7eb;
         }
 
         .ts-badge strong {
-          color: #fff;
-          font-weight: 600;
+          color: #111827;
+          font-weight: 700;
         }
 
         .ts-badge-status {
-          border-color: rgba(234, 179, 8, 0.3);
-          background: rgba(234, 179, 8, 0.08);
+          background: #fffbeb;
+          border-color: #fde68a;
+          color: #92400e;
         }
 
         .ts-badge-mode {
-          border-color: rgba(139, 92, 246, 0.3);
-          background: rgba(139, 92, 246, 0.08);
+          background: #f5f3ff;
+          border-color: #ddd6fe;
+          color: #5b21b6;
         }
 
         .ts-badge-approval {
-          border-color: rgba(34, 197, 94, 0.3);
-          background: rgba(34, 197, 94, 0.08);
+          background: #f0fdf4;
+          border-color: #bbf7d0;
+          color: #15803d;
         }
 
-        /* Card Styles */
+        /* Info Cards */
         .ts-card {
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
           border-radius: 10px;
           padding: 18px 20px;
           margin-bottom: 16px;
@@ -200,11 +207,11 @@ export default function InternalTimesheetsHubPage() {
 
         .ts-card-title {
           font-size: 14px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.9);
+          font-weight: 700;
+          color: #111827;
           margin-bottom: 14px;
           padding-bottom: 10px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          border-bottom: 1px solid #f1f5f9;
         }
 
         /* Stepper */
@@ -227,33 +234,34 @@ export default function InternalTimesheetsHubPage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          background: rgba(59, 130, 246, 0.15);
-          color: #60a5fa;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          color: #1d4ed8;
           font-size: 12px;
-          font-weight: 600;
+          font-weight: 700;
           border-radius: 50%;
           flex-shrink: 0;
         }
 
         .ts-step-label {
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.85);
+          color: #374151;
         }
 
         .ts-step-actor {
           font-size: 11px;
-          color: rgba(255, 255, 255, 0.45);
+          color: #9ca3af;
           font-style: italic;
         }
 
         .ts-helper-text {
           font-size: 12px;
-          color: rgba(148, 163, 184, 0.8);
+          color: #6b7280;
           font-style: italic;
           padding: 10px 12px;
-          background: rgba(148, 163, 184, 0.08);
+          background: #f8fafc;
           border-radius: 6px;
-          border: 1px solid rgba(148, 163, 184, 0.15);
+          border: 1px solid #e5e7eb;
         }
 
         /* Entry Mode Options */
@@ -269,33 +277,36 @@ export default function InternalTimesheetsHubPage() {
           align-items: center;
           gap: 10px;
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #9ca3af;
           cursor: not-allowed;
         }
 
         .ts-entry-option input {
           cursor: not-allowed;
+          accent-color: #2563eb;
         }
 
         .ts-entry-option-selected {
-          color: rgba(255, 255, 255, 0.9);
+          color: #374151;
+          font-weight: 500;
         }
 
         .ts-default-tag {
           font-size: 10px;
-          color: rgba(34, 197, 94, 0.9);
-          font-weight: 500;
+          color: #16a34a;
+          font-weight: 600;
         }
 
         .ts-later-tag {
           font-size: 10px;
-          color: rgba(255, 255, 255, 0.4);
+          color: #9ca3af;
           font-style: italic;
         }
 
         /* Mock Table */
         .ts-mock-table {
-          background: rgba(0, 0, 0, 0.2);
+          background: #f8fafc;
+          border: 1px solid #e5e7eb;
           border-radius: 8px;
           overflow: hidden;
           margin-bottom: 12px;
@@ -306,9 +317,9 @@ export default function InternalTimesheetsHubPage() {
           display: grid;
           grid-template-columns: 1fr 1fr 1fr;
           padding: 8px 12px;
-          background: rgba(255, 255, 255, 0.04);
+          background: #f1f5f9;
           font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
+          color: #374151;
           text-transform: uppercase;
           font-size: 10px;
           letter-spacing: 0.3px;
@@ -318,23 +329,25 @@ export default function InternalTimesheetsHubPage() {
           display: grid;
           grid-template-columns: 1fr 1fr 1fr;
           padding: 6px 12px;
-          border-top: 1px solid rgba(255, 255, 255, 0.04);
-          color: rgba(255, 255, 255, 0.7);
+          border-top: 1px solid #f1f5f9;
+          color: #374151;
         }
 
         .ts-col-day {
-          font-weight: 500;
+          font-weight: 600;
+          color: #111827;
         }
 
         .ts-col-reg,
         .ts-col-ot {
           text-align: right;
           font-family: var(--font-geist-mono), monospace;
+          color: #374151;
         }
 
         .ts-reference-label {
           font-size: 11px;
-          color: rgba(139, 92, 246, 0.9);
+          color: #7c3aed;
           font-style: italic;
         }
 
@@ -352,37 +365,37 @@ export default function InternalTimesheetsHubPage() {
           font-weight: 500;
           padding: 5px 10px;
           border-radius: 6px;
-          background: rgba(255, 255, 255, 0.05);
-          color: rgba(255, 255, 255, 0.7);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: #f8fafc;
+          color: #374151;
+          border: 1px solid #e5e7eb;
         }
 
         .ts-chip-submitted {
-          background: rgba(139, 92, 246, 0.12);
-          border-color: rgba(139, 92, 246, 0.3);
-          color: #a78bfa;
+          background: #f5f3ff;
+          border-color: #ddd6fe;
+          color: #5b21b6;
         }
 
         .ts-chip-customer {
-          background: rgba(34, 197, 94, 0.12);
-          border-color: rgba(34, 197, 94, 0.3);
-          color: #34d399;
+          background: #f0fdf4;
+          border-color: #bbf7d0;
+          color: #15803d;
         }
 
         .ts-chip-mw4h {
-          background: rgba(245, 158, 11, 0.12);
-          border-color: rgba(245, 158, 11, 0.3);
-          color: #fbbf24;
+          background: #fffbeb;
+          border-color: #fde68a;
+          color: #92400e;
         }
 
         .ts-chip-official {
-          background: rgba(59, 130, 246, 0.12);
-          border-color: rgba(59, 130, 246, 0.3);
-          color: #60a5fa;
+          background: #eff6ff;
+          border-color: #bfdbfe;
+          color: #1d4ed8;
         }
 
         .ts-approval-arrow {
-          color: rgba(255, 255, 255, 0.3);
+          color: #d1d5db;
           font-size: 14px;
         }
 
@@ -392,14 +405,19 @@ export default function InternalTimesheetsHubPage() {
         }
 
         .ts-cadence-dropdown select {
-          background: rgba(0, 0, 0, 0.3);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: #f1f5f9;
+          border: 1px solid #e5e7eb;
           border-radius: 6px;
           padding: 8px 12px;
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #9ca3af;
           cursor: not-allowed;
           min-width: 200px;
+        }
+
+        .ts-cadence-dropdown select option {
+          background: #ffffff;
+          color: #111827;
         }
       `}</style>
     </>

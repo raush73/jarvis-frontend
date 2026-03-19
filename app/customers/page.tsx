@@ -464,36 +464,47 @@ export default function CustomersPage() {
 </div>
 
       <style jsx>{`
+        /* ============================================================
+           INDUSTRIAL LIGHT V1 — Customer Hub Page
+           Palette: bg #f8fafc | card #fff | border #e5e7eb
+                    text-primary #111827 | text-secondary #4b5563
+                    text-muted #6b7280 | blue #2563eb | blue-hover #1d4ed8
+        ============================================================ */
+
+        /* --- Page Shell --- */
         .customers-container {
-          padding: 32px 40px;
+          padding: 32px 40px 60px;
           max-width: 1400px;
           margin: 0 auto;
+          background: #f8fafc;
+          min-height: 100vh;
         }
 
+        /* --- Page Header --- */
         .customers-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 28px;
+          margin-bottom: 24px;
         }
 
         .header-left {
           display: flex;
           align-items: baseline;
-          gap: 16px;
+          gap: 14px;
         }
 
         .header-left h1 {
           font-size: 26px;
-          font-weight: 600;
-          color: #fff;
+          font-weight: 700;
+          color: #111827;
           margin: 0;
-          letter-spacing: -0.5px;
+          letter-spacing: -0.3px;
         }
 
         .customer-count {
           font-size: 14px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
         }
 
         .header-actions {
@@ -501,181 +512,211 @@ export default function CustomersPage() {
           align-items: center;
         }
 
+        /* --- Primary Add Button --- */
+        .btn-add {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 9px 18px;
+          font-size: 13px;
+          font-weight: 700;
+          color: #ffffff;
+          background: #2563eb;
+          border: none;
+          border-radius: 7px;
+          cursor: pointer;
+          transition: background 0.12s ease;
+          text-decoration: none;
+        }
+
+        .btn-add:hover {
+          background: #1d4ed8;
+        }
+
+        /* --- Filter / Control Row --- */
         .controls-row {
           display: flex;
           align-items: center;
-          gap: 12px;
-          padding: 16px 20px;
-          margin-bottom: 20px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 12px;
-          flex-wrap: wrap;
-        }
-
-        .az-strip {
-          display: flex;
-          align-items: center;
-          flex-wrap: wrap;
-          gap: 6px;
-          padding: 10px 12px;
+          gap: 10px;
+          padding: 14px 18px;
           margin-bottom: 14px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 12px;
-        }
-
-        .az-btn {
-          width: 28px;
-          height: 28px;
-          border-radius: 8px;
-          font-size: 12px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.85);
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          cursor: pointer;
-          transition: background 0.15s ease, opacity 0.15s ease;
-        }
-
-        .az-btn:hover:not(:disabled) {
-          background: rgba(255, 255, 255, 0.1);
-        }
-
-        .az-btn:disabled {
-          opacity: 0.35;
-          cursor: not-allowed;
-        }
-
-        .az-status {
-          margin-left: 10px;
-          font-size: 12.5px;
-          color: rgba(255, 255, 255, 0.55);
-          min-height: 16px;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+          flex-wrap: wrap;
         }
 
         .control-search {
           flex: 1;
           min-width: 180px;
-          padding: 10px 14px;
-          font-size: 14px;
-          color: #fff;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 8px;
+          padding: 9px 12px;
+          font-size: 13px;
+          color: #111827;
+          background: #ffffff;
+          border: 1px solid #d1d5db;
+          border-radius: 7px;
+          outline: none;
+          transition: border-color 0.12s ease;
         }
 
         .control-search::placeholder {
-          color: rgba(255, 255, 255, 0.4);
+          color: #9ca3af;
+        }
+
+        .control-search:focus {
+          border-color: #2563eb;
+          box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
         }
 
         .control-select {
-          padding: 10px 14px;
-          font-size: 14px;
-          color: #fff;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 8px;
+          padding: 9px 12px;
+          font-size: 13px;
+          color: #111827;
+          background: #ffffff;
+          border: 1px solid #d1d5db;
+          border-radius: 7px;
           cursor: pointer;
+          outline: none;
+          transition: border-color 0.12s ease;
         }
 
-        .control-select option {
-          background: #1e293b;
-          color: #f1f5f9;
+        .control-select:focus {
+          border-color: #2563eb;
         }
 
         .pagination-controls {
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 8px;
           margin-left: auto;
         }
 
         .control-btn {
           padding: 8px 14px;
           font-size: 13px;
-          font-weight: 500;
-          color: #fff;
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 8px;
+          font-weight: 600;
+          color: #374151;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 7px;
           cursor: pointer;
-          transition: background 0.15s ease;
+          transition: background 0.12s ease, border-color 0.12s ease;
         }
 
         .control-btn:hover:not(:disabled) {
-          background: rgba(255, 255, 255, 0.1);
+          background: #f1f5f9;
+          border-color: #d1d5db;
         }
 
         .control-btn:disabled {
-          opacity: 0.4;
+          opacity: 0.45;
           cursor: not-allowed;
         }
 
         .page-display {
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #6b7280;
+          white-space: nowrap;
         }
 
-        .btn-add {
-          display: inline-block;
-          padding: 10px 20px;
-          font-size: 14px;
+        /* --- A–Z Jump Strip --- */
+        .az-strip {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 5px;
+          padding: 10px 14px;
+          margin-bottom: 14px;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+        }
+
+        .az-btn {
+          width: 28px;
+          height: 28px;
+          border-radius: 6px;
+          font-size: 12px;
           font-weight: 600;
-          color: #fff;
-          background: #3b82f6;
-          border: none;
-          border-radius: 8px;
+          color: #374151;
+          background: #f8fafc;
+          border: 1px solid #e5e7eb;
           cursor: pointer;
-          transition: all 0.15s ease;
-          text-decoration: none;
+          transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
         }
 
-        .btn-add:hover {
-          background: #2563eb;
+        .az-btn:hover:not(:disabled) {
+          background: #eff6ff;
+          border-color: #bfdbfe;
+          color: #1d4ed8;
         }
 
+        .az-btn:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+
+        .az-status {
+          margin-left: 8px;
+          font-size: 12.5px;
+          color: #6b7280;
+          min-height: 16px;
+        }
+
+        /* --- Table Wrapper --- */
         .customers-table-wrap {
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
           border-radius: 12px;
           overflow: hidden;
         }
 
+        /* --- Table --- */
         .customers-table {
           width: 100%;
           border-collapse: collapse;
         }
 
         .customers-table thead {
-          background: rgba(255, 255, 255, 0.03);
+          background: #f1f5f9;
         }
 
         .customers-table th {
-          padding: 14px 20px;
+          padding: 11px 20px;
           text-align: left;
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
+          color: #374151;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          border-bottom: 1px solid #d1d5db;
+          white-space: nowrap;
         }
 
         .customers-table td {
-          padding: 16px 20px;
-          font-size: 14px;
-          color: rgba(255, 255, 255, 0.85);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+          padding: 14px 20px;
+          font-size: 13px;
+          color: #111827;
+          border-bottom: 1px solid #f1f5f9;
+          vertical-align: middle;
         }
 
+        .customers-table tr:last-child td {
+          border-bottom: none;
+        }
+
+        .customers-table tbody tr:hover td {
+          background: #f9fafb;
+        }
+
+        /* --- A–Z Anchor Row (table section divider) --- */
         .az-anchor-row td {
-          padding: 10px 20px;
-          font-size: 12px;
+          padding: 8px 20px;
+          font-size: 11px;
           font-weight: 700;
-          color: rgba(255, 255, 255, 0.55);
-          background: rgba(255, 255, 255, 0.02);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+          color: #6b7280;
+          background: #f8fafc;
+          border-bottom: 1px solid #e5e7eb;
           text-transform: uppercase;
           letter-spacing: 0.12em;
         }
@@ -686,76 +727,44 @@ export default function CustomersPage() {
           justify-content: center;
           width: 26px;
           height: 18px;
-          border-radius: 6px;
-          background: rgba(59, 130, 246, 0.14);
-          color: rgba(255, 255, 255, 0.75);
-          border: 1px solid rgba(59, 130, 246, 0.22);
+          border-radius: 5px;
+          background: #eff6ff;
+          color: #1d4ed8;
+          border: 1px solid #bfdbfe;
+          font-size: 11px;
+          font-weight: 700;
         }
 
-        .customer-row {
-          cursor: pointer;
-          transition: background 0.15s ease;
-        }
-
-        .customer-row:hover {
-          background: rgba(59, 130, 246, 0.08);
-        }
-
-        .customer-row:last-child td {
-          border-bottom: none;
-        }
-
-        .customer-name {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .name-text {
-          font-weight: 500;
-          color: #fff;
-        }
-
-        .customer-id {
-          font-family: var(--font-geist-mono), monospace;
-          font-size: 12px;
-          color: #3b82f6;
-        }
-
-        .location {
-          color: rgba(255, 255, 255, 0.7);
-        }
-
-        .phone {
-          font-family: var(--font-geist-mono), monospace;
+        /* --- Cell Hierarchy --- */
+        .cell-primary {
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.7);
+          font-weight: 600;
+          color: #111827;
         }
 
-        .salesperson {
-          display: flex;
-          align-items: center;
-          gap: 10px;
+        .cell-sub {
+          font-size: 12px;
+          color: #6b7280;
+          margin-top: 2px;
         }
 
-        .salesperson-name {
-          color: rgba(255, 255, 255, 0.85);
+        /* --- Loading / Error / Empty States --- */
+        .state-loading,
+        .state-empty {
+          padding: 32px 20px;
+          text-align: center;
+          font-size: 14px;
+          color: #6b7280;
         }
 
-        .read-only-indicator {
-          font-size: 9px;
-          padding: 2px 6px;
-          background: rgba(148, 163, 184, 0.15);
-          color: rgba(148, 163, 184, 0.8);
-          border-radius: 4px;
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
-        }
-
-        .last-updated {
-          color: rgba(255, 255, 255, 0.45) !important;
-          font-size: 13px !important;
-          white-space: nowrap;
+        .state-error {
+          padding: 14px 18px;
+          margin-bottom: 16px;
+          border-radius: 8px;
+          border: 1px solid #fecaca;
+          background: #fff1f2;
+          color: #991b1b;
+          font-size: 13px;
         }
       `}</style>
     </div>

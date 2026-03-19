@@ -233,10 +233,15 @@ export default function OrderSalesPage() {
       </div>
 
       <style jsx>{`
+        /* ============================================================
+           INDUSTRIAL LIGHT V1 — Sales / Commission Split Page
+        ============================================================ */
         .order-sales-container {
           padding: 24px 40px 60px;
           max-width: 900px;
           margin: 0 auto;
+          background: #f8fafc;
+          min-height: 100vh;
         }
 
         .page-header {
@@ -245,10 +250,10 @@ export default function OrderSalesPage() {
 
         .header-info h1 {
           font-size: 26px;
-          font-weight: 600;
-          color: #fff;
+          font-weight: 700;
+          color: #111827;
           margin: 0 0 12px;
-          letter-spacing: -0.5px;
+          letter-spacing: -0.3px;
         }
 
         .order-badge-row {
@@ -260,22 +265,24 @@ export default function OrderSalesPage() {
 
         .order-id {
           font-family: var(--font-geist-mono), monospace;
-          font-size: 13px;
+          font-size: 12px;
           padding: 4px 10px;
-          background: rgba(59, 130, 246, 0.15);
-          color: #3b82f6;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          color: #1d4ed8;
           border-radius: 5px;
+          font-weight: 600;
         }
 
         .order-customer {
           font-size: 14px;
-          color: rgba(255, 255, 255, 0.8);
-          font-weight: 500;
+          color: #111827;
+          font-weight: 600;
         }
 
         .order-site {
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
         }
 
         /* Default Note */
@@ -284,21 +291,21 @@ export default function OrderSalesPage() {
           align-items: center;
           gap: 10px;
           padding: 12px 16px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
           border-radius: 8px;
           margin-bottom: 16px;
         }
 
         .note-label {
           font-size: 12px;
-          color: rgba(255, 255, 255, 0.45);
+          color: #6b7280;
         }
 
         .note-value {
           font-size: 14px;
-          color: #fff;
-          font-weight: 500;
+          color: #111827;
+          font-weight: 600;
         }
 
         /* Warning Banner */
@@ -307,12 +314,12 @@ export default function OrderSalesPage() {
           align-items: center;
           gap: 10px;
           padding: 12px 16px;
-          background: rgba(245, 158, 11, 0.1);
-          border: 1px solid rgba(245, 158, 11, 0.25);
+          background: #fffbeb;
+          border: 1px solid #fde68a;
           border-radius: 8px;
           margin-bottom: 20px;
           font-size: 13px;
-          color: #f59e0b;
+          color: #92400e;
         }
 
         .warning-icon {
@@ -320,13 +327,13 @@ export default function OrderSalesPage() {
         }
 
         .warning-banner strong {
-          color: #fbbf24;
+          color: #d97706;
         }
 
         /* Split Section */
         .split-section {
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
           border-radius: 12px;
           padding: 24px;
           margin-bottom: 20px;
@@ -341,21 +348,21 @@ export default function OrderSalesPage() {
 
         .section-header h2 {
           font-size: 16px;
-          font-weight: 600;
-          color: #fff;
+          font-weight: 700;
+          color: #111827;
           margin: 0;
         }
 
         .section-note {
           font-size: 12px;
-          color: rgba(255, 255, 255, 0.4);
+          color: #6b7280;
         }
 
         /* Split Table */
         .split-table-wrap {
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 10px;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
           overflow: hidden;
         }
 
@@ -365,18 +372,18 @@ export default function OrderSalesPage() {
         }
 
         .split-table thead {
-          background: rgba(255, 255, 255, 0.03);
+          background: #f1f5f9;
         }
 
         .split-table th {
-          padding: 12px 16px;
+          padding: 11px 16px;
           text-align: left;
           font-size: 11px;
           font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
+          color: #374151;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          border-bottom: 1px solid #d1d5db;
         }
 
         .split-table th:last-child {
@@ -384,37 +391,45 @@ export default function OrderSalesPage() {
         }
 
         .split-table td {
-          padding: 12px 16px;
+          padding: 11px 16px;
           font-size: 14px;
-          color: rgba(255, 255, 255, 0.85);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+          color: #111827;
+          border-bottom: 1px solid #f1f5f9;
         }
 
         .split-table tbody tr:last-child td {
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          border-bottom: 1px solid #e5e7eb;
         }
 
         .split-table tfoot td {
-          padding: 12px 16px;
+          padding: 11px 16px;
           border-bottom: none;
         }
 
         .split-salesperson select,
         .split-role select {
           width: 100%;
-          padding: 8px 10px;
+          padding: 7px 10px;
           font-size: 13px;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: #ffffff;
+          border: 1px solid #d1d5db;
           border-radius: 6px;
-          color: #fff;
+          color: #111827;
           cursor: pointer;
+          outline: none;
+          transition: border-color 0.12s ease;
         }
 
         .split-salesperson select:focus,
         .split-role select:focus {
-          outline: none;
-          border-color: rgba(59, 130, 246, 0.5);
+          border-color: #2563eb;
+          box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+        }
+
+        .split-salesperson select option,
+        .split-role select option {
+          background: #ffffff;
+          color: #111827;
         }
 
         .input-wrap {
@@ -425,24 +440,26 @@ export default function OrderSalesPage() {
 
         .input-wrap input {
           width: 70px;
-          padding: 8px 10px;
+          padding: 7px 10px;
           font-size: 14px;
           font-family: var(--font-geist-mono), monospace;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: #ffffff;
+          border: 1px solid #d1d5db;
           border-radius: 6px;
-          color: #fff;
+          color: #111827;
           text-align: right;
+          outline: none;
+          transition: border-color 0.12s ease;
         }
 
         .input-wrap input:focus {
-          outline: none;
-          border-color: rgba(59, 130, 246, 0.5);
+          border-color: #2563eb;
+          box-shadow: 0 0 0 2px rgba(37,99,235,0.12);
         }
 
         .input-suffix {
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
         }
 
         .remove-btn {
@@ -451,21 +468,22 @@ export default function OrderSalesPage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          background: rgba(239, 68, 68, 0.1);
-          border: 1px solid rgba(239, 68, 68, 0.2);
+          background: transparent;
+          border: 1px solid #fecaca;
           border-radius: 6px;
-          color: #ef4444;
+          color: #dc2626;
           font-size: 18px;
           cursor: pointer;
-          transition: all 0.15s ease;
+          transition: background 0.12s ease, border-color 0.12s ease;
         }
 
         .remove-btn:hover:not(:disabled) {
-          background: rgba(239, 68, 68, 0.2);
+          background: #fff1f2;
+          border-color: #fca5a5;
         }
 
         .remove-btn:disabled {
-          opacity: 0.3;
+          opacity: 0.35;
           cursor: not-allowed;
         }
 
@@ -473,16 +491,16 @@ export default function OrderSalesPage() {
           width: 100%;
           padding: 10px;
           font-size: 13px;
-          font-weight: 500;
-          color: #3b82f6;
+          font-weight: 600;
+          color: #2563eb;
           background: transparent;
           border: none;
           cursor: pointer;
-          transition: color 0.15s ease;
+          transition: color 0.12s ease;
         }
 
         .add-row-btn:hover {
-          color: #60a5fa;
+          color: #1d4ed8;
         }
 
         /* Total Row */
@@ -497,18 +515,18 @@ export default function OrderSalesPage() {
         }
 
         .total-row.valid {
-          background: rgba(34, 197, 94, 0.1);
-          border: 1px solid rgba(34, 197, 94, 0.2);
+          background: #f0fdf4;
+          border: 1px solid #bbf7d0;
         }
 
         .total-row.invalid {
-          background: rgba(239, 68, 68, 0.1);
-          border: 1px solid rgba(239, 68, 68, 0.2);
+          background: #fff1f2;
+          border: 1px solid #fecaca;
         }
 
         .total-label {
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #6b7280;
         }
 
         .total-value {
@@ -518,11 +536,11 @@ export default function OrderSalesPage() {
         }
 
         .total-row.valid .total-value {
-          color: #22c55e;
+          color: #16a34a;
         }
 
         .total-row.invalid .total-value {
-          color: #ef4444;
+          color: #dc2626;
         }
 
         /* Save Footer */
@@ -536,21 +554,21 @@ export default function OrderSalesPage() {
 
         .ui-only-label {
           font-size: 11px;
-          color: rgba(148, 163, 184, 0.7);
+          color: #9ca3af;
           padding: 4px 10px;
-          background: rgba(148, 163, 184, 0.1);
-          border: 1px dashed rgba(148, 163, 184, 0.25);
+          background: #f8fafc;
+          border: 1px dashed #d1d5db;
           border-radius: 6px;
         }
 
         .save-btn {
           padding: 10px 24px;
-          font-size: 14px;
+          font-size: 13px;
           font-weight: 600;
-          color: rgba(255, 255, 255, 0.4);
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 8px;
+          color: #9ca3af;
+          background: #f1f5f9;
+          border: 1px solid #e5e7eb;
+          border-radius: 7px;
           cursor: not-allowed;
         }
       `}</style>

@@ -113,46 +113,40 @@ export default function ManualSearchPage() {
       </main>
 
       <style jsx>{`
+        /* ============================================================
+           INDUSTRIAL LIGHT V1 — Manual Search Shell Page
+        ============================================================ */
         .manual-search-page {
           min-height: 100vh;
-          background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-          color: #fff;
-          padding: 24px;
+          background: #f8fafc;
+          padding: 24px 40px 60px;
         }
 
-        /* Header Styles */
-        .page-header {
-          margin-bottom: 24px;
-        }
+        .page-header { margin-bottom: 24px; }
 
         .breadcrumb {
           display: flex;
           align-items: center;
           gap: 8px;
-          margin-bottom: 16px;
+          margin-bottom: 14px;
           font-size: 13px;
         }
 
         .breadcrumb-link {
           background: none;
           border: none;
-          color: rgba(255, 255, 255, 0.6);
+          color: #6b7280;
           cursor: pointer;
           padding: 0;
           font-size: 13px;
+          transition: color 0.12s ease;
         }
 
-        .breadcrumb-link:hover {
-          color: #fff;
-          text-decoration: underline;
-        }
-
-        .breadcrumb-sep {
-          color: rgba(255, 255, 255, 0.3);
-        }
+        .breadcrumb-link:hover { color: #2563eb; text-decoration: underline; }
+        .breadcrumb-sep { color: #d1d5db; }
 
         .breadcrumb-current {
-          color: #fff;
+          color: #374151;
           font-weight: 500;
         }
 
@@ -163,32 +157,31 @@ export default function ManualSearchPage() {
         }
 
         .title-icon {
-          font-size: 32px;
-          width: 56px;
-          height: 56px;
+          font-size: 28px;
+          width: 52px;
+          height: 52px;
           display: flex;
           align-items: center;
           justify-content: center;
-          background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(59, 130, 246, 0.2) 100%);
-          border: 1px solid rgba(34, 197, 94, 0.3);
-          border-radius: 12px;
+          background: #f0fdf4;
+          border: 1px solid #bbf7d0;
+          border-radius: 10px;
         }
 
-        .title-content {
-          flex: 1;
-        }
+        .title-content { flex: 1; }
 
         .page-title {
           margin: 0;
           font-size: 24px;
           font-weight: 700;
-          color: #fff;
+          color: #111827;
+          letter-spacing: -0.3px;
         }
 
         .page-subtitle {
           margin: 4px 0 0 0;
           font-size: 14px;
-          color: rgba(255, 255, 255, 0.6);
+          color: #6b7280;
         }
 
         /* Info Banner */
@@ -196,47 +189,39 @@ export default function ManualSearchPage() {
           display: flex;
           align-items: flex-start;
           gap: 12px;
-          padding: 16px 20px;
-          background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
-          border: 1px solid rgba(34, 197, 94, 0.2);
+          padding: 14px 18px;
+          background: #f0fdf4;
+          border: 1px solid #bbf7d0;
           border-radius: 10px;
           margin-bottom: 24px;
         }
 
-        .banner-icon {
-          font-size: 20px;
-          flex-shrink: 0;
-        }
-
-        .banner-content {
-          flex: 1;
-        }
+        .banner-icon { font-size: 18px; flex-shrink: 0; }
+        .banner-content { flex: 1; }
 
         .banner-text {
           margin: 0;
-          font-size: 14px;
+          font-size: 13px;
           line-height: 1.6;
-          color: rgba(255, 255, 255, 0.85);
+          color: #374151;
         }
 
         /* Search Controls */
-        .search-controls {
-          margin-bottom: 24px;
-        }
+        .search-controls { margin-bottom: 24px; }
 
         .search-bar {
           display: flex;
           align-items: center;
           gap: 12px;
-          padding: 12px 16px;
-          background: rgba(0, 0, 0, 0.3);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 10px;
+          padding: 10px 14px;
+          background: #ffffff;
+          border: 1px solid #d1d5db;
+          border-radius: 8px;
           margin-bottom: 16px;
         }
 
         .search-icon {
-          font-size: 18px;
+          font-size: 16px;
           opacity: 0.5;
         }
 
@@ -244,33 +229,26 @@ export default function ManualSearchPage() {
           flex: 1;
           background: none;
           border: none;
-          color: rgba(255, 255, 255, 0.5);
-          font-size: 14px;
+          color: #9ca3af;
+          font-size: 13px;
           outline: none;
         }
 
-        .search-input::placeholder {
-          color: rgba(255, 255, 255, 0.3);
-        }
-
-        .search-input:disabled {
-          cursor: not-allowed;
-        }
+        .search-input::placeholder { color: #d1d5db; }
+        .search-input:disabled { cursor: not-allowed; }
 
         .search-btn {
-          padding: 8px 20px;
-          background: linear-gradient(135deg, rgba(34, 197, 94, 0.3) 0%, rgba(59, 130, 246, 0.3) 100%);
-          border: 1px solid rgba(34, 197, 94, 0.4);
+          padding: 7px 18px;
+          background: #f1f5f9;
+          border: 1px solid #e5e7eb;
           border-radius: 6px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #9ca3af;
           font-size: 13px;
-          font-weight: 500;
+          font-weight: 600;
           cursor: not-allowed;
         }
 
-        .search-btn:disabled {
-          opacity: 0.6;
-        }
+        .search-btn:disabled { opacity: 0.65; }
 
         .filter-row {
           display: flex;
@@ -281,46 +259,46 @@ export default function ManualSearchPage() {
         .filter-group {
           display: flex;
           flex-direction: column;
-          gap: 6px;
+          gap: 5px;
           min-width: 150px;
         }
 
         .filter-label {
           font-size: 11px;
-          font-weight: 600;
+          font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #374151;
         }
 
         .filter-select {
-          padding: 10px 12px;
-          background: rgba(0, 0, 0, 0.3);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          padding: 8px 11px;
+          background: #f1f5f9;
+          border: 1px solid #e5e7eb;
           border-radius: 6px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #9ca3af;
           font-size: 13px;
           cursor: not-allowed;
+          outline: none;
         }
 
-        .filter-select:disabled {
-          opacity: 0.6;
+        .filter-select option {
+          background: #ffffff;
+          color: #111827;
         }
 
-        /* Main Content */
-        .main-content {
-          flex: 1;
-        }
+        .filter-select:disabled { opacity: 0.65; }
 
-        /* Empty State */
+        .main-content { flex: 1; }
+
         .empty-state {
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
           padding: 80px 40px;
-          background: rgba(0, 0, 0, 0.2);
-          border: 1px dashed rgba(255, 255, 255, 0.15);
+          background: #ffffff;
+          border: 1px dashed #d1d5db;
           border-radius: 12px;
           text-align: center;
         }
@@ -328,20 +306,20 @@ export default function ManualSearchPage() {
         .empty-icon {
           font-size: 48px;
           margin-bottom: 16px;
-          opacity: 0.7;
+          opacity: 0.6;
         }
 
         .empty-title {
           margin: 0 0 8px 0;
           font-size: 20px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.9);
+          font-weight: 700;
+          color: #111827;
         }
 
         .empty-description {
           margin: 0;
           font-size: 14px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
           max-width: 400px;
         }
       `}</style>

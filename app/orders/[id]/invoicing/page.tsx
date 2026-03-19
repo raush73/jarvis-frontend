@@ -55,11 +55,12 @@ export default function InvoicingPage() {
       </div>
 
       <style jsx>{`
+        /* ============================================================
+           INDUSTRIAL LIGHT V1 — Invoicing Shell Page
+        ============================================================ */
         .invoicing-page {
           min-height: 100vh;
-          background: linear-gradient(180deg, #0c0f14 0%, #111827 100%);
-          color: #fff;
-          font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+          background: #f8fafc;
         }
 
         .page-content {
@@ -68,16 +69,15 @@ export default function InvoicingPage() {
           margin: 0 auto;
         }
 
-        /* Page Header */
         .page-header {
-          margin-bottom: 32px;
+          margin-bottom: 28px;
         }
 
         .breadcrumb {
           display: flex;
           align-items: center;
           gap: 8px;
-          margin-bottom: 16px;
+          margin-bottom: 14px;
         }
 
         .breadcrumb-link {
@@ -85,86 +85,83 @@ export default function InvoicingPage() {
           border: none;
           padding: 0;
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.5);
+          color: #6b7280;
           cursor: pointer;
-          transition: color 0.15s ease;
+          transition: color 0.12s ease;
         }
 
         .breadcrumb-link:hover {
-          color: #60a5fa;
+          color: #2563eb;
           text-decoration: underline;
         }
 
         .breadcrumb-sep {
-          color: rgba(255, 255, 255, 0.3);
+          color: #d1d5db;
         }
 
         .breadcrumb-current {
           font-size: 13px;
-          color: rgba(255, 255, 255, 0.8);
+          color: #374151;
+          font-weight: 500;
         }
 
         .page-title {
-          margin: 0 0 8px 0;
-          font-size: 28px;
+          margin: 0 0 6px 0;
+          font-size: 26px;
           font-weight: 700;
-          background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
+          color: #111827;
+          letter-spacing: -0.3px;
         }
 
         .page-subtitle {
           margin: 0;
-          font-size: 15px;
-          color: rgba(255, 255, 255, 0.6);
+          font-size: 14px;
+          color: #6b7280;
         }
 
-        /* Coming Soon Container */
         .coming-soon-container {
           text-align: center;
           padding: 60px 40px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px dashed rgba(255, 255, 255, 0.15);
-          border-radius: 16px;
+          background: #ffffff;
+          border: 1px dashed #d1d5db;
+          border-radius: 12px;
         }
 
         .coming-soon-icon {
-          font-size: 64px;
-          margin-bottom: 24px;
-          opacity: 0.6;
+          font-size: 56px;
+          margin-bottom: 20px;
         }
 
         .coming-soon-title {
-          font-size: 24px;
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.9);
-          margin: 0 0 12px 0;
+          font-size: 22px;
+          font-weight: 700;
+          color: #111827;
+          margin: 0 0 10px 0;
         }
 
         .coming-soon-desc {
-          font-size: 15px;
-          color: rgba(255, 255, 255, 0.6);
+          font-size: 14px;
+          color: #6b7280;
           max-width: 500px;
-          margin: 0 auto 32px;
+          margin: 0 auto 28px;
           line-height: 1.6;
         }
 
         .feature-preview {
-          background: rgba(34, 197, 94, 0.08);
-          border: 1px solid rgba(34, 197, 94, 0.2);
-          border-radius: 12px;
-          padding: 24px;
+          background: #f8fafc;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+          padding: 20px 24px;
           max-width: 400px;
           margin: 0 auto;
           text-align: left;
         }
 
         .feature-preview h3 {
-          font-size: 14px;
-          font-weight: 600;
-          color: #34d399;
-          margin: 0 0 16px 0;
+          font-size: 11px;
+          font-weight: 700;
+          color: #374151;
+          margin: 0 0 14px 0;
           text-transform: uppercase;
           letter-spacing: 0.5px;
         }
@@ -176,12 +173,12 @@ export default function InvoicingPage() {
         }
 
         .feature-preview li {
-          font-size: 14px;
-          color: rgba(255, 255, 255, 0.7);
-          padding: 8px 0;
-          padding-left: 20px;
+          font-size: 13px;
+          color: #4b5563;
+          padding: 7px 0;
+          padding-left: 18px;
           position: relative;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          border-bottom: 1px solid #f1f5f9;
         }
 
         .feature-preview li:last-child {
@@ -192,7 +189,7 @@ export default function InvoicingPage() {
           content: '○';
           position: absolute;
           left: 0;
-          color: rgba(34, 197, 94, 0.6);
+          color: #9ca3af;
         }
       `}</style>
     </div>

@@ -1,10 +1,63 @@
 @import "tailwindcss";
 
+/* ============================================================
+   INDUSTRIAL LIGHT V1 — SHARED SURFACES / BORDERS / TEXT TOKENS
+   These CSS variables are the token layer for Industrial Light V1.
+   Page content (cards, tables, forms) must use these variables.
+   Do NOT hardcode color values in page components when a token exists.
+   ============================================================ */
+
 :root {
+  /* App shell defaults (legacy — nav uses dark theme) */
   --background: #0c0f14;
   --foreground: #ededed;
-  
-  /* Recruiting UI Colors */
+
+  /* -------------------------------------------------------
+     Industrial Light V1 — Page Surface Tokens
+     Page background, card backgrounds, borders
+  ------------------------------------------------------- */
+  --color-bg-main: #f8fafc;
+  --color-bg-card: #ffffff;
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+
+  /* -------------------------------------------------------
+     Industrial Light V1 — Text Tokens
+     Ordered from most prominent to most muted
+  ------------------------------------------------------- */
+  --color-text-primary: #111827;     /* Titles, data values, inputs */
+  --color-text-secondary: #374151;   /* Labels, secondary headings, button text */
+  --color-text-muted: #4b5563;       /* Helper text, descriptions */
+  --color-text-soft: #6b7280;        /* Panel notes, timestamps, field labels */
+  --color-text-faint: #9ca3af;       /* Placeholder text, disabled context */
+
+  /* -------------------------------------------------------
+     Industrial Light V1 — Action Color Tokens
+     Blue is reserved for action / active / link semantics only.
+  ------------------------------------------------------- */
+  --color-accent-primary: #2563eb;
+  --color-accent-primary-hover: #1d4ed8;
+  --color-accent-primary-disabled: #93c5fd;
+  --color-accent-subtle-bg: #eff6ff;
+  --color-accent-subtle-border: #bfdbfe;
+
+  /* -------------------------------------------------------
+     Industrial Light V1 — Destructive / Status Tokens
+  ------------------------------------------------------- */
+  --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c;
+  --color-danger-disabled: #fca5a5;
+  --color-danger-bg: #fff1f2;
+  --color-danger-border: #fecaca;
+  --color-danger-text: #991b1b;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+
+  /* -------------------------------------------------------
+     Legacy dark-theme recruiting surface tokens
+     These remain for backwards compatibility with any
+     recruiting-domain components that have not been migrated.
+  ------------------------------------------------------- */
   --recruiting-bg: #0c0f14;
   --recruiting-surface: rgba(255, 255, 255, 0.04);
   --recruiting-border: rgba(255, 255, 255, 0.08);
@@ -24,6 +77,11 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* ============================================================
+   INDUSTRIAL LIGHT V1 — BASE / RESET
+   Body defaults, font smoothing, scrollbar, selection, focus.
+   ============================================================ */
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -32,7 +90,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar for dark theme */
+/* Scrollbar — dark nav layer uses dark scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -52,23 +110,25 @@ body {
   background: rgba(255, 255, 255, 0.25);
 }
 
-/* Selection styling */
+/* Text selection — blue accent consistent with action color */
 ::selection {
   background: rgba(59, 130, 246, 0.4);
   color: #fff;
 }
 
-/* Focus ring override */
+/* Focus ring — blue accent, consistent with Industrial Light V1 action color */
 *:focus-visible {
-  outline: 2px solid var(--recruiting-accent-blue);
+  outline: 2px solid var(--color-accent-primary);
   outline-offset: 2px;
 }
 
-/* ============================================
-   GLOBAL NAVIGATION INVARIANT
-   Level 0: Global Top Bar
-   Level 1: Module Tabs
-   ============================================ */
+/* ============================================================
+   INDUSTRIAL LIGHT V1 — GLOBAL NAVIGATION
+   Level 0: Global Top Bar (dark navy, sticky, 52px)
+   The dark nav is a locked invariant. It does NOT follow the
+   light surface rules that apply to page content areas.
+   Do NOT apply --color-bg-card or --color-border here.
+   ============================================================ */
 
 /* --- Level 0: Global Top Bar --- */
 .global-top-nav {
@@ -77,8 +137,8 @@ body {
   gap: 0;
   height: 52px;
   padding: 0 20px;
-  background: linear-gradient(180deg, rgba(20, 24, 32, 0.98) 0%, rgba(12, 15, 20, 0.98) 100%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, #1e3a5f 0%, #162f50 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
   position: sticky;
   top: 0;
   z-index: 100;
@@ -145,12 +205,19 @@ body {
   background: rgba(59, 130, 246, 0.15);
 }
 
+/* ============================================================
+   INDUSTRIAL LIGHT V1 — MODULE TABS
+   Level 1: Module Tab Bar (dark navy, sticky at top: 52px, 44px)
+   Module tabs are part of the locked dark nav layer.
+   Active tab uses rgba white overlay — not the blue action color.
+   ============================================================ */
+
 /* --- Level 1: Module Tabs --- */
 .module-tabs {
   height: 44px;
   padding: 0 20px;
-  background: rgba(12, 15, 20, 0.95);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: #122543;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
   position: sticky;
@@ -189,16 +256,29 @@ body {
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* ============================================================
+   INDUSTRIAL LIGHT V1 — PAGE CONTENT AREA
+   The page content area sits below the nav stack.
+   Individual pages set their own background (--color-bg-main).
+   ============================================================ */
+
 /* --- Page Content Area --- */
 .page-content {
   min-height: calc(100vh - 96px);
 }
 
+/* ============================================================
+   INDUSTRIAL LIGHT V1 — ORDER NAV / LOWER NAV
+   Level 2: Order-Level Navigation (dark, sticky at top: 96px, 42px)
+   Used on order detail pages only. Same dark nav invariant.
+   Active tab uses blue text + blue indicator underline.
+   ============================================================ */
+
 /* --- Level 2: Order-Level Navigation --- */
 .order-nav {
   height: 42px;
   padding: 0 20px;
-  background: rgba(15, 18, 25, 0.95);
+  background: #0f1f38;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
@@ -251,6 +331,12 @@ body {
   border-radius: 1px;
 }
 
+/* ============================================================
+   INDUSTRIAL LIGHT V1 — AUTH / DEMO BANNER
+   Logged-out or demo-state banner shown above page content.
+   Dark surface with white text — part of system shell, not page content.
+   ============================================================ */
+
 /* Phase 2 (frontend-only): visual guardrails (logged-out demo banner) */
 .auth-banner {
   display: flex;
@@ -280,6 +366,12 @@ body {
   color: rgba(255, 255, 255, 0.55);
 }
 
+/* ============================================================
+   INDUSTRIAL LIGHT V1 — OWNERSHIP SELECT
+   The salesperson ownership select renders inside the dark nav context
+   on legacy pages. Uses dark surface to match its container.
+   ============================================================ */
+
 /* jarvis:ownership-select */
 .salesperson-select{
   background:#0f172a;
@@ -290,6 +382,12 @@ body {
   background:#0f172a;
   color:#ffffff;
 }
+
+/* ============================================================
+   INDUSTRIAL LIGHT V1 — ORDER DETAIL PAGE OVERRIDES
+   Order detail pages suppress the module tab bar to reclaim
+   vertical space. Order nav sticks directly below global top nav.
+   ============================================================ */
 
 body.order-detail-page .page-content {
   min-height: calc(100vh - 52px);
