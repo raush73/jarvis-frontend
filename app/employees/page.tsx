@@ -7,6 +7,8 @@ import { apiFetch } from "@/lib/api";
 
 type EmployeeRow = {
   id: string;
+  firstName: string | null;
+  lastName: string | null;
   email: string | null;
   phone: string | null;
   status: string;
@@ -80,7 +82,7 @@ export default function EmployeesPage() {
       <div className="controls-row">
         <input
           type="text"
-          placeholder="Search by email, phone, or ID..."
+          placeholder="Search by name, email, phone, or ID..."
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           className="control-search"
@@ -109,6 +111,7 @@ export default function EmployeesPage() {
           <table className="employees-table">
             <thead>
               <tr>
+                <th>Name</th>
                 <th>Email</th>
                 <th>Phone</th>
                 <th>Primary Trade</th>
@@ -116,28 +119,32 @@ export default function EmployeesPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((emp) => (
-                <tr
-                  key={emp.id}
-                  onClick={() => router.push(`/employees/${emp.id}`)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <td>
-                    <div className="cell-primary">
-                      {emp.email || "\u2014"}
-                    </div>
-                  </td>
-                  <td className="cell-mono">{emp.phone || "\u2014"}</td>
-                  <td>{emp.primaryTrade || "\u2014"}</td>
-                  <td>
-                    <span
-                      className={`status-badge ${emp.status === "ACTIVE_SEEKING" ? "status-active" : "status-inactive"}`}
-                    >
-                      {emp.status === "ACTIVE_SEEKING" ? "Active" : "Not Active"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((emp) => {
+                const displayName = [emp.firstName, emp.lastName].filter(Boolean).join(" ") || null;
+                return (
+                  <tr
+                    key={emp.id}
+                    onClick={() => router.push(`/employees/${emp.id}`)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <td>
+                      <div className="cell-primary">
+                        {displayName || "\u2014"}
+                      </div>
+                    </td>
+                    <td>{emp.email || "\u2014"}</td>
+                    <td className="cell-mono">{emp.phone || "\u2014"}</td>
+                    <td>{emp.primaryTrade || "\u2014"}</td>
+                    <td>
+                      <span
+                        className={`status-badge ${emp.status === "ACTIVE_SEEKING" ? "status-active" : "status-inactive"}`}
+                      >
+                        {emp.status === "ACTIVE_SEEKING" ? "Active" : "Not Active"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

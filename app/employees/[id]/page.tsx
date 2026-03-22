@@ -60,9 +60,19 @@ type ApplicationRow = {
 
 type EmployeeDetail = {
   id: string;
+  firstName: string | null;
+  lastName: string | null;
   email: string | null;
   phone: string | null;
   status: string;
+  address1: string | null;
+  address2: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+  emergencyContactRelationship: string | null;
   createdAt: string;
   updatedAt: string;
   trades: TradeRow[];
@@ -365,6 +375,7 @@ export default function EmployeeDetailPage() {
   }
 
   const emp = employee;
+  const displayName = [emp.firstName, emp.lastName].filter(Boolean).join(" ") || null;
   const primaryTrade = emp.trades[0]?.tradeName ?? null;
   const variantsForType = compVariants.filter(
     (v) => v.requirementTypeId === compForm.requirementTypeId
@@ -374,7 +385,9 @@ export default function EmployeeDetailPage() {
   function renderTab() {
     switch (activeTab) {
       /* ========== OVERVIEW ========== */
-      case "Overview":
+      case "Overview": {
+        const addressParts = [emp.address1, emp.address2, [emp.city, emp.state].filter(Boolean).join(", "), emp.zip].filter(Boolean);
+        const hasEmergencyContact = emp.emergencyContactName || emp.emergencyContactPhone;
         return (
           <div>
             <div className="panel-header">
@@ -384,6 +397,8 @@ export default function EmployeeDetailPage() {
               <div className="overview-section">
                 <h3 className="section-title">Contact Information</h3>
                 <div className="field-list">
+                  <div className="field-row"><span className="field-label">FIRST NAME</span><span className="field-value">{emp.firstName || "\u2014"}</span></div>
+                  <div className="field-row"><span className="field-label">LAST NAME</span><span className="field-value">{emp.lastName || "\u2014"}</span></div>
                   <div className="field-row"><span className="field-label">EMAIL</span><span className="field-value" style={{ color: emp.email ? "#2563eb" : undefined }}>{emp.email || "\u2014"}</span></div>
                   <div className="field-row"><span className="field-label">PHONE</span><span className="field-value">{emp.phone || "\u2014"}</span></div>
                   <div className="field-row"><span className="field-label">STATUS</span><span className="field-value"><StatusBadge status={emp.status} /></span></div>
@@ -404,9 +419,36 @@ export default function EmployeeDetailPage() {
                   <p className="no-data-text">No trades declared.</p>
                 )}
               </div>
+              <div className="overview-section">
+                <h3 className="section-title">Address</h3>
+                {addressParts.length > 0 ? (
+                  <div className="field-list">
+                    <div className="field-row"><span className="field-label">ADDRESS 1</span><span className="field-value">{emp.address1 || "\u2014"}</span></div>
+                    {emp.address2 && <div className="field-row"><span className="field-label">ADDRESS 2</span><span className="field-value">{emp.address2}</span></div>}
+                    <div className="field-row"><span className="field-label">CITY</span><span className="field-value">{emp.city || "\u2014"}</span></div>
+                    <div className="field-row"><span className="field-label">STATE</span><span className="field-value">{emp.state || "\u2014"}</span></div>
+                    <div className="field-row"><span className="field-label">ZIP</span><span className="field-value">{emp.zip || "\u2014"}</span></div>
+                  </div>
+                ) : (
+                  <p className="no-data-text">No address on file.</p>
+                )}
+              </div>
+              <div className="overview-section">
+                <h3 className="section-title">Emergency Contact</h3>
+                {hasEmergencyContact ? (
+                  <div className="field-list">
+                    <div className="field-row"><span className="field-label">NAME</span><span className="field-value">{emp.emergencyContactName || "\u2014"}</span></div>
+                    <div className="field-row"><span className="field-label">PHONE</span><span className="field-value">{emp.emergencyContactPhone || "\u2014"}</span></div>
+                    <div className="field-row"><span className="field-label">RELATIONSHIP</span><span className="field-value">{emp.emergencyContactRelationship || "\u2014"}</span></div>
+                  </div>
+                ) : (
+                  <p className="no-data-text">No emergency contact on file.</p>
+                )}
+              </div>
             </div>
           </div>
         );
+      }
 
       /* ========== CERTIFICATIONS (LIVE from CandidateCertification) ========== */
       case "Certifications":
@@ -641,7 +683,7 @@ export default function EmployeeDetailPage() {
 
       <div className="header-row">
         <div>
-          <h1 className="page-title">{emp.email || `Candidate ${emp.id.slice(0, 8)}`}</h1>
+          <h1 className="page-title">{displayName || emp.email || `Candidate ${emp.id.slice(0, 8)}`}</h1>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "6px" }}>
             <span className="id-badge">{emp.id.slice(0, 12)}</span>
             <span className={`status-pill ${emp.status === "ACTIVE_SEEKING" ? "sp-active" : "sp-inactive"}`}>
@@ -654,6 +696,10 @@ export default function EmployeeDetailPage() {
 
       {/* SUMMARY ROW */}
       <div className="summary-row">
+        <div className="summary-item">
+          <span className="summary-label">NAME</span>
+          <span className="summary-value" style={{ fontWeight: 600 }}>{displayName || "\u2014"}</span>
+        </div>
         <div className="summary-item">
           <span className="summary-label">EMAIL</span>
           <span className="summary-value" style={{ color: emp.email ? "#2563eb" : undefined }}>{emp.email || "\u2014"}</span>
@@ -877,7 +923,7 @@ const baseStyles = `
   /* Summary row */
   .summary-row {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0;
     background: #ffffff;
     border: 1px solid #e5e7eb;
