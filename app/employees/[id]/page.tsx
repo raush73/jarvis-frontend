@@ -187,7 +187,13 @@ function StatusBadge({ status }: { status: string }) {
 
 function DownstreamTab({ label }: { label: string }) {
   return (
-    <div style={{ padding: "40px 20px", textAlign: "center" }}>
+    <div style={{
+      padding: "40px 20px",
+      textAlign: "center",
+      background: "#f9fafb",
+      border: "1px solid #e5e7eb",
+      borderRadius: "8px",
+    }}>
       <p style={{ fontSize: "14px", color: "#6b7280", margin: 0 }}>
         {label}
       </p>
@@ -350,26 +356,42 @@ export default function EmployeeDetailPage() {
   }
 
   /* ---------- Loading / Error ---------- */
+  const shellStyle: React.CSSProperties = {
+    padding: "24px 40px 60px",
+    maxWidth: "1600px",
+    margin: "0 auto",
+    background: "#f8fafc",
+    minHeight: "100vh",
+  };
+
   if (loading) {
     return (
-      <div className="detail-container">
+      <div style={shellStyle}>
         <div style={{ padding: "60px 20px", textAlign: "center", color: "#6b7280" }}>
           Loading employee...
         </div>
-        <style jsx>{`${baseStyles}`}</style>
       </div>
     );
   }
 
   if (error || !employee) {
     return (
-      <div className="detail-container">
-        <button className="back-btn" onClick={() => router.push("/employees")}>&larr; Back to Employees</button>
+      <div style={shellStyle}>
+        <button
+          onClick={() => router.push("/employees")}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: "6px",
+            padding: "7px 14px", fontSize: "13px", fontWeight: 500,
+            color: "#374151", background: "#ffffff",
+            border: "1px solid #e5e7eb", borderRadius: "7px", cursor: "pointer",
+          }}
+        >
+          &larr; Back to Employees
+        </button>
         <div style={{ padding: "60px 20px", textAlign: "center" }}>
           <h2 style={{ fontSize: "20px", fontWeight: 700, color: "#111827", margin: "0 0 8px" }}>Employee Not Found</h2>
           <p style={{ fontSize: "14px", color: "#6b7280", margin: 0 }}>{error || `No employee with ID: ${id}`}</p>
         </div>
-        <style jsx>{`${baseStyles}`}</style>
       </div>
     );
   }
@@ -386,63 +408,131 @@ export default function EmployeeDetailPage() {
     switch (activeTab) {
       /* ========== OVERVIEW ========== */
       case "Overview": {
-        const addressParts = [emp.address1, emp.address2, [emp.city, emp.state].filter(Boolean).join(", "), emp.zip].filter(Boolean);
         const hasEmergencyContact = emp.emergencyContactName || emp.emergencyContactPhone;
+        const primaryTrade = emp.trades[0] ?? null;
+
+        const OV_GRID_CLASS = "ov-profile-grid";
+        const OV_CARD: React.CSSProperties = { background: "#ffffff", border: "1px solid #d1d5db", borderRadius: "10px", padding: "20px", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" };
+        const OV_TITLE: React.CSSProperties = { fontSize: "14px", fontWeight: 700, color: "#111827", margin: "0 0 14px", paddingBottom: "10px", borderBottom: "1px solid #e5e7eb" };
+        const OV_ROW: React.CSSProperties = { display: "grid", gridTemplateColumns: "140px 1fr", alignItems: "start", gap: "0 16px", padding: "10px 0", borderBottom: "1px solid #f1f5f9" };
+        const OV_ROW_LAST: React.CSSProperties = { ...OV_ROW, borderBottom: "none" };
+        const OV_LBL: React.CSSProperties = { fontSize: "13px", fontWeight: 500, color: "#6b7280" };
+        const OV_VAL: React.CSSProperties = { fontSize: "14px", fontWeight: 500, color: "#111827" };
+        const OV_EMPTY: React.CSSProperties = { fontSize: "13px", color: "#9ca3af", fontStyle: "italic", margin: 0 };
+
+        const fmtEnum = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
         return (
           <div>
-            <div className="panel-header">
-              <h2 className="panel-title">Employee Overview</h2>
+            <style>{`
+              .${OV_GRID_CLASS} { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+              @media (max-width: 900px) { .${OV_GRID_CLASS} { grid-template-columns: 1fr; } }
+            `}</style>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
+              <h2 style={{ fontSize: "18px", fontWeight: 700, color: "#111827", margin: 0 }}>Employee Overview</h2>
             </div>
-            <div className="overview-grid">
-              <div className="overview-section">
-                <h3 className="section-title">Contact Information</h3>
-                <div className="field-list">
-                  <div className="field-row"><span className="field-label">FIRST NAME</span><span className="field-value">{emp.firstName || "\u2014"}</span></div>
-                  <div className="field-row"><span className="field-label">LAST NAME</span><span className="field-value">{emp.lastName || "\u2014"}</span></div>
-                  <div className="field-row"><span className="field-label">EMAIL</span><span className="field-value" style={{ color: emp.email ? "#2563eb" : undefined }}>{emp.email || "\u2014"}</span></div>
-                  <div className="field-row"><span className="field-label">PHONE</span><span className="field-value">{emp.phone || "\u2014"}</span></div>
-                  <div className="field-row"><span className="field-label">STATUS</span><span className="field-value"><StatusBadge status={emp.status} /></span></div>
+            <div className={OV_GRID_CLASS}>
+              {/* Contact Information */}
+              <div style={OV_CARD}>
+                <h3 style={OV_TITLE}>Contact Information</h3>
+                <div style={OV_ROW}>
+                  <div style={OV_LBL}>First Name</div>
+                  <div style={OV_VAL}>{emp.firstName || "\u2014"}</div>
+                </div>
+                <div style={OV_ROW}>
+                  <div style={OV_LBL}>Last Name</div>
+                  <div style={OV_VAL}>{emp.lastName || "\u2014"}</div>
+                </div>
+                <div style={OV_ROW}>
+                  <div style={OV_LBL}>Email</div>
+                  <div style={{ ...OV_VAL, color: emp.email ? "#2563eb" : "#111827" }}>{emp.email || "\u2014"}</div>
+                </div>
+                <div style={OV_ROW}>
+                  <div style={OV_LBL}>Phone</div>
+                  <div style={OV_VAL}>{emp.phone || "\u2014"}</div>
+                </div>
+                <div style={OV_ROW_LAST}>
+                  <div style={OV_LBL}>Status</div>
+                  <div style={OV_VAL}><StatusBadge status={emp.status} /></div>
                 </div>
               </div>
-              <div className="overview-section">
-                <h3 className="section-title">Trade Information</h3>
-                {emp.trades.length > 0 ? (
-                  <div className="field-list">
-                    {emp.trades.map((t) => (
-                      <div className="field-row" key={t.id}>
-                        <span className="field-label">{t.tradeName}</span>
-                        <span className="field-value">{t.proficiency}{t.source !== "SELF" ? ` (${t.source})` : ""}</span>
+
+              {/* Trade Information */}
+              <div style={OV_CARD}>
+                <h3 style={OV_TITLE}>Trade Information</h3>
+                {primaryTrade ? (
+                  <>
+                    <div style={OV_ROW}>
+                      <div style={OV_LBL}>Primary Trade</div>
+                      <div style={OV_VAL}>{primaryTrade.tradeName}</div>
+                    </div>
+                    <div style={OV_ROW}>
+                      <div style={OV_LBL}>Proficiency</div>
+                      <div style={OV_VAL}>{fmtEnum(primaryTrade.proficiency)}</div>
+                    </div>
+                    <div style={OV_ROW_LAST}>
+                      <div style={OV_LBL}>Source</div>
+                      <div style={OV_VAL}>{fmtEnum(primaryTrade.source)}</div>
+                    </div>
+                  </>
+                ) : (
+                  <p style={OV_EMPTY}>No trades declared.</p>
+                )}
+              </div>
+
+              {/* Address */}
+              <div style={OV_CARD}>
+                <h3 style={OV_TITLE}>Address</h3>
+                {(emp.address1 || emp.city || emp.state || emp.zip) ? (
+                  <>
+                    <div style={OV_ROW}>
+                      <div style={OV_LBL}>Address 1</div>
+                      <div style={OV_VAL}>{emp.address1 || "\u2014"}</div>
+                    </div>
+                    {emp.address2 && (
+                      <div style={OV_ROW}>
+                        <div style={OV_LBL}>Address 2</div>
+                        <div style={OV_VAL}>{emp.address2}</div>
                       </div>
-                    ))}
-                  </div>
+                    )}
+                    <div style={OV_ROW}>
+                      <div style={OV_LBL}>City</div>
+                      <div style={OV_VAL}>{emp.city || "\u2014"}</div>
+                    </div>
+                    <div style={OV_ROW}>
+                      <div style={OV_LBL}>State</div>
+                      <div style={OV_VAL}>{emp.state || "\u2014"}</div>
+                    </div>
+                    <div style={OV_ROW_LAST}>
+                      <div style={OV_LBL}>Zip</div>
+                      <div style={OV_VAL}>{emp.zip || "\u2014"}</div>
+                    </div>
+                  </>
                 ) : (
-                  <p className="no-data-text">No trades declared.</p>
+                  <p style={OV_EMPTY}>No address on file.</p>
                 )}
               </div>
-              <div className="overview-section">
-                <h3 className="section-title">Address</h3>
-                {addressParts.length > 0 ? (
-                  <div className="field-list">
-                    <div className="field-row"><span className="field-label">ADDRESS 1</span><span className="field-value">{emp.address1 || "\u2014"}</span></div>
-                    {emp.address2 && <div className="field-row"><span className="field-label">ADDRESS 2</span><span className="field-value">{emp.address2}</span></div>}
-                    <div className="field-row"><span className="field-label">CITY</span><span className="field-value">{emp.city || "\u2014"}</span></div>
-                    <div className="field-row"><span className="field-label">STATE</span><span className="field-value">{emp.state || "\u2014"}</span></div>
-                    <div className="field-row"><span className="field-label">ZIP</span><span className="field-value">{emp.zip || "\u2014"}</span></div>
-                  </div>
-                ) : (
-                  <p className="no-data-text">No address on file.</p>
-                )}
-              </div>
-              <div className="overview-section">
-                <h3 className="section-title">Emergency Contact</h3>
+
+              {/* Emergency Contact */}
+              <div style={OV_CARD}>
+                <h3 style={OV_TITLE}>Emergency Contact</h3>
                 {hasEmergencyContact ? (
-                  <div className="field-list">
-                    <div className="field-row"><span className="field-label">NAME</span><span className="field-value">{emp.emergencyContactName || "\u2014"}</span></div>
-                    <div className="field-row"><span className="field-label">PHONE</span><span className="field-value">{emp.emergencyContactPhone || "\u2014"}</span></div>
-                    <div className="field-row"><span className="field-label">RELATIONSHIP</span><span className="field-value">{emp.emergencyContactRelationship || "\u2014"}</span></div>
-                  </div>
+                  <>
+                    <div style={OV_ROW}>
+                      <div style={OV_LBL}>Name</div>
+                      <div style={OV_VAL}>{emp.emergencyContactName || "\u2014"}</div>
+                    </div>
+                    <div style={OV_ROW}>
+                      <div style={OV_LBL}>Phone</div>
+                      <div style={OV_VAL}>{emp.emergencyContactPhone || "\u2014"}</div>
+                    </div>
+                    <div style={OV_ROW_LAST}>
+                      <div style={OV_LBL}>Relationship</div>
+                      <div style={OV_VAL}>{emp.emergencyContactRelationship || "\u2014"}</div>
+                    </div>
+                  </>
                 ) : (
-                  <p className="no-data-text">No emergency contact on file.</p>
+                  <p style={OV_EMPTY}>No emergency contact on file.</p>
                 )}
               </div>
             </div>
@@ -466,12 +556,12 @@ export default function EmployeeDetailPage() {
                   <thead>
                     <tr>
                       <th>Certification</th>
-                      <th>Category</th>
-                      <th>Status</th>
-                      <th>Issued</th>
-                      <th>Expires</th>
-                      <th>Verification</th>
-                      <th>Source</th>
+                      <th style={{ width: '12%' }}>Category</th>
+                      <th style={{ width: '9%' }}>Status</th>
+                      <th style={{ width: '11%' }}>Issued</th>
+                      <th style={{ width: '11%' }}>Expires</th>
+                      <th style={{ width: '14%' }}>Verification</th>
+                      <th style={{ width: '9%' }}>Source</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -512,13 +602,13 @@ export default function EmployeeDetailPage() {
                   <thead>
                     <tr>
                       <th>Requirement</th>
-                      <th>Category</th>
-                      <th>Variant</th>
-                      <th>Status</th>
-                      <th>Issue Date</th>
-                      <th>Expiration</th>
-                      <th>Issued By</th>
-                      <th>Actions</th>
+                      <th style={{ width: '12%' }}>Category</th>
+                      <th style={{ width: '10%' }}>Variant</th>
+                      <th style={{ width: '9%' }}>Status</th>
+                      <th style={{ width: '11%' }}>Issue Date</th>
+                      <th style={{ width: '11%' }}>Expiration</th>
+                      <th style={{ width: '11%' }}>Issued By</th>
+                      <th style={{ width: '10%' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -560,9 +650,9 @@ export default function EmployeeDetailPage() {
                   <thead>
                     <tr>
                       <th>Tool</th>
-                      <th>Status</th>
-                      <th>Source</th>
-                      <th>Notes</th>
+                      <th style={{ width: '12%' }}>Status</th>
+                      <th style={{ width: '12%' }}>Source</th>
+                      <th style={{ width: '28%' }}>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -597,9 +687,9 @@ export default function EmployeeDetailPage() {
                   <thead>
                     <tr>
                       <th>PPE Item</th>
-                      <th>Status</th>
-                      <th>Source</th>
-                      <th>Notes</th>
+                      <th style={{ width: '12%' }}>Status</th>
+                      <th style={{ width: '12%' }}>Source</th>
+                      <th style={{ width: '28%' }}>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -633,10 +723,10 @@ export default function EmployeeDetailPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Application ID</th>
-                      <th>Status</th>
-                      <th>Submitted</th>
-                      <th>Reviewed</th>
+                      <th style={{ width: '18%' }}>Application ID</th>
+                      <th style={{ width: '12%' }}>Status</th>
+                      <th style={{ width: '14%' }}>Submitted</th>
+                      <th style={{ width: '14%' }}>Reviewed</th>
                       <th>Review Note</th>
                     </tr>
                   </thead>
@@ -679,17 +769,16 @@ export default function EmployeeDetailPage() {
   return (
     <div className="detail-container">
       {/* HEADER */}
-      <button className="back-btn" onClick={() => router.push("/employees")}>&larr; Back to Employees</button>
-
-      <div className="header-row">
-        <div>
-          <h1 className="page-title">{displayName || emp.email || `Candidate ${emp.id.slice(0, 8)}`}</h1>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "6px" }}>
+      <div className="detail-header">
+        <div className="header-left">
+          <button className="back-btn" onClick={() => router.push("/employees")}>&larr; Back to Employees</button>
+          <div className="header-title">
+            <h1>{displayName || emp.email || `Candidate ${emp.id.slice(0, 8)}`}</h1>
             <span className="id-badge">{emp.id.slice(0, 12)}</span>
-            <span className={`status-pill ${emp.status === "ACTIVE_SEEKING" ? "sp-active" : "sp-inactive"}`}>
+            <span className={`status-badge ${emp.status === "ACTIVE_SEEKING" ? "sb-active" : "sb-inactive"}`}>
               {emp.status === "ACTIVE_SEEKING" ? "Active" : "Not Active"}
             </span>
-            {primaryTrade && <span className="trade-pill">{primaryTrade}</span>}
+            {primaryTrade && <span className="trade-badge">{primaryTrade}</span>}
           </div>
         </div>
       </div>
@@ -723,7 +812,7 @@ export default function EmployeeDetailPage() {
         {TABS.map((tab) => (
           <button
             key={tab}
-            className={`tab-btn ${activeTab === tab ? "tab-active" : ""}`}
+            className={`tab-btn ${activeTab === tab ? "active" : ""}`}
             onClick={() => setActiveTab(tab)}
           >
             {tab}
@@ -823,459 +912,390 @@ export default function EmployeeDetailPage() {
         </div>
       )}
 
-      <style jsx>{`${baseStyles}`}</style>
+      <style jsx>{`
+        /* ============================================================
+           JARVIS PRIME — INDUSTRIAL LIGHT V1
+           Employee Profile Page
+           Mirrors Customer Profile master page pattern
+           ============================================================ */
+
+        /* --- Page Shell --- */
+        .detail-container {
+          padding: 24px 40px 60px;
+          max-width: 1600px;
+          margin: 0 auto;
+          background: #f8fafc;
+          color: #111827;
+          min-height: 100vh;
+        }
+
+        /* --- Page Header (mirrors customer .detail-header) --- */
+        .detail-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 20px;
+          margin-bottom: 20px;
+        }
+        .header-left {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .back-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 14px;
+          font-size: 13px;
+          font-weight: 500;
+          color: #374151;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 7px;
+          cursor: pointer;
+          transition: background 0.12s ease, border-color 0.12s ease;
+        }
+        .back-btn:hover {
+          background: #f1f5f9;
+          border-color: #d1d5db;
+        }
+        .header-title {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .header-title h1 {
+          margin: 0;
+          font-size: 26px;
+          font-weight: 700;
+          color: #111827;
+          letter-spacing: -0.3px;
+        }
+        .id-badge {
+          display: inline-flex;
+          align-items: center;
+          height: 24px;
+          padding: 0 10px;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #1d4ed8;
+          font-family: var(--font-geist-mono), monospace;
+          letter-spacing: 0.3px;
+        }
+        .status-badge {
+          display: inline-flex;
+          align-items: center;
+          height: 24px;
+          padding: 0 10px;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 600;
+          border: 1px solid #e5e7eb;
+          background: #f9fafb;
+          color: #374151;
+        }
+        .sb-active {
+          background: rgba(34, 197, 94, 0.08);
+          color: #16a34a;
+          border-color: rgba(34, 197, 94, 0.25);
+        }
+        .sb-inactive {
+          background: rgba(107, 114, 128, 0.08);
+          color: #6b7280;
+          border-color: rgba(107, 114, 128, 0.25);
+        }
+        .trade-badge {
+          display: inline-flex;
+          align-items: center;
+          height: 24px;
+          padding: 0 10px;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 600;
+          border: 1px solid #e5e7eb;
+          background: #f9fafb;
+          color: #374151;
+        }
+
+        /* --- Summary Cards Row (individual cards, matches customer) --- */
+        .summary-row {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 14px;
+          margin-bottom: 20px;
+        }
+        .summary-item {
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+          padding: 14px 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .summary-label {
+          display: block;
+          font-size: 11px;
+          font-weight: 700;
+          color: #6b7280;
+          text-transform: uppercase;
+          letter-spacing: 0.6px;
+        }
+        .summary-value {
+          display: block;
+          font-size: 14px;
+          font-weight: 500;
+          color: #111827;
+          line-height: 1.4;
+        }
+
+        /* --- Tabs Navigation (pill tabs, matches customer) --- */
+        .tabs-nav {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          margin-bottom: 18px;
+        }
+        .tab-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 14px;
+          font-size: 13px;
+          font-weight: 600;
+          color: #374151;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+          white-space: nowrap;
+        }
+        .tab-btn:hover {
+          background: #f1f5f9;
+          border-color: #d1d5db;
+        }
+        .tab-btn.active {
+          background: #2563eb;
+          border-color: #2563eb;
+          color: #ffffff;
+        }
+
+        /* --- Tab Content Panel --- */
+        .tab-content {
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 12px;
+          padding: 22px;
+        }
+
+        /* --- Panel Header (shared across all tabs) --- */
+        .panel-header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 18px;
+          flex-wrap: wrap;
+        }
+        .panel-title {
+          font-size: 18px;
+          font-weight: 700;
+          color: #111827;
+          margin: 0;
+          flex: 1;
+        }
+        .panel-note {
+          font-size: 13px;
+          color: #6b7280;
+        }
+        /* --- Tables --- */
+        .table-wrap {
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          overflow: hidden;
+        }
+        .data-table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+        }
+        .data-table thead {
+          background: #f1f5f9;
+        }
+        .data-table th {
+          padding: 10px 16px;
+          text-align: left;
+          font-size: 11px;
+          font-weight: 600;
+          color: #374151;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          border-bottom: 1px solid #d1d5db;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .data-table td {
+          padding: 12px 16px;
+          font-size: 13px;
+          color: #111827;
+          border-bottom: 1px solid #f1f5f9;
+          vertical-align: middle;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+        }
+        .data-table tr:last-child td {
+          border-bottom: none;
+        }
+        .data-table tbody tr:hover td {
+          background: #f9fafb;
+        }
+        .action-link {
+          font-size: 13px;
+          font-weight: 500;
+          color: #2563eb;
+          cursor: pointer;
+          margin-right: 12px;
+        }
+        .action-link:hover {
+          text-decoration: underline;
+        }
+        .action-delete {
+          font-size: 13px;
+          font-weight: 500;
+          color: #dc2626;
+          cursor: pointer;
+        }
+        .action-delete:hover {
+          text-decoration: underline;
+        }
+
+        /* --- Buttons --- */
+        .btn-primary {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 9px 16px;
+          border-radius: 7px;
+          font-size: 13px;
+          font-weight: 700;
+          color: #ffffff;
+          background: #2563eb;
+          border: none;
+          cursor: pointer;
+          transition: background 0.12s ease;
+        }
+        .btn-primary:hover:not(:disabled) {
+          background: #1d4ed8;
+        }
+        .btn-primary:disabled {
+          background: #93c5fd;
+          cursor: not-allowed;
+        }
+        .btn-secondary {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 9px 16px;
+          border-radius: 7px;
+          font-size: 13px;
+          font-weight: 600;
+          color: #374151;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          cursor: pointer;
+          transition: all 0.12s ease;
+        }
+        .btn-secondary:hover {
+          background: #f1f5f9;
+          border-color: #d1d5db;
+        }
+
+        /* --- Modal --- */
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.35);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 200;
+        }
+        .modal-content {
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 12px;
+          width: 100%;
+          max-width: 520px;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+        .modal-header {
+          padding: 20px 24px 0;
+        }
+        .modal-header h3 {
+          font-size: 18px;
+          font-weight: 700;
+          color: #111827;
+          margin: 0;
+        }
+        .modal-body {
+          padding: 20px 24px;
+        }
+        .modal-footer {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          padding: 16px 24px;
+          border-top: 1px solid #e5e7eb;
+        }
+
+        /* --- Form Fields --- */
+        .form-field {
+          margin-bottom: 14px;
+        }
+        .form-field label {
+          display: block;
+          font-size: 12px;
+          font-weight: 600;
+          color: #374151;
+          margin-bottom: 5px;
+        }
+        .form-field input,
+        .form-field select,
+        .form-field textarea {
+          width: 100%;
+          padding: 9px 11px;
+          font-size: 13px;
+          color: #111827;
+          background: #ffffff;
+          border: 1px solid #d1d5db;
+          border-radius: 7px;
+          outline: none;
+          transition: border-color 0.12s ease;
+          box-sizing: border-box;
+        }
+        .form-field input:focus,
+        .form-field select:focus,
+        .form-field textarea:focus {
+          border-color: #2563eb;
+          box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+        }
+        .form-field select:disabled {
+          background: #f8fafc;
+          color: #6b7280;
+          cursor: not-allowed;
+        }
+        .form-field textarea {
+          resize: vertical;
+          min-height: 60px;
+        }
+      `}</style>
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  Styles (Industrial Light V1, mirroring Customer Profile)           */
-/* ------------------------------------------------------------------ */
-
-const baseStyles = `
-  .detail-container {
-    padding: 24px 40px 60px;
-    max-width: 1600px;
-    margin: 0 auto;
-    background: #f8fafc;
-    min-height: 100vh;
-  }
-
-  .back-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 14px;
-    font-size: 13px;
-    font-weight: 500;
-    color: #374151;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 7px;
-    cursor: pointer;
-    margin-bottom: 16px;
-    transition: background 0.12s ease, border-color 0.12s ease;
-  }
-
-  .back-btn:hover {
-    background: #f1f5f9;
-    border-color: #d1d5db;
-  }
-
-  .header-row {
-    margin-bottom: 20px;
-  }
-
-  .page-title {
-    font-size: 26px;
-    font-weight: 700;
-    color: #111827;
-    margin: 0;
-    letter-spacing: -0.3px;
-  }
-
-  .id-badge {
-    display: inline-block;
-    padding: 3px 10px;
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: #1d4ed8;
-    font-family: var(--font-geist-mono), monospace;
-  }
-
-  .status-pill {
-    display: inline-block;
-    padding: 3px 10px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    border: 1px solid #e5e7eb;
-    background: #f9fafb;
-    color: #374151;
-  }
-
-  .sp-active {
-    background: rgba(34, 197, 94, 0.08);
-    color: #16a34a;
-    border-color: rgba(34, 197, 94, 0.25);
-  }
-
-  .sp-inactive {
-    background: rgba(107, 114, 128, 0.08);
-    color: #6b7280;
-    border-color: rgba(107, 114, 128, 0.25);
-  }
-
-  .trade-pill {
-    display: inline-block;
-    padding: 3px 10px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    border: 1px solid #e5e7eb;
-    background: #f9fafb;
-    color: #374151;
-  }
-
-  /* Summary row */
-  .summary-row {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 0;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    margin-bottom: 20px;
-    overflow: hidden;
-  }
-
-  .summary-item {
-    padding: 14px 18px;
-    border-right: 1px solid #e5e7eb;
-  }
-
-  .summary-item:last-child {
-    border-right: none;
-  }
-
-  .summary-label {
-    display: block;
-    font-size: 11px;
-    font-weight: 700;
-    color: #6b7280;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    margin-bottom: 4px;
-  }
-
-  .summary-value {
-    font-size: 14px;
-    font-weight: 500;
-    color: #111827;
-  }
-
-  /* Tabs */
-  .tabs-nav {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 0;
-  }
-
-  .tab-btn {
-    padding: 8px 16px;
-    font-size: 13px;
-    font-weight: 600;
-    color: #374151;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.12s ease;
-    white-space: nowrap;
-  }
-
-  .tab-btn:hover {
-    background: #f1f5f9;
-    border-color: #d1d5db;
-  }
-
-  .tab-active {
-    background: #2563eb !important;
-    border-color: #2563eb !important;
-    color: #ffffff !important;
-  }
-
-  /* Tab content */
-  .tab-content {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 22px;
-    margin-top: 12px;
-  }
-
-  .panel-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 18px;
-    flex-wrap: wrap;
-  }
-
-  .panel-title {
-    font-size: 18px;
-    font-weight: 700;
-    color: #111827;
-    margin: 0;
-  }
-
-  .panel-note {
-    font-size: 13px;
-    color: #6b7280;
-    flex: 1;
-  }
-
-  .no-data-text {
-    font-size: 13px;
-    color: #9ca3af;
-    font-style: italic;
-    margin: 0;
-  }
-
-  /* Overview */
-  .overview-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
-  }
-
-  .overview-section {
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    padding: 18px;
-  }
-
-  .section-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: #111827;
-    margin: 0 0 14px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #e5e7eb;
-  }
-
-  .field-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .field-row {
-    display: flex;
-    gap: 12px;
-    align-items: baseline;
-  }
-
-  .field-label {
-    font-size: 11px;
-    font-weight: 700;
-    color: #6b7280;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    min-width: 130px;
-    flex-shrink: 0;
-  }
-
-  .field-value {
-    font-size: 14px;
-    font-weight: 500;
-    color: #111827;
-  }
-
-  /* Table */
-  .table-wrap {
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    overflow: hidden;
-  }
-
-  .data-table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  .data-table thead {
-    background: #f1f5f9;
-  }
-
-  .data-table th {
-    padding: 10px 12px;
-    text-align: left;
-    font-size: 11px;
-    font-weight: 600;
-    color: #374151;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid #d1d5db;
-    white-space: nowrap;
-  }
-
-  .data-table td {
-    padding: 12px;
-    font-size: 13px;
-    color: #111827;
-    border-bottom: 1px solid #f1f5f9;
-    vertical-align: middle;
-  }
-
-  .data-table tr:last-child td {
-    border-bottom: none;
-  }
-
-  .data-table tbody tr:hover td {
-    background: #f9fafb;
-  }
-
-  .action-link {
-    font-size: 13px;
-    font-weight: 500;
-    color: #2563eb;
-    cursor: pointer;
-    margin-right: 12px;
-  }
-
-  .action-link:hover {
-    text-decoration: underline;
-  }
-
-  .action-delete {
-    font-size: 13px;
-    font-weight: 500;
-    color: #dc2626;
-    cursor: pointer;
-  }
-
-  .action-delete:hover {
-    text-decoration: underline;
-  }
-
-  /* Buttons */
-  .btn-primary {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 9px 16px;
-    border-radius: 7px;
-    font-size: 13px;
-    font-weight: 700;
-    color: #ffffff;
-    background: #2563eb;
-    border: none;
-    cursor: pointer;
-    transition: background 0.12s ease;
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    background: #1d4ed8;
-  }
-
-  .btn-primary:disabled {
-    background: #93c5fd;
-    cursor: not-allowed;
-  }
-
-  .btn-secondary {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 9px 16px;
-    border-radius: 7px;
-    font-size: 13px;
-    font-weight: 600;
-    color: #374151;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    cursor: pointer;
-    transition: all 0.12s ease;
-  }
-
-  .btn-secondary:hover {
-    background: #f1f5f9;
-    border-color: #d1d5db;
-  }
-
-  /* Modal */
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.35);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 200;
-  }
-
-  .modal-content {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    width: 100%;
-    max-width: 520px;
-    max-height: 90vh;
-    overflow-y: auto;
-  }
-
-  .modal-header {
-    padding: 20px 24px 0;
-  }
-
-  .modal-header h3 {
-    font-size: 18px;
-    font-weight: 700;
-    color: #111827;
-    margin: 0;
-  }
-
-  .modal-body {
-    padding: 20px 24px;
-  }
-
-  .modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    padding: 16px 24px;
-    border-top: 1px solid #e5e7eb;
-  }
-
-  /* Form fields */
-  .form-field {
-    margin-bottom: 14px;
-  }
-
-  .form-field label {
-    display: block;
-    font-size: 12px;
-    font-weight: 600;
-    color: #374151;
-    margin-bottom: 5px;
-  }
-
-  .form-field input,
-  .form-field select,
-  .form-field textarea {
-    width: 100%;
-    padding: 9px 11px;
-    font-size: 13px;
-    color: #111827;
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    border-radius: 7px;
-    outline: none;
-    transition: border-color 0.12s ease;
-    box-sizing: border-box;
-  }
-
-  .form-field input:focus,
-  .form-field select:focus,
-  .form-field textarea:focus {
-    border-color: #2563eb;
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
-  }
-
-  .form-field select:disabled {
-    background: #f8fafc;
-    color: #6b7280;
-    cursor: not-allowed;
-  }
-
-  .form-field textarea {
-    resize: vertical;
-    min-height: 60px;
-  }
-`;
