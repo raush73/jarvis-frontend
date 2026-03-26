@@ -45,6 +45,8 @@ export interface CreateRampRow {
 
 export interface CreateTradeRequirement {
   tradeId: string;
+  specializationId?: string;
+  capabilityIds?: string[];
   basePayRate?: string;
   baseBillRate?: string;
   requestedHeadcount?: number;
@@ -164,11 +166,20 @@ export interface RampRowResponse {
   sortOrder: number;
 }
 
+export interface OrderCapabilityRequirementResponse {
+  id: string;
+  capabilityId: string;
+  capability: { id: string; name: string };
+}
+
 export interface OrderTradeRequirementResponse {
   id: string;
   orderId: string;
   tradeId: string;
   trade: { id: string; name: string };
+  specializationId: string | null;
+  specialization: { id: string; name: string } | null;
+  capabilityRequirements: OrderCapabilityRequirementResponse[];
   priority: string;
   enforcement: string;
   notes: string | null;

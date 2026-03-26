@@ -655,7 +655,10 @@ function TradeRequirementCard({
   return (
     <div className="trc-card">
       <div className="trc-header">
-        <span className="trc-name">{tr.trade?.name ?? tr.tradeId}</span>
+        <span className="trc-name">
+          {tr.trade?.name ?? tr.tradeId}
+          {tr.specialization && <span className="trc-spec"> → {tr.specialization.name}</span>}
+        </span>
         {tradeHealth && (
           <span className="trc-health-indicator">
             <span
@@ -821,6 +824,12 @@ function TradeRequirementCard({
           return variant ? `${name} — ${variant}` : name;
         })}
       />
+      <RequirementTagList
+        label="Capabilities"
+        items={(tr.capabilityRequirements ?? []).map((r) =>
+          r.capability?.name ?? r.capabilityId
+        )}
+      />
 
       {/* Ramp Schedule */}
       {tr.rampSchedule && tr.rampSchedule.length > 0 && (
@@ -873,6 +882,10 @@ function TradeRequirementCard({
           font-size: 15px;
           font-weight: 600;
           color: #fff;
+        }
+        .trc-spec {
+          font-weight: 400;
+          color: rgba(255, 255, 255, 0.55);
         }
         .trc-hc {
           font-size: 12px;

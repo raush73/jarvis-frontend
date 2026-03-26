@@ -42,6 +42,9 @@ const CONTACT_ROLES = [
   { value: "OTHER", label: "Other" },
 ];
 
+type SpecializationOption = { id: string; name: string; tradeId: string };
+type CapabilityOption = { id: string; name: string; categories?: Array<{ id: string; name: string; isActive?: boolean }> };
+
 type ReqItem = { typeId: string; enforcement: RequirementEnforcement; isBaseline?: boolean };
 
 type BaselineSource = "MW4H" | "CUSTOMER" | null;
@@ -59,6 +62,8 @@ type RampRowState = {
 
 type TradeLineState = {
   tradeId: string;
+  specializationId: string;
+  capabilityIds: string[];
   basePayRate: string;
   baseBillRate: string;
   requestedHeadcount: number;
@@ -80,6 +85,8 @@ type TradeLineState = {
 function createEmptyTradeLine(defaultTradeId: string): TradeLineState {
   return {
     tradeId: defaultTradeId,
+    specializationId: "",
+    capabilityIds: [],
     basePayRate: "30",
     baseBillRate: "55",
     requestedHeadcount: 1,
@@ -151,6 +158,15 @@ export default function CreateOrderPage() {
   const [baselineLoading, setBaselineLoading] = useState<Record<string, boolean>>({});
   const [baselineError, setBaselineError] = useState<Record<string, string | null>>({});
 
+  // --- Specializations cache (keyed by tradeId) ---
+  const [specsByTrade, setSpecsByTrade] = useState<Record<string, SpecializationOption[]>>({});
+  const [specsLoading, setSpecsLoading] = useState<Record<string, boolean>>({});
+
+  // --- Capabilities catalog ---
+  const [capabilities, setCapabilities] = useState<CapabilityOption[]>([]);
+  const [capabilityModalIdx, setCapabilityModalIdx] = useState<number | null>(null);
+  const [capabilitySearch, setCapabilitySearch] = useState("");
+
   // --- Trade lines ---
   const [tradeLines, setTradeLines] = useState<TradeLineState[]>([]);
 
@@ -200,7 +216,7 @@ export default function CreateOrderPage() {
     async function load() {
       const errors: string[] = [];
       try {
-        const [tradesRes, ppeRes, toolsRes, certsRes, compReqRes, compVarRes, plansRes, contactsRes, custRes] =
+        const [tradesRes, ppeRes, toolsRes, certsRes, compReqRes, compVarRes, plansRes, contactsRes, custRes, capsRes] =
           await Promise.all([
             apiFetch<TradeListItem[]>("/trades").catch((e) => { errors.push(`Trades: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<PpeTypeOption[]>("/ppe-types?activeOnly=true").catch((e) => { errors.push(`PPE: ${e instanceof Error ? e.message : "failed"}`); return []; }),
@@ -211,6 +227,7 @@ export default function CreateOrderPage() {
             apiFetch<CommissionPlanOption[]>("/commissions/plans").catch((e) => { errors.push(`Commission Plans: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<CustomerContactOption[]>(`/customer-contacts/customer/${customerId}`).catch((e) => { errors.push(`Customer Contacts: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<any>(`/customers/${customerId}`).catch((e) => { errors.push(`Customer: ${e instanceof Error ? e.message : "failed"}`); return null; }),
+            apiFetch<CapabilityOption[]>("/capabilities?include=categories&activeOnly=true").catch((e) => { errors.push(`Capabilities: ${e instanceof Error ? e.message : "failed"}`); return []; }),
           ]);
         if (!alive) return;
         const tradeList = Array.isArray(tradesRes) ? tradesRes : [];
@@ -222,7 +239,9 @@ export default function CreateOrderPage() {
         setComplianceVariants(Array.isArray(compVarRes) ? compVarRes : []);
         setCommissionPlans(Array.isArray(plansRes) ? plansRes : []);
         setCustomerContacts(Array.isArray(contactsRes) ? contactsRes : []);
+        setCapabilities(Array.isArray(capsRes) ? capsRes : []);
         setTradeLines([createEmptyTradeLine(tradeList[0]?.id ?? "")]);
+        if (tradeList[0]?.id) loadSpecsForTrade(tradeList[0].id);
 
         if (custRes?.registrySalesperson) {
           const sp = custRes.registrySalesperson;
@@ -457,6 +476,19 @@ export default function CreateOrderPage() {
     }
   };
 
+  const loadSpecsForTrade = async (tradeId: string) => {
+    if (!tradeId || specsByTrade[tradeId] || specsLoading[tradeId]) return;
+    setSpecsLoading((prev) => ({ ...prev, [tradeId]: true }));
+    try {
+      const specs = await apiFetch<SpecializationOption[]>(`/trades/${tradeId}/specializations?activeOnly=true`);
+      setSpecsByTrade((prev) => ({ ...prev, [tradeId]: Array.isArray(specs) ? specs : [] }));
+    } catch {
+      setSpecsByTrade((prev) => ({ ...prev, [tradeId]: [] }));
+    } finally {
+      setSpecsLoading((prev) => ({ ...prev, [tradeId]: false }));
+    }
+  };
+
   const handleTradeChange = (idx: number, newTradeId: string) => {
     setTradeLines((prev) =>
       prev.map((line, i) => {
@@ -465,6 +497,8 @@ export default function CreateOrderPage() {
         return {
           ...line,
           tradeId: newTradeId,
+          specializationId: "",
+          capabilityIds: [],
           toolBaselineSource: null,
           ppeBaselineSource: null,
           toolItems: line.toolItems.filter((r) => !r.isBaseline),
@@ -478,6 +512,7 @@ export default function CreateOrderPage() {
       delete next[`${idx}-ppe`];
       return next;
     });
+    if (newTradeId) loadSpecsForTrade(newTradeId);
   };
 
   // --- Canonical burden preview per trade line ---
@@ -563,6 +598,8 @@ export default function CreateOrderPage() {
 
           return {
           tradeId: tl.tradeId,
+          ...(tl.specializationId ? { specializationId: tl.specializationId } : {}),
+          ...(tl.capabilityIds.length > 0 ? { capabilityIds: tl.capabilityIds } : {}),
           basePayRate: tl.basePayRate || undefined,
           baseBillRate: tl.baseBillRate || undefined,
           requestedHeadcount: tl.requestedHeadcount || undefined,
@@ -972,6 +1009,17 @@ export default function CreateOrderPage() {
                   </select>
                 </div>
                 <div className="form-row">
+                  <label className="form-label">Specialization</label>
+                  <select className="form-select-sm" value={tl.specializationId}
+                    disabled={!tl.tradeId || specsLoading[tl.tradeId]}
+                    onChange={(e) => updateTradeLine(idx, { specializationId: e.target.value })}>
+                    <option value="">{specsLoading[tl.tradeId] ? "Loading…" : "None"}</option>
+                    {(specsByTrade[tl.tradeId] ?? []).map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-row">
                   <label className="form-label">Base Pay Rate</label>
                   <input type="text" className="form-input-sm" value={tl.basePayRate}
                     onChange={(e) => updateTradeLine(idx, { basePayRate: e.target.value })} placeholder="30.00" />
@@ -996,6 +1044,31 @@ export default function CreateOrderPage() {
                   <input type="date" className="form-input-sm" value={tl.expectedEndDate}
                     onChange={(e) => updateTradeLine(idx, { expectedEndDate: e.target.value })} />
                 </div>
+              </div>
+
+              {/* Capability requirements */}
+              <div className="cap-section" style={{ marginTop: 12 }}>
+                <div className="cap-header-row">
+                  <label className="form-label" style={{ marginBottom: 0 }}>Capabilities</label>
+                  <button type="button" className="add-btn-sm"
+                    onClick={() => { setCapabilityModalIdx(idx); setCapabilitySearch(""); }}>
+                    + Add Capabilities
+                  </button>
+                </div>
+                {tl.capabilityIds.length > 0 && (
+                  <div className="cap-chips">
+                    {tl.capabilityIds.map((cid) => {
+                      const cap = capabilities.find((c) => c.id === cid);
+                      return (
+                        <span key={cid} className="cap-chip">
+                          {cap?.name ?? cid.slice(0, 8)}
+                          <button type="button" className="cap-chip-rm"
+                            onClick={() => updateTradeLine(idx, { capabilityIds: tl.capabilityIds.filter((id) => id !== cid) })}>×</button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="form-row" style={{ marginTop: 12 }}>
@@ -1424,6 +1497,89 @@ export default function CreateOrderPage() {
           );
         })}
       </div>
+
+      {/* Capability Selector Modal */}
+      {capabilityModalIdx !== null && (() => {
+        const tlForModal = tradeLines[capabilityModalIdx];
+        if (!tlForModal) return null;
+        const selectedSet = new Set(tlForModal.capabilityIds);
+        const searchLower = capabilitySearch.toLowerCase();
+        const filtered = searchLower
+          ? capabilities.filter((c) => c.name.toLowerCase().includes(searchLower))
+          : capabilities;
+
+        const categoryMap = new Map<string, { name: string; items: CapabilityOption[] }>();
+        const uncategorized: CapabilityOption[] = [];
+        for (const cap of filtered) {
+          const cats = cap.categories ?? [];
+          if (cats.length === 0) {
+            uncategorized.push(cap);
+          } else {
+            for (const cat of cats) {
+              if (!categoryMap.has(cat.id)) categoryMap.set(cat.id, { name: cat.name, items: [] });
+              categoryMap.get(cat.id)!.items.push(cap);
+            }
+          }
+        }
+        const sortedGroups = [...categoryMap.entries()]
+          .sort((a, b) => a[1].name.localeCompare(b[1].name));
+
+        const toggleCap = (capId: string) => {
+          const next = selectedSet.has(capId)
+            ? tlForModal.capabilityIds.filter((id) => id !== capId)
+            : [...tlForModal.capabilityIds, capId];
+          updateTradeLine(capabilityModalIdx!, { capabilityIds: next });
+        };
+
+        return (
+          <div className="cap-modal-overlay" onClick={() => setCapabilityModalIdx(null)}>
+            <div className="cap-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="cap-modal-header">
+                <h3>Select Capabilities — Trade Line {capabilityModalIdx + 1}</h3>
+                <button type="button" className="cap-modal-close" onClick={() => setCapabilityModalIdx(null)}>×</button>
+              </div>
+              <div className="cap-modal-search">
+                <input type="text" className="form-input" placeholder="Search capabilities…"
+                  value={capabilitySearch} onChange={(e) => setCapabilitySearch(e.target.value)}
+                  autoFocus />
+              </div>
+              <div className="cap-modal-body">
+                {filtered.length === 0 && (
+                  <p className="cap-modal-empty">{capabilities.length === 0 ? "No capabilities loaded" : "No matches"}</p>
+                )}
+                {sortedGroups.map(([catId, group]) => (
+                  <div key={catId} className="cap-category-group">
+                    <div className="cap-category-name">{group.name}</div>
+                    {group.items.map((cap) => (
+                      <label key={cap.id} className={`cap-check-row ${selectedSet.has(cap.id) ? "cap-check-active" : ""}`}>
+                        <input type="checkbox" checked={selectedSet.has(cap.id)}
+                          onChange={() => toggleCap(cap.id)} />
+                        <span>{cap.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                ))}
+                {uncategorized.length > 0 && (
+                  <div className="cap-category-group">
+                    {sortedGroups.length > 0 && <div className="cap-category-name">Other</div>}
+                    {uncategorized.map((cap) => (
+                      <label key={cap.id} className={`cap-check-row ${selectedSet.has(cap.id) ? "cap-check-active" : ""}`}>
+                        <input type="checkbox" checked={selectedSet.has(cap.id)}
+                          onChange={() => toggleCap(cap.id)} />
+                        <span>{cap.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="cap-modal-footer">
+                <span className="cap-modal-count">{tlForModal.capabilityIds.length} selected</span>
+                <button type="button" className="create-btn" onClick={() => setCapabilityModalIdx(null)}>Done</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Form Actions */}
       <div className="form-actions">
@@ -2140,6 +2296,148 @@ export default function CreateOrderPage() {
           font-style: italic;
           border-left: 2px dashed #d1d5db;
           margin-left: 16px;
+        }
+
+        /* --- Capability Section (per trade line) --- */
+        .cap-section {}
+        .cap-header-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 6px;
+        }
+        .cap-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          margin-top: 4px;
+        }
+        .cap-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 3px 10px;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          border-radius: 6px;
+          font-size: 12px;
+          color: #1d4ed8;
+          font-weight: 500;
+        }
+        .cap-chip-rm {
+          background: none;
+          border: none;
+          color: #93c5fd;
+          font-size: 14px;
+          cursor: pointer;
+          padding: 0 2px;
+          line-height: 1;
+        }
+        .cap-chip-rm:hover { color: #dc2626; }
+
+        /* --- Capability Modal --- */
+        .cap-modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.45);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+        }
+        .cap-modal {
+          background: #ffffff;
+          border-radius: 14px;
+          width: 640px;
+          max-width: 92vw;
+          max-height: 80vh;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+        }
+        .cap-modal-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 18px 22px 14px;
+          border-bottom: 1px solid #e5e7eb;
+        }
+        .cap-modal-header h3 {
+          margin: 0;
+          font-size: 17px;
+          font-weight: 700;
+          color: #111827;
+        }
+        .cap-modal-close {
+          background: none;
+          border: none;
+          font-size: 22px;
+          color: #9ca3af;
+          cursor: pointer;
+          padding: 2px 6px;
+          line-height: 1;
+        }
+        .cap-modal-close:hover { color: #374151; }
+        .cap-modal-search {
+          padding: 12px 22px;
+          border-bottom: 1px solid #f3f4f6;
+        }
+        .cap-modal-body {
+          flex: 1;
+          overflow-y: auto;
+          padding: 12px 22px 18px;
+          min-height: 240px;
+        }
+        .cap-modal-empty {
+          color: #6b7280;
+          font-size: 13px;
+          text-align: center;
+          padding: 24px 0;
+        }
+        .cap-category-group {
+          margin-bottom: 14px;
+        }
+        .cap-category-name {
+          font-size: 11px;
+          font-weight: 700;
+          color: #6b7280;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-bottom: 6px;
+          padding-bottom: 4px;
+          border-bottom: 1px solid #f3f4f6;
+        }
+        .cap-check-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 7px 10px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+          color: #374151;
+          transition: background 0.1s ease;
+        }
+        .cap-check-row:hover { background: #f9fafb; }
+        .cap-check-active { background: #eff6ff; }
+        .cap-check-active:hover { background: #dbeafe; }
+        .cap-check-row input[type="checkbox"] {
+          width: 16px;
+          height: 16px;
+          accent-color: #2563eb;
+          cursor: pointer;
+        }
+        .cap-modal-footer {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 14px 22px;
+          border-top: 1px solid #e5e7eb;
+        }
+        .cap-modal-count {
+          font-size: 13px;
+          color: #6b7280;
+          font-weight: 500;
         }
       `}</style>
     </div>
