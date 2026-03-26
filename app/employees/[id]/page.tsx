@@ -58,6 +58,25 @@ type ApplicationRow = {
   createdAt: string;
 };
 
+type SpecializationRow = {
+  id: string;
+  specializationId: string;
+  specializationName: string;
+  tradeName: string;
+  displayLabel: string;
+};
+
+type CapabilityRow = {
+  id: string;
+  capabilityId: string;
+  capabilityName: string;
+  categories: string[];
+};
+
+type TradeCatalogItem = { id: string; name: string; isActive: boolean };
+type SpecCatalogItem = { id: string; tradeId: string; name: string; isActive: boolean };
+type CapCatalogItem = { id: string; name: string; categories?: { id: string; name: string; isActive: boolean }[] };
+
 type EmployeeDetail = {
   id: string;
   firstName: string | null;
@@ -76,6 +95,8 @@ type EmployeeDetail = {
   createdAt: string;
   updatedAt: string;
   trades: TradeRow[];
+  specializations: SpecializationRow[];
+  capabilities: CapabilityRow[];
   certifications: CertRow[];
   tools: ToolRow[];
   ppe: PpeRow[];
@@ -124,6 +145,7 @@ type ComplianceVariant = {
 
 const TABS = [
   "Overview",
+  "Trades & Capabilities",
   "Certifications",
   "Compliance",
   "Tools",
@@ -233,6 +255,17 @@ export default function EmployeeDetailPage() {
   });
   const [compSaving, setCompSaving] = useState(false);
   const [compError, setCompError] = useState<string | null>(null);
+
+  // TC (Trades & Capabilities) assignment state
+  const [tcModal, setTcModal] = useState<"trades" | "specializations" | "capabilities" | null>(null);
+  const [tcCatalogTrades, setTcCatalogTrades] = useState<TradeCatalogItem[]>([]);
+  const [tcCatalogSpecs, setTcCatalogSpecs] = useState<SpecCatalogItem[]>([]);
+  const [tcCatalogCaps, setTcCatalogCaps] = useState<CapCatalogItem[]>([]);
+  const [tcSelected, setTcSelected] = useState<Set<string>>(new Set());
+  const [tcSaving, setTcSaving] = useState(false);
+  const [tcError, setTcError] = useState<string | null>(null);
+  const [tcLoading, setTcLoading] = useState(false);
+  const [tcSpecTradeFilter, setTcSpecTradeFilter] = useState<string>("");
 
   /* ---------- Load employee ---------- */
   useEffect(() => {
@@ -355,6 +388,128 @@ export default function EmployeeDetailPage() {
     }
   }
 
+  /* ---------- Reload employee (after mutations) ---------- */
+  const reloadEmployee = useCallback(async () => {
+    try {
+      const data = await apiFetch<EmployeeDetail>(`/employees/${id}`);
+      setEmployee(data);
+    } catch { /* silent — employee already loaded */ }
+  }, [id]);
+
+  /* ---------- TC (Trades & Capabilities) CRUD ---------- */
+  async function openTcModal(type: "trades" | "specializations" | "capabilities") {
+    setTcModal(type);
+    setTcError(null);
+    setTcSelected(new Set());
+    setTcLoading(true);
+    try {
+      if (type === "trades") {
+        const trades = await apiFetch<TradeCatalogItem[]>("/trades");
+        setTcCatalogTrades(Array.isArray(trades) ? trades : []);
+      } else if (type === "specializations") {
+        const trades = await apiFetch<TradeCatalogItem[]>("/trades");
+        setTcCatalogTrades(Array.isArray(trades) ? trades : []);
+        setTcSpecTradeFilter("");
+        setTcCatalogSpecs([]);
+      } else {
+        const caps = await apiFetch<CapCatalogItem[]>("/capabilities?include=categories&activeOnly=true");
+        setTcCatalogCaps(Array.isArray(caps) ? caps : []);
+      }
+    } catch {
+      setTcError("Failed to load catalog data.");
+    } finally {
+      setTcLoading(false);
+    }
+  }
+
+  async function loadSpecsForTrade(tradeId: string) {
+    setTcSpecTradeFilter(tradeId);
+    setTcSelected(new Set());
+    if (!tradeId) { setTcCatalogSpecs([]); return; }
+    setTcLoading(true);
+    try {
+      const specs = await apiFetch<SpecCatalogItem[]>(`/trades/${tradeId}/specializations?activeOnly=true`);
+      setTcCatalogSpecs(Array.isArray(specs) ? specs : []);
+    } catch {
+      setTcCatalogSpecs([]);
+    } finally {
+      setTcLoading(false);
+    }
+  }
+
+  function toggleTcSelection(itemId: string) {
+    setTcSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
+  async function saveTcModal() {
+    if (!tcModal || tcSelected.size === 0) return;
+    setTcSaving(true);
+    setTcError(null);
+    try {
+      if (tcModal === "trades") {
+        const existingIds = emp.trades.map((t) => t.tradeId);
+        const allIds = [...new Set([...existingIds, ...tcSelected])];
+        await apiFetch(`/employees/${id}/trades`, {
+          method: "PUT",
+          body: JSON.stringify({ tradeIds: allIds }),
+        });
+      } else if (tcModal === "specializations") {
+        const existingIds = (emp.specializations ?? []).map((s) => s.specializationId);
+        const allIds = [...new Set([...existingIds, ...tcSelected])];
+        await apiFetch(`/employees/${id}/specializations`, {
+          method: "PUT",
+          body: JSON.stringify({ specializationIds: allIds }),
+        });
+      } else {
+        const existingIds = (emp.capabilities ?? []).map((c) => c.capabilityId);
+        const allIds = [...new Set([...existingIds, ...tcSelected])];
+        await apiFetch(`/employees/${id}/capabilities`, {
+          method: "PUT",
+          body: JSON.stringify({ capabilityIds: allIds }),
+        });
+      }
+      setTcModal(null);
+      await reloadEmployee();
+    } catch (e: any) {
+      setTcError(e?.message ?? "Save failed.");
+    } finally {
+      setTcSaving(false);
+    }
+  }
+
+  async function removeTcItem(type: "trades" | "specializations" | "capabilities", itemFkId: string) {
+    if (!confirm(`Remove this ${type.slice(0, -1)}?`)) return;
+    try {
+      if (type === "trades") {
+        const newIds = emp.trades.map((t) => t.tradeId).filter((tid) => tid !== itemFkId);
+        await apiFetch(`/employees/${id}/trades`, {
+          method: "PUT",
+          body: JSON.stringify({ tradeIds: newIds }),
+        });
+      } else if (type === "specializations") {
+        const newIds = (emp.specializations ?? []).map((s) => s.specializationId).filter((sid) => sid !== itemFkId);
+        await apiFetch(`/employees/${id}/specializations`, {
+          method: "PUT",
+          body: JSON.stringify({ specializationIds: newIds }),
+        });
+      } else {
+        const newIds = (emp.capabilities ?? []).map((c) => c.capabilityId).filter((cid) => cid !== itemFkId);
+        await apiFetch(`/employees/${id}/capabilities`, {
+          method: "PUT",
+          body: JSON.stringify({ capabilityIds: newIds }),
+        });
+      }
+      await reloadEmployee();
+    } catch {
+      // silent
+    }
+  }
+
   /* ---------- Loading / Error ---------- */
   const shellStyle: React.CSSProperties = {
     padding: "24px 40px 60px",
@@ -398,7 +553,6 @@ export default function EmployeeDetailPage() {
 
   const emp = employee;
   const displayName = [emp.firstName, emp.lastName].filter(Boolean).join(" ") || null;
-  const primaryTrade = emp.trades[0]?.tradeName ?? null;
   const variantsForType = compVariants.filter(
     (v) => v.requirementTypeId === compForm.requirementTypeId
   );
@@ -409,7 +563,6 @@ export default function EmployeeDetailPage() {
       /* ========== OVERVIEW ========== */
       case "Overview": {
         const hasEmergencyContact = emp.emergencyContactName || emp.emergencyContactPhone;
-        const primaryTrade = emp.trades[0] ?? null;
 
         const OV_GRID_CLASS = "ov-profile-grid";
         const OV_CARD: React.CSSProperties = { background: "#ffffff", border: "1px solid #d1d5db", borderRadius: "10px", padding: "20px", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" };
@@ -419,8 +572,6 @@ export default function EmployeeDetailPage() {
         const OV_LBL: React.CSSProperties = { fontSize: "13px", fontWeight: 500, color: "#6b7280" };
         const OV_VAL: React.CSSProperties = { fontSize: "14px", fontWeight: 500, color: "#111827" };
         const OV_EMPTY: React.CSSProperties = { fontSize: "13px", color: "#9ca3af", fontStyle: "italic", margin: 0 };
-
-        const fmtEnum = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 
         return (
           <div>
@@ -457,26 +608,23 @@ export default function EmployeeDetailPage() {
                 </div>
               </div>
 
-              {/* Trade Information */}
+              {/* Trades */}
               <div style={OV_CARD}>
-                <h3 style={OV_TITLE}>Trade Information</h3>
-                {primaryTrade ? (
-                  <>
-                    <div style={OV_ROW}>
-                      <div style={OV_LBL}>Primary Trade</div>
-                      <div style={OV_VAL}>{primaryTrade.tradeName}</div>
-                    </div>
-                    <div style={OV_ROW}>
-                      <div style={OV_LBL}>Proficiency</div>
-                      <div style={OV_VAL}>{fmtEnum(primaryTrade.proficiency)}</div>
-                    </div>
-                    <div style={OV_ROW_LAST}>
-                      <div style={OV_LBL}>Source</div>
-                      <div style={OV_VAL}>{fmtEnum(primaryTrade.source)}</div>
-                    </div>
-                  </>
+                <h3 style={OV_TITLE}>Trades</h3>
+                {emp.trades.length > 0 ? (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                    {emp.trades.map((t) => (
+                      <span key={t.id} style={{
+                        display: "inline-flex", alignItems: "center", padding: "6px 12px",
+                        borderRadius: "6px", fontSize: "13px", fontWeight: 600,
+                        background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe",
+                      }}>
+                        {t.tradeName}
+                      </span>
+                    ))}
+                  </div>
                 ) : (
-                  <p style={OV_EMPTY}>No trades declared.</p>
+                  <p style={OV_EMPTY}>No trades assigned.</p>
                 )}
               </div>
 
@@ -535,6 +683,94 @@ export default function EmployeeDetailPage() {
                   <p style={OV_EMPTY}>No emergency contact on file.</p>
                 )}
               </div>
+            </div>
+          </div>
+        );
+      }
+
+      /* ========== TRADES & CAPABILITIES ========== */
+      case "Trades & Capabilities": {
+        const TC_SECTION: React.CSSProperties = { marginBottom: "24px" };
+        const TC_HEAD_ROW: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", paddingBottom: "8px", borderBottom: "1px solid #e5e7eb" };
+        const TC_H3: React.CSSProperties = { fontSize: "14px", fontWeight: 700, color: "#111827", margin: 0 };
+        const TC_WRAP: React.CSSProperties = { display: "flex", flexWrap: "wrap", gap: "8px" };
+        const TC_CHIP: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: 600, background: "#f9fafb", color: "#374151", border: "1px solid #e5e7eb" };
+        const TC_TRADE: React.CSSProperties = { ...TC_CHIP, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe" };
+        const TC_SPEC: React.CSSProperties = { ...TC_CHIP, background: "#f0fdf4", color: "#15803d", border: "1px solid #bbf7d0" };
+        const TC_EMPTY: React.CSSProperties = { fontSize: "13px", color: "#9ca3af", fontStyle: "italic", margin: 0 };
+        const TC_SUB: React.CSSProperties = { fontSize: "11px", fontWeight: 500, color: "#6b7280" };
+        const TC_X: React.CSSProperties = { cursor: "pointer", fontSize: "15px", lineHeight: 1, opacity: 0.5, marginLeft: "2px" };
+        const TC_ADD: React.CSSProperties = { padding: "4px 10px", fontSize: "12px", fontWeight: 600 };
+
+        return (
+          <div>
+            <div className="panel-header">
+              <h2 className="panel-title">Trades &amp; Capabilities</h2>
+              <span className="panel-note">Worker classification</span>
+            </div>
+
+            {/* --- Trades --- */}
+            <div style={TC_SECTION}>
+              <div style={TC_HEAD_ROW}>
+                <h3 style={TC_H3}>Trades</h3>
+                <button className="btn-primary" style={TC_ADD} onClick={() => openTcModal("trades")}>+ Add</button>
+              </div>
+              {emp.trades.length > 0 ? (
+                <div style={TC_WRAP}>
+                  {emp.trades.map((t) => (
+                    <span key={t.id} style={TC_TRADE}>
+                      {t.tradeName}
+                      <span style={TC_X} onClick={() => removeTcItem("trades", t.tradeId)} title="Remove">&times;</span>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p style={TC_EMPTY}>No trades assigned.</p>
+              )}
+            </div>
+
+            {/* --- Specializations --- */}
+            <div style={TC_SECTION}>
+              <div style={TC_HEAD_ROW}>
+                <h3 style={TC_H3}>Specializations</h3>
+                <button className="btn-primary" style={TC_ADD} onClick={() => openTcModal("specializations")}>+ Add</button>
+              </div>
+              {(emp.specializations ?? []).length > 0 ? (
+                <div style={TC_WRAP}>
+                  {(emp.specializations ?? []).map((s) => (
+                    <span key={s.id} style={TC_SPEC}>
+                      {s.specializationName}
+                      <span style={TC_SUB}>{s.tradeName}</span>
+                      <span style={TC_X} onClick={() => removeTcItem("specializations", s.specializationId)} title="Remove">&times;</span>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p style={TC_EMPTY}>No specializations assigned.</p>
+              )}
+            </div>
+
+            {/* --- Capabilities --- */}
+            <div>
+              <div style={TC_HEAD_ROW}>
+                <h3 style={TC_H3}>Capabilities</h3>
+                <button className="btn-primary" style={TC_ADD} onClick={() => openTcModal("capabilities")}>+ Add</button>
+              </div>
+              {(emp.capabilities ?? []).length > 0 ? (
+                <div style={TC_WRAP}>
+                  {(emp.capabilities ?? []).map((c) => (
+                    <span key={c.id} style={TC_CHIP}>
+                      {c.capabilityName}
+                      {c.categories.length > 0 && (
+                        <span style={TC_SUB}>{c.categories.join(", ")}</span>
+                      )}
+                      <span style={TC_X} onClick={() => removeTcItem("capabilities", c.capabilityId)} title="Remove">&times;</span>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p style={TC_EMPTY}>No capabilities assigned.</p>
+              )}
             </div>
           </div>
         );
@@ -778,7 +1014,9 @@ export default function EmployeeDetailPage() {
             <span className={`status-badge ${emp.status === "ACTIVE_SEEKING" ? "sb-active" : "sb-inactive"}`}>
               {emp.status === "ACTIVE_SEEKING" ? "Active" : "Not Active"}
             </span>
-            {primaryTrade && <span className="trade-badge">{primaryTrade}</span>}
+            {emp.trades.map((t) => (
+              <span key={t.id} className="trade-badge">{t.tradeName}</span>
+            ))}
           </div>
         </div>
       </div>
@@ -798,8 +1036,8 @@ export default function EmployeeDetailPage() {
           <span className="summary-value">{emp.phone || "\u2014"}</span>
         </div>
         <div className="summary-item">
-          <span className="summary-label">PRIMARY TRADE</span>
-          <span className="summary-value">{primaryTrade || "\u2014"}</span>
+          <span className="summary-label">TRADES</span>
+          <span className="summary-value">{emp.trades.length > 0 ? emp.trades.map(t => t.tradeName).join(", ") : "\u2014"}</span>
         </div>
         <div className="summary-item">
           <span className="summary-label">STATUS</span>
@@ -824,6 +1062,127 @@ export default function EmployeeDetailPage() {
       <div className="tab-content">
         {renderTab()}
       </div>
+
+      {/* TC ASSIGNMENT MODAL */}
+      {tcModal && (
+        <div className="modal-overlay" onClick={() => setTcModal(null)}>
+          <div className="modal-content" style={{ maxWidth: "560px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>
+                {tcModal === "trades" ? "Add Trades" : tcModal === "specializations" ? "Add Specializations" : "Add Capabilities"}
+              </h3>
+            </div>
+            <div className="modal-body">
+              {tcError && (
+                <div style={{ padding: "10px 12px", borderRadius: "6px", border: "1px solid #fecaca", background: "#fff1f2", color: "#991b1b", fontSize: "13px", marginBottom: "16px" }}>
+                  {tcError}
+                </div>
+              )}
+
+              {/* --- Trades checklist --- */}
+              {tcModal === "trades" && (
+                tcLoading ? (
+                  <div style={{ padding: "24px", textAlign: "center", color: "#6b7280", fontSize: "13px" }}>Loading trades...</div>
+                ) : tcCatalogTrades.filter((t) => t.isActive !== false).length === 0 ? (
+                  <div style={{ padding: "24px", textAlign: "center", color: "#9ca3af", fontSize: "13px" }}>No active trades available.</div>
+                ) : (
+                  <div style={{ maxHeight: "400px", overflowY: "auto" }}>
+                    {tcCatalogTrades.filter((t) => t.isActive !== false).map((t) => {
+                      const assigned = emp.trades.some((et) => et.tradeId === t.id);
+                      const checked = assigned || tcSelected.has(t.id);
+                      return (
+                        <label key={t.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 4px", borderBottom: "1px solid #f1f5f9", cursor: assigned ? "default" : "pointer" }}>
+                          <input type="checkbox" checked={checked} disabled={assigned} onChange={() => !assigned && toggleTcSelection(t.id)} style={{ width: "16px", height: "16px", accentColor: "#2563eb" }} />
+                          <span style={{ fontSize: "13px", fontWeight: 500, color: assigned ? "#9ca3af" : "#111827" }}>
+                            {t.name}
+                            {assigned && <span style={{ fontSize: "11px", color: "#9ca3af", marginLeft: "6px" }}>(assigned)</span>}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+
+              {/* --- Specializations checklist --- */}
+              {tcModal === "specializations" && (
+                <>
+                  <div className="form-field" style={{ marginBottom: "16px" }}>
+                    <label>Filter by Trade</label>
+                    <select value={tcSpecTradeFilter} onChange={(e) => loadSpecsForTrade(e.target.value)}>
+                      <option value="">Select a trade...</option>
+                      {tcCatalogTrades.filter((t) => t.isActive !== false).map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {!tcSpecTradeFilter ? (
+                    <div style={{ padding: "20px", textAlign: "center", color: "#9ca3af", fontSize: "13px" }}>Select a trade to view its specializations.</div>
+                  ) : tcLoading ? (
+                    <div style={{ padding: "20px", textAlign: "center", color: "#6b7280", fontSize: "13px" }}>Loading specializations...</div>
+                  ) : tcCatalogSpecs.length === 0 ? (
+                    <div style={{ padding: "20px", textAlign: "center", color: "#9ca3af", fontSize: "13px" }}>No specializations available for this trade.</div>
+                  ) : (
+                    <div style={{ maxHeight: "350px", overflowY: "auto" }}>
+                      {tcCatalogSpecs.map((s) => {
+                        const assigned = (emp.specializations ?? []).some((es) => es.specializationId === s.id);
+                        const checked = assigned || tcSelected.has(s.id);
+                        return (
+                          <label key={s.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 4px", borderBottom: "1px solid #f1f5f9", cursor: assigned ? "default" : "pointer" }}>
+                            <input type="checkbox" checked={checked} disabled={assigned} onChange={() => !assigned && toggleTcSelection(s.id)} style={{ width: "16px", height: "16px", accentColor: "#2563eb" }} />
+                            <span style={{ fontSize: "13px", fontWeight: 500, color: assigned ? "#9ca3af" : "#111827" }}>
+                              {s.name}
+                              {assigned && <span style={{ fontSize: "11px", color: "#9ca3af", marginLeft: "6px" }}>(assigned)</span>}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* --- Capabilities checklist --- */}
+              {tcModal === "capabilities" && (
+                tcLoading ? (
+                  <div style={{ padding: "24px", textAlign: "center", color: "#6b7280", fontSize: "13px" }}>Loading capabilities...</div>
+                ) : tcCatalogCaps.length === 0 ? (
+                  <div style={{ padding: "24px", textAlign: "center", color: "#9ca3af", fontSize: "13px" }}>No capabilities available.</div>
+                ) : (
+                  <div style={{ maxHeight: "400px", overflowY: "auto" }}>
+                    {tcCatalogCaps.map((c) => {
+                      const assigned = (emp.capabilities ?? []).some((ec) => ec.capabilityId === c.id);
+                      const checked = assigned || tcSelected.has(c.id);
+                      return (
+                        <label key={c.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 4px", borderBottom: "1px solid #f1f5f9", cursor: assigned ? "default" : "pointer" }}>
+                          <input type="checkbox" checked={checked} disabled={assigned} onChange={() => !assigned && toggleTcSelection(c.id)} style={{ width: "16px", height: "16px", accentColor: "#2563eb" }} />
+                          <div>
+                            <span style={{ fontSize: "13px", fontWeight: 500, color: assigned ? "#9ca3af" : "#111827" }}>
+                              {c.name}
+                              {assigned && <span style={{ fontSize: "11px", color: "#9ca3af", marginLeft: "6px" }}>(assigned)</span>}
+                            </span>
+                            {c.categories && c.categories.length > 0 && (
+                              <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "1px" }}>
+                                {c.categories.map((cat) => (typeof cat === "string" ? cat : cat.name)).join(", ")}
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setTcModal(null)}>Cancel</button>
+              <button className="btn-primary" onClick={saveTcModal} disabled={tcSaving || tcSelected.size === 0}>
+                {tcSaving ? "Saving..." : `Add Selected (${tcSelected.size})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* COMPLIANCE MODAL */}
       {showCompModal && (
@@ -1299,3 +1658,4 @@ export default function EmployeeDetailPage() {
     </div>
   );
 }
+
