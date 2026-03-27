@@ -436,6 +436,12 @@ export function OrderDetailView({
               </span>
             </div>
             <div className="od-summary-item">
+              <span className="od-label">OSEP</span>
+              <span className="od-value">
+                {(order as any).isOsep ? "Yes" : "No"}
+              </span>
+            </div>
+            <div className="od-summary-item">
               <span className="od-label">Created</span>
               <span className="od-value">{fmtDate(order.createdAt)}</span>
             </div>
@@ -698,6 +704,45 @@ function TradeRequirementCard({
         <div className="trc-field">
           <span className="trc-label">Expected End</span>
           <span className="trc-val">{fmtDate(tr.expectedEndDate)}</span>
+        </div>
+      </div>
+
+      {/* Economic Inputs */}
+      <div className="trc-econ">
+        <span className="trc-econ-title">Economic Inputs</span>
+        <div className="trc-econ-fields">
+          <div className="trc-field">
+            <span className="trc-label">OT Bill Rate</span>
+            <span className="trc-val">{(tr as any).otBillRate != null ? `$${(tr as any).otBillRate}` : "—"}</span>
+          </div>
+          <div className="trc-field">
+            <span className="trc-label">DT Bill Rate</span>
+            <span className="trc-val">{(tr as any).dtBillRate != null ? `$${(tr as any).dtBillRate}` : "—"}</span>
+          </div>
+          <div className="trc-field">
+            <span className="trc-label">REG Hours / Week</span>
+            <span className="trc-val">{(tr as any).estimatedRegHoursPerWeek ?? "—"}</span>
+          </div>
+          <div className="trc-field">
+            <span className="trc-label">OT Hours / Week</span>
+            <span className="trc-val">{(tr as any).estimatedOtHoursPerWeek ?? "—"}</span>
+          </div>
+          <div className="trc-field">
+            <span className="trc-label">DT Hours / Week</span>
+            <span className="trc-val">{(tr as any).estimatedDtHoursPerWeek ?? "—"}</span>
+          </div>
+          <div className="trc-field">
+            <span className="trc-label">Work Days / Week</span>
+            <span className="trc-val">{(tr as any).estimatedWorkDaysPerWeek ?? "—"}</span>
+          </div>
+          <div className="trc-field">
+            <span className="trc-label">Per Diem Days / Week</span>
+            <span className="trc-val">{(tr as any).perDiemDaysPerWeek ?? "—"}</span>
+          </div>
+          <div className="trc-field">
+            <span className="trc-label">Duration (Weeks)</span>
+            <span className="trc-val">{(tr as any).estimatedDurationWeeks ?? "—"}</span>
+          </div>
         </div>
       </div>
 
@@ -1104,6 +1149,25 @@ function TradeRequirementCard({
           font-size: 13px;
           color: #3b82f6;
           font-weight: 500;
+        }
+        .trc-econ {
+          margin-top: 12px;
+          padding-top: 10px;
+          border-top: 1px dashed rgba(255, 255, 255, 0.08);
+        }
+        .trc-econ-title {
+          display: block;
+          font-size: 10px;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.45);
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          margin-bottom: 8px;
+        }
+        .trc-econ-fields {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
         }
       `}</style>
     </div>

@@ -60,6 +60,14 @@ export interface CreateTradeRequirement {
   certRequirements?: CreateCertRequirement[];
   complianceRequirements?: CreateComplianceRequirement[];
   rampSchedule?: CreateRampRow[];
+  otBillRate?: number;
+  dtBillRate?: number;
+  estimatedRegHoursPerWeek?: number;
+  estimatedOtHoursPerWeek?: number;
+  estimatedDtHoursPerWeek?: number;
+  estimatedWorkDaysPerWeek?: number;
+  perDiemDaysPerWeek?: number;
+  estimatedDurationWeeks?: number;
 }
 
 // -- Job order contact payload (create) --
@@ -85,6 +93,7 @@ export interface CreateOrderPayload {
   jobSiteState?: string;
   jobSiteZip?: string;
   jobSiteNotes?: string;
+  isOsep?: boolean;
   contacts?: CreateJobOrderContactPayload[];
   tradeRequirements?: CreateTradeRequirement[];
 }

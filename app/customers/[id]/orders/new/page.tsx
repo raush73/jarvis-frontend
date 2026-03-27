@@ -80,6 +80,14 @@ type TradeLineState = {
   complianceItems: Array<{ requirementTypeId: string; variantId: string }>;
   rampEnabled: boolean;
   rampRows: RampRowState[];
+  otBillRate: string;
+  dtBillRate: string;
+  estimatedRegHoursPerWeek: string;
+  estimatedOtHoursPerWeek: string;
+  estimatedDtHoursPerWeek: string;
+  estimatedWorkDaysPerWeek: string;
+  perDiemDaysPerWeek: string;
+  estimatedDurationWeeks: string;
 };
 
 function createEmptyTradeLine(defaultTradeId: string): TradeLineState {
@@ -103,6 +111,14 @@ function createEmptyTradeLine(defaultTradeId: string): TradeLineState {
     complianceItems: [],
     rampEnabled: false,
     rampRows: [],
+    otBillRate: "",
+    dtBillRate: "",
+    estimatedRegHoursPerWeek: "",
+    estimatedOtHoursPerWeek: "",
+    estimatedDtHoursPerWeek: "",
+    estimatedWorkDaysPerWeek: "",
+    perDiemDaysPerWeek: "",
+    estimatedDurationWeeks: "",
   };
 }
 
@@ -118,6 +134,9 @@ export default function CreateOrderPage() {
 
   // --- Title ---
   const [title, setTitle] = useState("");
+
+  // --- OSEP (order-level) ---
+  const [isOsep, setIsOsep] = useState(false);
 
   // --- Shift Differential (toggle-driven) ---
   const [hasShiftDifferential, setHasShiftDifferential] = useState(false);
@@ -612,6 +631,14 @@ export default function CreateOrderPage() {
           ...(certRequirements.length > 0 ? { certRequirements } : {}),
           ...(complianceRequirements.length > 0 ? { complianceRequirements } : {}),
           ...(rampSchedule.length > 0 ? { rampSchedule } : {}),
+          ...(tl.otBillRate ? { otBillRate: parseFloat(tl.otBillRate) } : {}),
+          ...(tl.dtBillRate ? { dtBillRate: parseFloat(tl.dtBillRate) } : {}),
+          ...(tl.estimatedRegHoursPerWeek ? { estimatedRegHoursPerWeek: parseFloat(tl.estimatedRegHoursPerWeek) } : {}),
+          ...(tl.estimatedOtHoursPerWeek ? { estimatedOtHoursPerWeek: parseFloat(tl.estimatedOtHoursPerWeek) } : {}),
+          ...(tl.estimatedDtHoursPerWeek ? { estimatedDtHoursPerWeek: parseFloat(tl.estimatedDtHoursPerWeek) } : {}),
+          ...(tl.estimatedWorkDaysPerWeek ? { estimatedWorkDaysPerWeek: parseInt(tl.estimatedWorkDaysPerWeek) } : {}),
+          ...(tl.perDiemDaysPerWeek ? { perDiemDaysPerWeek: parseFloat(tl.perDiemDaysPerWeek) } : {}),
+          ...(tl.estimatedDurationWeeks ? { estimatedDurationWeeks: parseInt(tl.estimatedDurationWeeks) } : {}),
         };
       });
 
@@ -637,6 +664,7 @@ export default function CreateOrderPage() {
         ...(hasShiftDifferential && sdPayDeltaRate != null ? { sdPayDeltaRate } : {}),
         ...(hasShiftDifferential && sdBillDeltaRate != null ? { sdBillDeltaRate } : {}),
         ...(selectedCommissionPlanId ? { commissionPlanId: selectedCommissionPlanId } : {}),
+        isOsep,
         tradeRequirements,
       };
 
@@ -855,6 +883,26 @@ export default function CreateOrderPage() {
         )}
       </div>
 
+      {/* OSEP */}
+      <div className="form-section">
+        <div className="toggle-header">
+          <h2>OSEP</h2>
+          <label className="toggle-label">
+            <input
+              type="checkbox"
+              checked={isOsep}
+              onChange={(e) => setIsOsep(e.target.checked)}
+            />
+            <span>Owner-Supplied Workers&apos; Comp</span>
+          </label>
+        </div>
+        {isOsep && (
+          <p className="helper-text">
+            Workers&apos; Compensation will be excluded from burden calculations for this order.
+          </p>
+        )}
+      </div>
+
       {/* Commission — inheritance-first */}
       <div className="form-section">
         <h2>Commission</h2>
@@ -1043,6 +1091,53 @@ export default function CreateOrderPage() {
                   <label className="form-label">Expected End Date</label>
                   <input type="date" className="form-input-sm" value={tl.expectedEndDate}
                     onChange={(e) => updateTradeLine(idx, { expectedEndDate: e.target.value })} />
+                </div>
+              </div>
+
+              {/* Economic Inputs */}
+              <div className="econ-section">
+                <span className="econ-section-label">Economic Inputs</span>
+                <div className="econ-grid">
+                  <div className="form-row">
+                    <label className="form-label">OT Bill Rate</label>
+                    <input type="text" className="form-input-sm" value={tl.otBillRate}
+                      onChange={(e) => updateTradeLine(idx, { otBillRate: e.target.value })} placeholder="0.00" />
+                  </div>
+                  <div className="form-row">
+                    <label className="form-label">DT Bill Rate</label>
+                    <input type="text" className="form-input-sm" value={tl.dtBillRate}
+                      onChange={(e) => updateTradeLine(idx, { dtBillRate: e.target.value })} placeholder="0.00" />
+                  </div>
+                  <div className="form-row">
+                    <label className="form-label">REG Hours / Week</label>
+                    <input type="text" className="form-input-sm" value={tl.estimatedRegHoursPerWeek}
+                      onChange={(e) => updateTradeLine(idx, { estimatedRegHoursPerWeek: e.target.value })} placeholder="40" />
+                  </div>
+                  <div className="form-row">
+                    <label className="form-label">OT Hours / Week</label>
+                    <input type="text" className="form-input-sm" value={tl.estimatedOtHoursPerWeek}
+                      onChange={(e) => updateTradeLine(idx, { estimatedOtHoursPerWeek: e.target.value })} placeholder="0" />
+                  </div>
+                  <div className="form-row">
+                    <label className="form-label">DT Hours / Week</label>
+                    <input type="text" className="form-input-sm" value={tl.estimatedDtHoursPerWeek}
+                      onChange={(e) => updateTradeLine(idx, { estimatedDtHoursPerWeek: e.target.value })} placeholder="0" />
+                  </div>
+                  <div className="form-row">
+                    <label className="form-label">Work Days / Week</label>
+                    <input type="text" className="form-input-sm" value={tl.estimatedWorkDaysPerWeek}
+                      onChange={(e) => updateTradeLine(idx, { estimatedWorkDaysPerWeek: e.target.value })} placeholder="5" />
+                  </div>
+                  <div className="form-row">
+                    <label className="form-label">Per Diem Days / Week</label>
+                    <input type="text" className="form-input-sm" value={tl.perDiemDaysPerWeek}
+                      onChange={(e) => updateTradeLine(idx, { perDiemDaysPerWeek: e.target.value })} placeholder="0" />
+                  </div>
+                  <div className="form-row">
+                    <label className="form-label">Duration (Weeks)</label>
+                    <input type="text" className="form-input-sm" value={tl.estimatedDurationWeeks}
+                      onChange={(e) => updateTradeLine(idx, { estimatedDurationWeeks: e.target.value })} placeholder="4" />
+                  </div>
                 </div>
               </div>
 
@@ -1911,6 +2006,27 @@ export default function CreateOrderPage() {
         .tl-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+        }
+
+        /* --- Economic Inputs Section (per trade line) --- */
+        .econ-section {
+          margin-top: 16px;
+          padding-top: 14px;
+          border-top: 1px dashed #e5e7eb;
+        }
+        .econ-section-label {
+          display: block;
+          font-size: 11px;
+          font-weight: 700;
+          color: #6b7280;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          margin-bottom: 10px;
+        }
+        .econ-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
           gap: 12px;
         }
 
