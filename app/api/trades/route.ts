@@ -4,15 +4,19 @@ const BACKEND = "http://127.0.0.1:3000";
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
+  const qs = req.nextUrl.searchParams.toString();
+  const url = `${BACKEND}/trades${qs ? `?${qs}` : ""}`;
 
-  const res = await fetch(`${BACKEND}/trades`, {
-    headers: {
-      Authorization: auth,
-    },
+  const res = await fetch(url, {
+    headers: { Authorization: auth },
+    cache: "no-store",
   });
 
   const data = await res.text();
-  return new NextResponse(data, { status: res.status });
+  return new NextResponse(data, {
+    status: res.status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 export async function POST(req: NextRequest) {

@@ -179,6 +179,20 @@ export default function AdminPage() {
           </div>
         </Link>
 
+        {/* Capabilities Card - Active */}
+        <Link href="/admin/capabilities" className="admin-card active">
+          <div className="card-header">
+            <div className="card-title">Capabilities</div>
+            <span className="badge active">ACTIVE</span>
+          </div>
+          <div className="card-desc">
+            Global dictionary of workforce capabilities, organized by category for use across trades, specializations, and job orders.
+          </div>
+          <div className="card-footer">
+            <span className="link-hint">Open Capabilities →</span>
+          </div>
+        </Link>
+
         {/* Work Comp Report Card - Active */}
         <Link href="/admin/reports/work-comp" className="admin-card active">
           <div className="card-header">

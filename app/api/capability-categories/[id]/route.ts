@@ -8,9 +8,7 @@ export async function GET(
 ) {
   const { id } = await params;
   const auth = req.headers.get("authorization") ?? "";
-  const qs = req.nextUrl.searchParams.toString();
-  const url = `${BACKEND}/trades/${id}/specializations${qs ? `?${qs}` : ""}`;
-  const res = await fetch(url, {
+  const res = await fetch(`${BACKEND}/capability-categories/${id}`, {
     headers: { Authorization: auth },
     cache: "no-store",
   });
@@ -21,15 +19,15 @@ export async function GET(
   });
 }
 
-export async function POST(
+export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   const auth = req.headers.get("authorization") ?? "";
   const body = await req.text();
-  const res = await fetch(`${BACKEND}/trades/${id}/specializations`, {
-    method: "POST",
+  const res = await fetch(`${BACKEND}/capability-categories/${id}`, {
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json",
       Authorization: auth,
