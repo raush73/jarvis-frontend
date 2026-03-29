@@ -19,6 +19,17 @@ export type Certification = {
   verified: boolean;
 };
 
+export type ClosedDisposition = 'NOT_SELECTED' | 'REJECTED';
+
+export type AltTradeInfo = {
+  tradeName: string;
+  accepted: boolean;
+  confirmationMethod?: 'PHONE' | 'MAGIC_LINK' | 'APP_NOTIFICATION';
+  confirmedAt?: string;
+  confirmedByName?: string;
+  note?: string;
+};
+
 export type Candidate = {
   id: string;
   name: string;
@@ -26,13 +37,16 @@ export type Candidate = {
   tradeName: string;
   phone: string;
   email: string;
-  distance: number; // miles from job site
-  matchConfidence?: number; // 0-100, only for system-identified
+  distance: number;
+  matchConfidence?: number;
   sourceType: 'system' | 'recruiter';
   certifications: Certification[];
   availability: 'available' | 'partial' | 'unavailable';
-  dispatchStartDate?: string; // ISO date, set at dispatch
+  dispatchStartDate?: string;
   notes?: string;
+  closedDisposition?: ClosedDisposition;
+  originalTradeName?: string;
+  altTrade?: AltTradeInfo;
 };
 
 export type BucketId = 
@@ -41,7 +55,8 @@ export type BucketId =
   | 'vetted'
   | 'customer_held'
   | 'pre_dispatch'
-  | 'dispatched';
+  | 'dispatched'
+  | 'closed';
 
 export type Bucket = {
   id: BucketId;
@@ -78,6 +93,84 @@ export function getOpenSlots(trade: Trade): number {
 
 // Mock Candidates
 const mockCandidates: Record<BucketId, Candidate[]> = {
+  closed: [
+    {
+      id: 'cand_closed_001',
+      name: 'Frank Morrison',
+      tradeId: 'trade_elec',
+      tradeName: 'Electrician',
+      phone: '(555) 700-1001',
+      email: 'frank.m@email.com',
+      distance: 19,
+      sourceType: 'recruiter',
+      certifications: [
+        { id: 'cert_cl1', name: 'Journeyman Electrician', verified: true },
+      ],
+      availability: 'available',
+      closedDisposition: 'NOT_SELECTED',
+      originalTradeName: 'Electrician',
+    },
+    {
+      id: 'cand_closed_002',
+      name: 'Janet Cooper',
+      tradeId: 'trade_plumb',
+      tradeName: 'Plumber',
+      phone: '(555) 700-1002',
+      email: 'janet.c@email.com',
+      distance: 28,
+      sourceType: 'system',
+      matchConfidence: 72,
+      certifications: [],
+      availability: 'unavailable',
+      closedDisposition: 'REJECTED',
+      originalTradeName: 'Plumber',
+    },
+    {
+      id: 'cand_closed_003',
+      name: 'Gary Simmons',
+      tradeId: 'trade_carp',
+      tradeName: 'Carpenter',
+      phone: '(555) 700-1003',
+      email: 'gary.s@email.com',
+      distance: 14,
+      sourceType: 'recruiter',
+      certifications: [
+        { id: 'cert_cl2', name: 'Finish Carpenter', verified: true },
+      ],
+      availability: 'available',
+      closedDisposition: 'NOT_SELECTED',
+      originalTradeName: 'Carpenter',
+      altTrade: {
+        tradeName: 'HVAC Tech',
+        accepted: false,
+      },
+    },
+    {
+      id: 'cand_closed_004',
+      name: 'Susan Price',
+      tradeId: 'trade_hvac',
+      tradeName: 'HVAC Tech',
+      phone: '(555) 700-1004',
+      email: 'susan.p@email.com',
+      distance: 10,
+      sourceType: 'system',
+      matchConfidence: 80,
+      certifications: [
+        { id: 'cert_cl3', name: 'EPA 608 Universal', verified: true },
+      ],
+      availability: 'available',
+      closedDisposition: 'NOT_SELECTED',
+      originalTradeName: 'Electrician',
+      altTrade: {
+        tradeName: 'HVAC Tech',
+        accepted: true,
+        confirmationMethod: 'PHONE',
+        confirmedAt: '2026-02-01T14:30:00Z',
+        confirmedByName: 'Mike Recruiter',
+        note: 'Worker agreed to HVAC Tech role at adjusted rate',
+      },
+    },
+  ],
   identified: [
     {
       id: 'cand_001',
@@ -404,6 +497,11 @@ const bucketDefinitions: Omit<Bucket, 'candidates'>[] = [
     id: 'dispatched',
     name: 'Dispatched',
     description: 'Actively dispatched to job site',
+  },
+  {
+    id: 'closed',
+    name: 'Closed',
+    description: 'No longer in active recruiting flow',
   },
 ];
 

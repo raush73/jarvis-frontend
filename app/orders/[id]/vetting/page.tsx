@@ -36,6 +36,7 @@ const LANE_NAMES: Record<string, { name: string; description: string }> = {
   vetted: { name: 'MW4H Approved (Candidate Pool)', description: 'Approved candidates ready for assignment' },
   pre_dispatch: { name: 'Pre-Dispatch', description: 'Ready for dispatch assignment' },
   dispatched: { name: 'Dispatched', description: 'Actively dispatched to job site' },
+  closed: { name: 'Closed', description: 'Out of active recruiting flow' },
 };
 
 // Mock PPE list
@@ -133,9 +134,10 @@ export default function VettingPage() {
   // State for No-Show candidates (UI-only mock)
   const [noShowCandidates, setNoShowCandidates] = useState<Candidate[]>(MOCK_NO_SHOWS);
 
-  // Filter buckets: exclude customer_held from main pipeline (it's a gate, not a lane)
-  const pipelineBuckets = order.buckets.filter(bucket => bucket.id !== 'customer_held');
+  // Filter buckets: exclude customer_held and closed from main active pipeline
+  const pipelineBuckets = order.buckets.filter(bucket => bucket.id !== 'customer_held' && bucket.id !== 'closed');
   const customerHeldBucket = order.buckets.find(b => b.id === 'customer_held');
+  const closedBucket = order.buckets.find(b => b.id === 'closed');
 
   // Handler for adding to Identified (mock)
   const handleAddToIdentified = (candidate: Candidate) => {
@@ -269,6 +271,14 @@ export default function VettingPage() {
                 isAuthenticated={isAuthenticated}
                 demoTitle={demoTitle}
               />
+              
+              {/* Closed Lane (Phase 5) */}
+              {closedBucket && (
+                <ClosedLane
+                  candidates={closedBucket.candidates}
+                  onCardClick={handleCardClick}
+                />
+              )}
             </div>
 
             {/* Customer Approval Gate (Side Panel) */}
@@ -1275,6 +1285,237 @@ function ExceptionsLane({
 
         .redispatch-btn:hover:not(:disabled) { background: #dbeafe; }
         .redispatch-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      `}</style>
+    </div>
+  );
+}
+
+// Closed Lane (Phase 5 — Recruiter-facing CLOSED lane with disposition + alt-trade visibility)
+function ClosedLane({
+  candidates,
+  onCardClick,
+}: {
+  candidates: Candidate[];
+  onCardClick: (candidate: Candidate) => void;
+}) {
+  return (
+    <div className="closed-lane">
+      <div className="lane-header">
+        <div className="lane-title-row">
+          <h3 className="lane-name">Closed</h3>
+          <span className="lane-count">{candidates.length}</span>
+        </div>
+        <span className="lane-desc">Out of active recruiting flow</span>
+      </div>
+
+      <div className="lane-candidates">
+        {candidates.length === 0 ? (
+          <div className="empty-state">No closed candidates</div>
+        ) : (
+          candidates.map(candidate => (
+            <div key={candidate.id} className="closed-card" onClick={() => onCardClick(candidate)}>
+              <div className="card-header">
+                <span className="candidate-name closed-name">{candidate.name}</span>
+                {candidate.closedDisposition && (
+                  <span className={`disposition-badge ${candidate.closedDisposition === 'REJECTED' ? 'rejected' : 'not-selected'}`}>
+                    {candidate.closedDisposition === 'REJECTED' ? 'Rejected' : 'Not Selected'}
+                  </span>
+                )}
+              </div>
+
+              <div className="trade-context">
+                <span className="original-trade">
+                  Opted in: {candidate.originalTradeName || candidate.tradeName}
+                </span>
+              </div>
+
+              {candidate.altTrade && (
+                <div className={`alt-trade-block ${candidate.altTrade.accepted ? 'accepted' : 'proposed'}`}>
+                  <span className="alt-trade-label">
+                    {candidate.altTrade.accepted ? 'Alt trade accepted' : 'Alt trade proposed'}
+                  </span>
+                  <span className="alt-trade-name">{candidate.altTrade.tradeName}</span>
+                  {candidate.altTrade.accepted && candidate.altTrade.confirmationMethod && (
+                    <span className="alt-trade-method">
+                      via {candidate.altTrade.confirmationMethod}
+                      {candidate.altTrade.confirmedByName ? ` by ${candidate.altTrade.confirmedByName}` : ''}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      <style jsx>{`
+        .closed-lane {
+          min-width: 220px;
+          max-width: 260px;
+          flex-shrink: 0;
+          background: #f3f4f6;
+          border-radius: 10px;
+          border: 1px solid #d1d5db;
+          display: flex;
+          flex-direction: column;
+          opacity: 0.85;
+        }
+
+        .lane-header {
+          padding: 12px;
+          border-bottom: 2px solid #9ca3af;
+          background: #e5e7eb;
+          border-radius: 10px 10px 0 0;
+        }
+
+        .lane-title-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 4px;
+        }
+
+        .lane-name {
+          margin: 0;
+          font-size: 12px;
+          font-weight: 700;
+          color: #6b7280;
+        }
+
+        .lane-count {
+          font-size: 11px;
+          font-weight: 700;
+          color: #fff;
+          padding: 2px 8px;
+          border-radius: 10px;
+          background: #9ca3af;
+        }
+
+        .lane-desc {
+          font-size: 10px;
+          color: #9ca3af;
+        }
+
+        .lane-candidates {
+          flex: 1;
+          padding: 10px;
+          overflow-y: auto;
+          max-height: 380px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .empty-state {
+          text-align: center;
+          padding: 20px;
+          color: #9ca3af;
+          font-size: 12px;
+          font-style: italic;
+        }
+
+        .closed-card {
+          background: #ffffff;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          padding: 8px;
+          cursor: pointer;
+          transition: border-color 0.12s ease;
+        }
+
+        .closed-card:hover {
+          border-color: #9ca3af;
+        }
+
+        .card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 4px;
+        }
+
+        .candidate-name.closed-name {
+          font-size: 12px;
+          font-weight: 600;
+          color: #6b7280;
+          text-decoration: line-through;
+        }
+
+        .disposition-badge {
+          font-size: 8px;
+          font-weight: 700;
+          padding: 2px 6px;
+          border-radius: 3px;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+          flex-shrink: 0;
+        }
+
+        .disposition-badge.not-selected {
+          background: #f3f4f6;
+          border: 1px solid #d1d5db;
+          color: #6b7280;
+        }
+
+        .disposition-badge.rejected {
+          background: #fff1f2;
+          border: 1px solid #fecaca;
+          color: #dc2626;
+        }
+
+        .trade-context {
+          margin-bottom: 4px;
+        }
+
+        .original-trade {
+          font-size: 9px;
+          color: #9ca3af;
+        }
+
+        .alt-trade-block {
+          padding: 4px 6px;
+          border-radius: 4px;
+          margin-top: 4px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .alt-trade-block.proposed {
+          background: #fffbeb;
+          border: 1px solid #fde68a;
+        }
+
+        .alt-trade-block.accepted {
+          background: #f0fdf4;
+          border: 1px solid #bbf7d0;
+        }
+
+        .alt-trade-label {
+          font-size: 8px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+        }
+
+        .alt-trade-block.proposed .alt-trade-label {
+          color: #d97706;
+        }
+
+        .alt-trade-block.accepted .alt-trade-label {
+          color: #16a34a;
+        }
+
+        .alt-trade-name {
+          font-size: 10px;
+          font-weight: 600;
+          color: #374151;
+        }
+
+        .alt-trade-method {
+          font-size: 8px;
+          color: #6b7280;
+        }
       `}</style>
     </div>
   );
