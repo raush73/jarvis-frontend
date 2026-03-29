@@ -1,0 +1,238 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from '@/lib/api';
+import type {
+  Order,
+  Trade,
+  Bucket,
+  BucketId,
+  Candidate,
+  ClosedDisposition,
+  AltTradeInfo,
+} from '@/data/mockRecruitingData';
+
+/**
+ * Backend response types — mirroring the enriched shape from
+ * GET /recruiting/order/:orderId/candidates (Phase 5 getCandidatesForOrder).
+ */
+interface BackendCandidate {
+  id: string;
+  orderId: string;
+  candidateId: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  candidate: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string | null;
+    phone: string | null;
+    status: string;
+  };
+  originalTrade: {
+    orderTradeRequirementId: string;
+    tradeId: string;
+    tradeName: string;
+    startDate: string | null;
+    expectedEndDate: string | null;
+    requestedHeadcount: number;
+  } | null;
+  closed: {
+    disposition: string | null;
+    closedAt: string | null;
+    closedByUser: { id: string; fullName: string } | null;
+    note: string | null;
+  } | null;
+  altTrade: {
+    orderTradeRequirementId: string;
+    tradeId: string | null;
+    tradeName: string | null;
+    accepted: boolean;
+    confirmationMethod: string | null;
+    confirmedAt: string | null;
+    confirmedByUser: { id: string; fullName: string } | null;
+    note: string | null;
+  } | null;
+  computed: {
+    isClosed: boolean;
+    hasAltTradeProposal: boolean;
+    isAltTradeAccepted: boolean;
+    reopenedAt: string | null;
+  };
+}
+
+interface BackendTradeRequirement {
+  id: string;
+  tradeId: string;
+  trade: { id: string; name: string };
+  requestedHeadcount: number;
+  startDate: string | null;
+  expectedEndDate: string | null;
+}
+
+interface BackendOrder {
+  id: string;
+  title: string;
+  customer: { id: string; name: string } | null;
+  jobSiteCity: string | null;
+  jobSiteState: string | null;
+  jobSiteAddress1: string | null;
+  tradeRequirements: BackendTradeRequirement[];
+}
+
+const STATUS_TO_BUCKET: Record<string, BucketId> = {
+  OPTED_IN: 'identified',
+  IDENTIFIED: 'identified',
+  CLOSED: 'closed',
+  WITHDRAWN_PLACED_ELSEWHERE: 'closed',
+  WITHDRAWN_REJECTED: 'closed',
+  WITHDRAWN_WITHDRAWN: 'closed',
+};
+
+const BUCKET_DEFINITIONS: { id: BucketId; name: string; description: string; isConditional?: boolean }[] = [
+  { id: 'identified', name: 'Identified / Sourced', description: 'Candidates identified via system matching or recruiter search' },
+  { id: 'interested', name: 'Interested / Opted-In', description: 'Candidates who have expressed interest in the position' },
+  { id: 'vetted', name: 'Vetted (MW4H Approved)', description: 'Candidates approved by MW4H vetting process' },
+  { id: 'customer_held', name: 'Customer-Held', description: 'Awaiting customer pre-approval (conditional gate)', isConditional: true },
+  { id: 'pre_dispatch', name: 'Pre-Dispatch', description: 'Ready for dispatch assignment' },
+  { id: 'dispatched', name: 'Dispatched', description: 'Actively dispatched to job site' },
+  { id: 'closed', name: 'Closed', description: 'No longer in active recruiting flow' },
+];
+
+function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
+  const name = `${bc.candidate.firstName} ${bc.candidate.lastName}`.trim();
+  const tradeName = bc.originalTrade?.tradeName ?? '';
+  const tradeId = bc.originalTrade?.tradeId ?? '';
+
+  let closedDisposition: ClosedDisposition | undefined;
+  if (bc.closed?.disposition === 'NOT_SELECTED' || bc.closed?.disposition === 'REJECTED') {
+    closedDisposition = bc.closed.disposition;
+  }
+
+  let altTrade: AltTradeInfo | undefined;
+  if (bc.altTrade && bc.altTrade.tradeName) {
+    altTrade = {
+      tradeName: bc.altTrade.tradeName,
+      accepted: bc.altTrade.accepted,
+      confirmationMethod: bc.altTrade.confirmationMethod as AltTradeInfo['confirmationMethod'],
+      confirmedAt: bc.altTrade.confirmedAt ?? undefined,
+      confirmedByName: bc.altTrade.confirmedByUser?.fullName ?? undefined,
+      note: bc.altTrade.note ?? undefined,
+    };
+  }
+
+  return {
+    id: bc.id,
+    name,
+    tradeId,
+    tradeName,
+    phone: bc.candidate.phone ?? '',
+    email: bc.candidate.email ?? '',
+    distance: 0,
+    sourceType: 'recruiter',
+    certifications: [],
+    availability: 'available',
+    closedDisposition,
+    originalTradeName: tradeName,
+    altTrade,
+  };
+}
+
+function buildBuckets(backendCandidates: BackendCandidate[]): Bucket[] {
+  const grouped: Record<BucketId, Candidate[]> = {
+    identified: [],
+    interested: [],
+    vetted: [],
+    customer_held: [],
+    pre_dispatch: [],
+    dispatched: [],
+    closed: [],
+  };
+
+  for (const bc of backendCandidates) {
+    const bucketId = STATUS_TO_BUCKET[bc.status] ?? 'identified';
+    grouped[bucketId].push(mapBackendCandidateToShell(bc));
+  }
+
+  return BUCKET_DEFINITIONS.map((def) => ({
+    ...def,
+    candidates: grouped[def.id],
+  }));
+}
+
+function buildTrades(tradeReqs: BackendTradeRequirement[], dispatchedCandidates: Candidate[]): Trade[] {
+  return tradeReqs.map((tr) => {
+    const dispatched = dispatchedCandidates.filter((c) => c.tradeId === tr.tradeId).length;
+    return {
+      id: tr.tradeId,
+      name: tr.trade.name,
+      totalRequired: tr.requestedHeadcount,
+      dispatched,
+    };
+  });
+}
+
+function buildLocation(order: BackendOrder): string {
+  const parts = [order.jobSiteAddress1, order.jobSiteCity, order.jobSiteState].filter(Boolean);
+  return parts.join(', ') || 'Location not set';
+}
+
+export type VettingDataState =
+  | { status: 'loading' }
+  | { status: 'error'; error: string }
+  | { status: 'ready'; order: Order };
+
+export function useVettingData(orderId: string | undefined): {
+  state: VettingDataState;
+  refetch: () => void;
+} {
+  const [state, setState] = useState<VettingDataState>({ status: 'loading' });
+
+  const fetchData = useCallback(async () => {
+    if (!orderId) return;
+    setState({ status: 'loading' });
+
+    try {
+      const [backendOrder, backendCandidates] = await Promise.all([
+        apiFetch<BackendOrder>(`/orders/${orderId}`),
+        apiFetch<BackendCandidate[]>(`/recruiting/order/${orderId}/candidates`),
+      ]);
+
+      const buckets = buildBuckets(backendCandidates);
+      const dispatchedBucket = buckets.find((b) => b.id === 'dispatched');
+      const trades = buildTrades(backendOrder.tradeRequirements ?? [], dispatchedBucket?.candidates ?? []);
+
+      const startDates = (backendOrder.tradeRequirements ?? [])
+        .map((tr) => tr.startDate)
+        .filter(Boolean) as string[];
+      const endDates = (backendOrder.tradeRequirements ?? [])
+        .map((tr) => tr.expectedEndDate)
+        .filter(Boolean) as string[];
+
+      const order: Order = {
+        id: backendOrder.id,
+        projectName: backendOrder.title ?? 'Untitled Order',
+        customerName: backendOrder.customer?.name ?? 'Unknown Customer',
+        location: buildLocation(backendOrder),
+        startDate: startDates.length > 0 ? startDates.sort()[0] : '',
+        endDate: endDates.length > 0 ? endDates.sort().reverse()[0] : '',
+        requiresCustomerPreApproval: false,
+        trades,
+        buckets,
+      };
+
+      setState({ status: 'ready', order });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load vetting data';
+      setState({ status: 'error', error: msg });
+    }
+  }, [orderId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  return { state, refetch: fetchData };
+}

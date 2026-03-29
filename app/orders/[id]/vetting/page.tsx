@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  mockOrder,
   Bucket,
   Candidate,
   Trade,
@@ -13,6 +12,7 @@ import {
 import { BucketTradeSummary } from '@/components/BucketTradeSummary';
 import { useAuth } from "@/lib/auth/useAuth";
 import { EventSpineTimelineSnapshot } from "@/components/EventSpineTimelineSnapshot";
+import { useVettingData } from './useVettingData';
 
 /**
  * Vetting Page — Structure Lock Implementation
@@ -118,10 +118,10 @@ export default function VettingPage() {
   const router = useRouter();
   const { isAuthenticated, demoTitle } = useAuth();
   
-  const order = mockOrder;
+  const { state: vettingState, refetch } = useVettingData(orderId);
   
   // State for customer pre-approval toggle (UI-only)
-  const [requiresPreApproval, setRequiresPreApproval] = useState(order.requiresCustomerPreApproval);
+  const [requiresPreApproval, setRequiresPreApproval] = useState(false);
   
   // State for dispatch modal
   const [showDispatchModal, setShowDispatchModal] = useState(false);
@@ -133,6 +133,43 @@ export default function VettingPage() {
   
   // State for No-Show candidates (UI-only mock)
   const [noShowCandidates, setNoShowCandidates] = useState<Candidate[]>(MOCK_NO_SHOWS);
+
+  // Loading state — preserve shell structure
+  if (vettingState.status === 'loading') {
+    return (
+      <div className="vetting-page" style={{ minHeight: '100vh', background: '#f8fafc', padding: 24 }}>
+        <header className="order-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '16px 20px', background: '#ffffff', borderRadius: 12, border: '1px solid #e5e7eb', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>Orders / ... / Vetting</div>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#111827' }}>Loading vetting data...</h1>
+          </div>
+        </header>
+        <div style={{ textAlign: 'center', padding: 40, color: '#6b7280', fontSize: 14 }}>Loading candidates and order context...</div>
+      </div>
+    );
+  }
+
+  // Error state — preserve shell structure
+  if (vettingState.status === 'error') {
+    return (
+      <div className="vetting-page" style={{ minHeight: '100vh', background: '#f8fafc', padding: 24 }}>
+        <header className="order-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '16px 20px', background: '#ffffff', borderRadius: 12, border: '1px solid #e5e7eb', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
+              <button style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: '#6b7280', fontSize: 13 }} onClick={() => router.push('/orders')}>Orders</button>
+              <span style={{ color: '#d1d5db', margin: '0 8px' }}>/</span>
+              <span>Vetting</span>
+            </div>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#dc2626' }}>Failed to load vetting data</h1>
+            <p style={{ margin: '8px 0 0', fontSize: 12, color: '#6b7280' }}>{vettingState.error}</p>
+          </div>
+          <button onClick={refetch} style={{ padding: '8px 16px', background: '#2563eb', border: 'none', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Retry</button>
+        </header>
+      </div>
+    );
+  }
+
+  const order = vettingState.order;
 
   // Filter buckets: exclude customer_held and closed from main active pipeline
   const pipelineBuckets = order.buckets.filter(bucket => bucket.id !== 'customer_held' && bucket.id !== 'closed');
@@ -272,11 +309,18 @@ export default function VettingPage() {
                 demoTitle={demoTitle}
               />
               
-              {/* Closed Lane (Phase 5) */}
+                            {/* Closed Lane (Phase 5) */}
               {closedBucket && (
-                <ClosedLane
-                  candidates={closedBucket.candidates}
+                <LaneColumn
+                  bucket={closedBucket}
+                  trades={order.trades}
+                  laneName={LANE_NAMES['closed'].name}
+                  laneDescription={LANE_NAMES['closed'].description}
+                  isLast
+                  onDispatch={handleDispatch}
                   onCardClick={handleCardClick}
+                  isAuthenticated={isAuthenticated}
+                  demoTitle={demoTitle}
                 />
               )}
             </div>
@@ -2518,3 +2562,6 @@ function DispatchModal({
     </div>
   );
 }
+
+
+
