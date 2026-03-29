@@ -30,6 +30,26 @@ export type AltTradeInfo = {
   note?: string;
 };
 
+export type CandidateSignals = {
+  candidateStatus: 'ACTIVE' | 'INACTIVE' | 'DO_NOT_DISPATCH';
+  readiness: 'READY' | 'BLOCKED' | 'PENDING';
+  blockers: string[];
+  hardGates: {
+    certifications: { met: number; total: number };
+    compliance: { met: number; total: number };
+  };
+  softSignals: {
+    tools: { met: number; total: number; deferred?: boolean };
+    ppe: { met: number; total: number };
+    capabilities: { matched: number; total: number };
+  };
+  availability?: {
+    available: boolean;
+    reason?: string;
+    conflictingOrderId?: string;
+  };
+};
+
 export type Candidate = {
   id: string;
   name: string;
@@ -47,6 +67,7 @@ export type Candidate = {
   closedDisposition?: ClosedDisposition;
   originalTradeName?: string;
   altTrade?: AltTradeInfo;
+  signals?: CandidateSignals;
 };
 
 export type BucketId = 

@@ -1,6 +1,8 @@
 'use client';
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from 'next/navigation';
+import { apiFetch } from '@/lib/api';
+import { AddCandidateModal, TradeLineOption } from '@/components/vetting/AddCandidateModal';
 // Mock job orders data
 const MOCK_ORDERS = [
   {
@@ -124,16 +126,50 @@ export default function OrdersPage() {
     }, 0);
   };
 
+  const [addCandidateOrderId, setAddCandidateOrderId] = useState<string | null>(null);
+  const [addCandidateTradeLines, setAddCandidateTradeLines] = useState<TradeLineOption[]>([]);
+  const [addCandidateLoading, setAddCandidateLoading] = useState(false);
+
+  const handleOpenAddCandidate = useCallback(async (orderId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setAddCandidateLoading(true);
+    try {
+      const order = await apiFetch<{
+        id: string;
+        tradeRequirements: Array<{
+          id: string;
+          tradeId: string;
+          trade: { id: string; name: string };
+          requestedHeadcount: number;
+          startDate: string | null;
+          expectedEndDate: string | null;
+        }>;
+      }>(`/orders/${orderId}`);
+      const lines: TradeLineOption[] = (order.tradeRequirements ?? []).map((tr) => ({
+        id: tr.id,
+        tradeId: tr.tradeId,
+        tradeName: tr.trade.name,
+        startDate: tr.startDate,
+        expectedEndDate: tr.expectedEndDate,
+        requestedHeadcount: tr.requestedHeadcount,
+      }));
+      setAddCandidateTradeLines(lines);
+      setAddCandidateOrderId(orderId);
+    } catch {
+      setAddCandidateTradeLines([]);
+      setAddCandidateOrderId(orderId);
+    } finally {
+      setAddCandidateLoading(false);
+    }
+  }, []);
+
   const visibleOrders = useMemo(() => {
     switch (activeFilter) {
       case "has-openings":
-        // Orders where Openings O > 0 (some slots still unfilled)
         return orders.filter((order) => getOpenSlots(order) > 0);
       case "fully-staffed":
-        // Orders where Openings O = 0 (all slots filled)
         return orders.filter((order) => getOpenSlots(order) === 0);
       default:
-        // All Active: show all orders
         return orders;
     }
   }, [activeFilter]);
@@ -206,6 +242,7 @@ export default function OrdersPage() {
               <th>Trade Summary</th>
               <th>Staffing Status</th>
               <th>Last Updated</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -237,11 +274,33 @@ export default function OrdersPage() {
                   )}
                 </td>
                 <td className="last-updated">{order.lastUpdated}</td>
+                <td className="actions-cell">
+                  {getOpenSlots(order) > 0 && (
+                    <button
+                      className="add-candidate-btn"
+                      onClick={(e) => handleOpenAddCandidate(order.id, e)}
+                      disabled={addCandidateLoading}
+                      title="Add a candidate to this order"
+                    >
+                      + Add Candidate
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {addCandidateOrderId && (
+        <AddCandidateModal
+          orderId={addCandidateOrderId}
+          tradeLines={addCandidateTradeLines}
+          entrySource="OPENINGS_HUB"
+          onClose={() => setAddCandidateOrderId(null)}
+          onSuccess={() => setAddCandidateOrderId(null)}
+        />
+      )}
 
       <style jsx>{`
         /* ============================================================
@@ -432,6 +491,32 @@ export default function OrdersPage() {
           background: #f0fdf4;
           color: #16a34a;
           border: 1px solid #bbf7d0;
+        }
+
+        .actions-cell {
+          white-space: nowrap;
+        }
+
+        .add-candidate-btn {
+          padding: 5px 12px;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          border-radius: 5px;
+          color: #2563eb;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.12s ease, border-color 0.12s ease;
+        }
+
+        .add-candidate-btn:hover:not(:disabled) {
+          background: #dbeafe;
+          border-color: #93c5fd;
+        }
+
+        .add-candidate-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
       `}</style>
 

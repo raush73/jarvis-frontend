@@ -13,6 +13,7 @@ import { BucketTradeSummary } from '@/components/BucketTradeSummary';
 import { useAuth } from "@/lib/auth/useAuth";
 import { EventSpineTimelineSnapshot } from "@/components/EventSpineTimelineSnapshot";
 import { useVettingData } from './useVettingData';
+import { AddCandidateModal } from '@/components/vetting/AddCandidateModal';
 
 /**
  * Vetting Page — Structure Lock Implementation
@@ -92,23 +93,32 @@ const SOURCE_LABELS: Record<string, { label: string; icon: string }> = {
   roadtechs: { label: 'Roadtechs', icon: '🛣️' },
 };
 
-// Mock readiness calculation (placeholder)
 function getReadinessSignal(candidate: Candidate): { color: 'green' | 'yellow' | 'red'; label: string } {
-  const certCount = candidate.certifications.filter(c => c.verified).length;
-  if (certCount >= 2 && candidate.availability === 'available') {
-    return { color: 'green', label: 'Ready' };
-  } else if (certCount >= 1) {
-    return { color: 'yellow', label: 'Pending' };
+  if (!candidate.signals) {
+    return { color: 'yellow', label: 'No data' };
   }
-  return { color: 'red', label: 'Blocked' };
+  switch (candidate.signals.readiness) {
+    case 'READY':
+      return { color: 'green', label: 'Ready' };
+    case 'PENDING':
+      return { color: 'yellow', label: 'Pending' };
+    case 'BLOCKED':
+      return { color: 'red', label: 'Blocked' };
+    default:
+      return { color: 'yellow', label: 'Unknown' };
+  }
 }
 
-// Mock eligibility calculation (placeholder)
 function getEligibilitySummary(candidate: Candidate): { met: number; total: number; blockers: number } {
-  // Mock: 7 total requirements, calculate based on certs
-  const total = 7;
-  const met = Math.min(candidate.certifications.filter(c => c.verified).length + 3, total);
-  const blockers = total - met;
+  if (!candidate.signals) {
+    return { met: 0, total: 0, blockers: 0 };
+  }
+  const { hardGates, softSignals } = candidate.signals;
+  const met = hardGates.certifications.met + hardGates.compliance.met
+    + softSignals.ppe.met + softSignals.capabilities.matched;
+  const total = hardGates.certifications.total + hardGates.compliance.total
+    + softSignals.ppe.total + softSignals.capabilities.total;
+  const blockers = candidate.signals.blockers.length;
   return { met, total, blockers };
 }
 
@@ -118,10 +128,13 @@ export default function VettingPage() {
   const router = useRouter();
   const { isAuthenticated, demoTitle } = useAuth();
   
-  const { state: vettingState, refetch } = useVettingData(orderId);
+  const { state: vettingState, refetch, tradeLines } = useVettingData(orderId);
   
   // State for customer pre-approval toggle (UI-only)
   const [requiresPreApproval, setRequiresPreApproval] = useState(false);
+  
+  // State for Add Candidate modal (Direct Add — Path 4)
+  const [showAddCandidateModal, setShowAddCandidateModal] = useState(false);
   
   // State for dispatch modal
   const [showDispatchModal, setShowDispatchModal] = useState(false);
@@ -232,6 +245,12 @@ export default function VettingPage() {
           </div>
         </div>
         <div className="header-right">
+          <button
+            className="add-candidate-header-btn"
+            onClick={() => setShowAddCandidateModal(true)}
+          >
+            + Add Candidate
+          </button>
           <div className="trade-chips">
             {order.trades.map(trade => {
               const open = getOpenSlots(trade);
@@ -394,6 +413,27 @@ export default function VettingPage() {
           </tbody>
         </table>
       </section>
+
+      {/* Add Candidate Modal (Direct Add — Path 4) */}
+      {showAddCandidateModal && (
+        <AddCandidateModal
+          orderId={orderId}
+          tradeLines={tradeLines.map((tl) => ({
+            id: tl.id,
+            tradeId: tl.tradeId,
+            tradeName: tl.tradeName,
+            startDate: tl.startDate,
+            expectedEndDate: tl.expectedEndDate,
+            requestedHeadcount: tl.requestedHeadcount,
+          }))}
+          entrySource="DIRECT_ADD"
+          onClose={() => setShowAddCandidateModal(false)}
+          onSuccess={() => {
+            setShowAddCandidateModal(false);
+            refetch();
+          }}
+        />
+      )}
 
       {/* Dispatch Modal */}
       {showDispatchModal && selectedCandidate && (
@@ -686,6 +726,23 @@ export default function VettingPage() {
 
         .totals-row { background: #f8fafc; }
         .totals-row td { border-bottom: none; }
+
+        .add-candidate-header-btn {
+          padding: 7px 14px;
+          background: #2563eb;
+          border: none;
+          border-radius: 6px;
+          color: #fff;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.12s ease;
+          white-space: nowrap;
+        }
+
+        .add-candidate-header-btn:hover {
+          background: #1d4ed8;
+        }
       `}</style>
     </div>
   );
@@ -923,9 +980,11 @@ function VettingCandidateCard({
 
       <div className="card-details">
         <span className="detail">📍 {candidate.distance} mi</span>
-        <span className={`availability avail-${candidate.availability}`}>
-          {candidate.availability === 'available' ? '✓' : '◐'}
-        </span>
+        {candidate.signals?.availability?.available === false ? (
+          <span className="availability-unavailable">UNAVAILABLE — COMMITTED ELSEWHERE</span>
+        ) : (
+          <span className="availability-ok">Available</span>
+        )}
       </div>
 
       {candidate.certifications.length > 0 && (
@@ -937,6 +996,17 @@ function VettingCandidateCard({
           ))}
           {candidate.certifications.length > 2 && (
             <span className="cert more">+{candidate.certifications.length - 2}</span>
+          )}
+        </div>
+      )}
+
+      {candidate.signals?.blockers && candidate.signals.blockers.length > 0 && (
+        <div className="blocker-list">
+          {candidate.signals.blockers.slice(0, 3).map((b, i) => (
+            <span key={i} className="blocker-item">⚠ {b}</span>
+          ))}
+          {candidate.signals.blockers.length > 3 && (
+            <span className="blocker-overflow">+{candidate.signals.blockers.length - 3} more</span>
           )}
         </div>
       )}
@@ -1066,13 +1136,21 @@ function VettingCandidateCard({
           color: #6b7280;
         }
 
-        .availability {
-          font-size: 10px;
-          font-weight: 600;
+        .availability-ok {
+          font-size: 9px;
+          font-weight: 500;
+          color: #16a34a;
         }
 
-        .avail-available { color: #16a34a; }
-        .avail-partial { color: #d97706; }
+        .availability-unavailable {
+          font-size: 8px;
+          font-weight: 600;
+          color: #dc2626;
+          background: #fef2f2;
+          border: 1px solid #fecaca;
+          padding: 1px 5px;
+          border-radius: 3px;
+        }
 
         .certs {
           display: flex;
@@ -1091,6 +1169,29 @@ function VettingCandidateCard({
         .cert.more {
           background: transparent;
           color: #9ca3af;
+        }
+
+        .blocker-list {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          margin-top: 4px;
+          padding: 4px 6px;
+          background: #fef2f2;
+          border: 1px solid #fecaca;
+          border-radius: 4px;
+        }
+
+        .blocker-item {
+          font-size: 8px;
+          color: #991b1b;
+          line-height: 1.3;
+        }
+
+        .blocker-overflow {
+          font-size: 8px;
+          color: #9ca3af;
+          font-style: italic;
         }
 
         .dispatch-date-edit {

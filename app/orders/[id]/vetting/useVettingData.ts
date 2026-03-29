@@ -8,6 +8,7 @@ import type {
   Bucket,
   BucketId,
   Candidate,
+  CandidateSignals,
   ClosedDisposition,
   AltTradeInfo,
 } from '@/data/mockRecruitingData';
@@ -61,6 +62,25 @@ interface BackendCandidate {
     isAltTradeAccepted: boolean;
     reopenedAt: string | null;
   };
+  signals: {
+    candidateStatus: string;
+    readiness: string;
+    blockers: string[];
+    hardGates: {
+      certifications: { met: number; total: number; items?: unknown[] };
+      compliance: { met: number; total: number; items?: unknown[] };
+    };
+    softSignals: {
+      tools: { met: number; total: number; deferred?: boolean };
+      ppe: { met: number; total: number };
+      capabilities: { matched: number; total: number };
+    };
+    availability?: {
+      available: boolean;
+      reason?: string;
+      conflictingOrderId?: string;
+    };
+  } | null;
 }
 
 interface BackendTradeRequirement {
@@ -123,6 +143,25 @@ function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
     };
   }
 
+  let signals: CandidateSignals | undefined;
+  if (bc.signals) {
+    signals = {
+      candidateStatus: bc.signals.candidateStatus as CandidateSignals['candidateStatus'],
+      readiness: bc.signals.readiness as CandidateSignals['readiness'],
+      blockers: bc.signals.blockers,
+      hardGates: {
+        certifications: { met: bc.signals.hardGates.certifications.met, total: bc.signals.hardGates.certifications.total },
+        compliance: { met: bc.signals.hardGates.compliance.met, total: bc.signals.hardGates.compliance.total },
+      },
+      softSignals: {
+        tools: { met: bc.signals.softSignals.tools.met, total: bc.signals.softSignals.tools.total, deferred: bc.signals.softSignals.tools.deferred },
+        ppe: { met: bc.signals.softSignals.ppe.met, total: bc.signals.softSignals.ppe.total },
+        capabilities: { matched: bc.signals.softSignals.capabilities.matched, total: bc.signals.softSignals.capabilities.total },
+      },
+      availability: bc.signals.availability ?? undefined,
+    };
+  }
+
   return {
     id: bc.id,
     name,
@@ -137,6 +176,7 @@ function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
     closedDisposition,
     originalTradeName: tradeName,
     altTrade,
+    signals,
   };
 }
 
@@ -184,11 +224,22 @@ export type VettingDataState =
   | { status: 'error'; error: string }
   | { status: 'ready'; order: Order };
 
+export interface OrderTradeLineInfo {
+  id: string;
+  tradeId: string;
+  tradeName: string;
+  startDate: string | null;
+  expectedEndDate: string | null;
+  requestedHeadcount: number;
+}
+
 export function useVettingData(orderId: string | undefined): {
   state: VettingDataState;
   refetch: () => void;
+  tradeLines: OrderTradeLineInfo[];
 } {
   const [state, setState] = useState<VettingDataState>({ status: 'loading' });
+  const [tradeLines, setTradeLines] = useState<OrderTradeLineInfo[]>([]);
 
   const fetchData = useCallback(async () => {
     if (!orderId) return;
@@ -199,6 +250,17 @@ export function useVettingData(orderId: string | undefined): {
         apiFetch<BackendOrder>(`/orders/${orderId}`),
         apiFetch<BackendCandidate[]>(`/recruiting/order/${orderId}/candidates`),
       ]);
+
+      setTradeLines(
+        (backendOrder.tradeRequirements ?? []).map((tr) => ({
+          id: tr.id,
+          tradeId: tr.tradeId,
+          tradeName: tr.trade.name,
+          startDate: tr.startDate,
+          expectedEndDate: tr.expectedEndDate,
+          requestedHeadcount: tr.requestedHeadcount,
+        })),
+      );
 
       const buckets = buildBuckets(backendCandidates);
       const dispatchedBucket = buckets.find((b) => b.id === 'dispatched');
@@ -234,5 +296,5 @@ export function useVettingData(orderId: string | undefined): {
     fetchData();
   }, [fetchData]);
 
-  return { state, refetch: fetchData };
+  return { state, refetch: fetchData, tradeLines };
 }
