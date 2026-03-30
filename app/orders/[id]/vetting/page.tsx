@@ -8,10 +8,12 @@ import {
   Trade,
   getBucketTradeBreakdown,
   getOpenSlots,
+  CustomerApprovalStatusType,
 } from '@/data/mockRecruitingData';
 import { BucketTradeSummary } from '@/components/BucketTradeSummary';
 import { useAuth } from "@/lib/auth/useAuth";
 import { EventSpineTimelineSnapshot } from "@/components/EventSpineTimelineSnapshot";
+import { apiFetch } from '@/lib/api';
 import { useVettingData } from './useVettingData';
 import { AddCandidateModal } from '@/components/vetting/AddCandidateModal';
 
@@ -208,6 +210,22 @@ export default function VettingPage() {
     console.log('Redispatching:', candidate.name);
   };
 
+  // Handler for customer approval status change (Phase 9 — soft gate)
+  const handleApprovalChange = async (candidateId: string, newStatus: CustomerApprovalStatusType) => {
+    try {
+      await apiFetch('/recruiting/customer-approval', {
+        method: 'POST',
+        body: JSON.stringify({
+          orderCandidateId: candidateId,
+          customerApprovalStatus: newStatus,
+        }),
+      });
+      refetch();
+    } catch (err) {
+      console.error('Failed to update customer approval:', err);
+    }
+  };
+
   // Calculate totals
   const totalCandidates = order.buckets.reduce((sum, b) => sum + b.candidates.length, 0);
   const dispatchedCount = order.buckets.find(b => b.id === 'DISPATCHED')?.candidates.length || 0;
@@ -311,6 +329,7 @@ export default function VettingPage() {
                   isLast={index === pipelineBuckets.length - 1}
                   onDispatch={handleDispatch}
                   onCardClick={handleCardClick}
+                  onApprovalChange={handleApprovalChange}
                   isAuthenticated={isAuthenticated}
                   demoTitle={demoTitle}
                 />
@@ -335,6 +354,7 @@ export default function VettingPage() {
                   isLast
                   onDispatch={handleDispatch}
                   onCardClick={handleCardClick}
+                  onApprovalChange={handleApprovalChange}
                   isAuthenticated={isAuthenticated}
                   demoTitle={demoTitle}
                 />
@@ -344,8 +364,10 @@ export default function VettingPage() {
             {/* Customer Approval Gate (Side Panel — gate only, not a bucket) */}
             <CustomerApprovalGate
               bucket={undefined}
+              allCandidates={order.buckets.flatMap(b => b.candidates)}
               requiresPreApproval={requiresPreApproval}
               onToggle={setRequiresPreApproval}
+              onApprovalChange={handleApprovalChange}
               onCardClick={handleCardClick}
               isAuthenticated={isAuthenticated}
               demoTitle={demoTitle}
@@ -754,6 +776,7 @@ function LaneColumn({
   isLast,
   onDispatch,
   onCardClick,
+  onApprovalChange,
   isAuthenticated,
   demoTitle,
 }: {
@@ -764,6 +787,7 @@ function LaneColumn({
   isLast?: boolean;
   onDispatch: (candidate: Candidate) => void;
   onCardClick: (candidate: Candidate) => void;
+  onApprovalChange: (candidateId: string, status: CustomerApprovalStatusType) => void;
   isAuthenticated: boolean;
   demoTitle: string;
 }) {
@@ -808,6 +832,7 @@ function LaneColumn({
               showDispatchDate={isDispatchedBucket}
               onDispatch={() => onDispatch(candidate)}
               onClick={() => onCardClick(candidate)}
+              onApprovalChange={(status) => onApprovalChange(candidate.id, status)}
               isAuthenticated={isAuthenticated}
               demoTitle={demoTitle}
             />
@@ -916,6 +941,32 @@ function LaneColumn({
 }
 
 // Vetting Candidate Card with Semantics
+const APPROVAL_BADGE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
+  PENDING: { bg: '#fef3c7', color: '#92400e', label: 'Pending' },
+  APPROVED: { bg: '#d1fae5', color: '#065f46', label: 'Approved' },
+  REJECTED: { bg: '#fee2e2', color: '#991b1b', label: 'Rejected' },
+  NOT_REQUIRED: { bg: '#f3f4f6', color: '#6b7280', label: 'N/A' },
+};
+
+function ApprovalBadge({ status }: { status: CustomerApprovalStatusType }) {
+  const style = APPROVAL_BADGE_STYLES[status] ?? APPROVAL_BADGE_STYLES.NOT_REQUIRED;
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        fontWeight: 600,
+        padding: '1px 5px',
+        borderRadius: 3,
+        background: style.bg,
+        color: style.color,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      CA: {style.label}
+    </span>
+  );
+}
+
 function VettingCandidateCard({
   candidate,
   showSemantics,
@@ -923,6 +974,7 @@ function VettingCandidateCard({
   showDispatchDate,
   onDispatch,
   onClick,
+  onApprovalChange,
   isAuthenticated,
   demoTitle,
 }: {
@@ -932,6 +984,7 @@ function VettingCandidateCard({
   showDispatchDate?: boolean;
   onDispatch: () => void;
   onClick: () => void;
+  onApprovalChange: (status: CustomerApprovalStatusType) => void;
   isAuthenticated: boolean;
   demoTitle: string;
 }) {
@@ -1005,6 +1058,24 @@ function VettingCandidateCard({
           {candidate.signals.blockers.length > 3 && (
             <span className="blocker-overflow">+{candidate.signals.blockers.length - 3} more</span>
           )}
+        </div>
+      )}
+
+      {candidate.customerApprovalStatus && (
+        <div className="approval-row" onClick={(e) => e.stopPropagation()}>
+          <ApprovalBadge status={candidate.customerApprovalStatus} />
+          <select
+            className="approval-select"
+            value={candidate.customerApprovalStatus}
+            disabled={!isAuthenticated}
+            title={!isAuthenticated ? demoTitle : 'Update customer approval'}
+            onChange={(e) => onApprovalChange(e.target.value as CustomerApprovalStatusType)}
+          >
+            <option value="PENDING">Pending</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="NOT_REQUIRED">Not Required</option>
+          </select>
         </div>
       )}
 
@@ -1189,6 +1260,30 @@ function VettingCandidateCard({
           font-size: 8px;
           color: #9ca3af;
           font-style: italic;
+        }
+
+        .approval-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 4px;
+          padding: 3px 0;
+        }
+
+        .approval-select {
+          font-size: 9px;
+          padding: 1px 4px;
+          border: 1px solid #d1d5db;
+          border-radius: 3px;
+          background: #fff;
+          color: #374151;
+          cursor: pointer;
+          outline: none;
+        }
+
+        .approval-select:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
         .dispatch-date-edit {
@@ -1666,23 +1761,27 @@ function ClosedLane({
 // Customer Approval Gate (Side Panel - NOT a lane)
 function CustomerApprovalGate({
   bucket,
+  allCandidates,
   requiresPreApproval,
   onToggle,
+  onApprovalChange,
   onCardClick,
   isAuthenticated,
   demoTitle,
 }: {
   bucket: Bucket | undefined;
+  allCandidates: Candidate[];
   requiresPreApproval: boolean;
   onToggle: (value: boolean) => void;
+  onApprovalChange: (candidateId: string, status: CustomerApprovalStatusType) => void;
   onCardClick: (candidate: Candidate) => void;
   isAuthenticated: boolean;
   demoTitle: string;
 }) {
-  const pendingCount = bucket?.candidates.length || 0;
+  const pendingCandidates = allCandidates.filter(c => c.customerApprovalStatus === 'PENDING');
+  const approvedCandidates = allCandidates.filter(c => c.customerApprovalStatus === 'APPROVED');
+  const rejectedCandidates = allCandidates.filter(c => c.customerApprovalStatus === 'REJECTED');
 
-  // Mock approval context values (UI-only, read-only)
-  const mockApprovalRequired = true; // Default to YES per spec
   const mockApprovalPackage = 'Tier 2 — Standard';
 
   return (
@@ -1713,8 +1812,8 @@ function CustomerApprovalGate({
         <div className="context-rows">
           <div className="context-row">
             <span className="context-key">Customer Approval Required:</span>
-            <span className={`context-value ${mockApprovalRequired ? 'yes' : 'no'}`}>
-              {mockApprovalRequired ? 'YES' : 'NO'}
+            <span className={`context-value ${requiresPreApproval ? 'yes' : 'no'}`}>
+              {requiresPreApproval ? 'YES' : 'NO'}
             </span>
           </div>
           <div className="context-row">
@@ -1727,29 +1826,61 @@ function CustomerApprovalGate({
         </p>
       </div>
 
-      {requiresPreApproval && (
+      {/* Live approval status summary */}
+      <div className="gate-summary">
+        <div className="summary-row">
+          <span className="summary-dot" style={{ background: '#f59e0b' }}></span>
+          <span className="summary-label">Pending</span>
+          <span className="summary-count">{pendingCandidates.length}</span>
+        </div>
+        <div className="summary-row">
+          <span className="summary-dot" style={{ background: '#22c55e' }}></span>
+          <span className="summary-label">Approved</span>
+          <span className="summary-count">{approvedCandidates.length}</span>
+        </div>
+        <div className="summary-row">
+          <span className="summary-dot" style={{ background: '#ef4444' }}></span>
+          <span className="summary-label">Rejected</span>
+          <span className="summary-count">{rejectedCandidates.length}</span>
+        </div>
+      </div>
+
+      {requiresPreApproval && pendingCandidates.length > 0 && (
         <>
           <div className="gate-status">
             <span className="status-indicator pending"></span>
             <span className="status-text">Pending customer approval</span>
-            <span className="status-count">{pendingCount}</span>
+            <span className="status-count">{pendingCandidates.length}</span>
           </div>
 
-          {bucket && bucket.candidates.length > 0 && (
-            <div className="gate-candidates">
-              {bucket.candidates.map(candidate => (
-                <div key={candidate.id} className="gate-card" onClick={() => onCardClick(candidate)}>
+          <div className="gate-candidates">
+            {pendingCandidates.map(candidate => (
+              <div key={candidate.id} className="gate-card">
+                <div className="gate-card-info" onClick={() => onCardClick(candidate)}>
                   <span className="candidate-name">{candidate.name}</span>
                   <span className="candidate-trade">{candidate.tradeName}</span>
-                  <span className="pending-badge">Awaiting</span>
                 </div>
-              ))}
-            </div>
-          )}
-
-          <button className="approve-btn" disabled title={demoTitle}>
-            Request Customer Approval
-          </button>
+                <div className="gate-card-actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="gate-action-btn approve"
+                    disabled={!isAuthenticated}
+                    title={!isAuthenticated ? demoTitle : 'Approve'}
+                    onClick={() => onApprovalChange(candidate.id, 'APPROVED')}
+                  >
+                    ✓
+                  </button>
+                  <button
+                    className="gate-action-btn reject"
+                    disabled={!isAuthenticated}
+                    title={!isAuthenticated ? demoTitle : 'Reject'}
+                    onClick={() => onApprovalChange(candidate.id, 'REJECTED')}
+                  >
+                    ✗
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </>
       )}
 
@@ -1902,17 +2033,89 @@ function CustomerApprovalGate({
         .gate-card .candidate-trade {
           font-size: 9px;
           color: #6b7280;
-          width: 100%;
         }
 
-        .pending-badge {
-          font-size: 8px;
-          padding: 2px 5px;
+        .gate-card-info {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          flex: 1;
+          cursor: pointer;
+        }
+
+        .gate-card-actions {
+          display: flex;
+          gap: 4px;
+          flex-shrink: 0;
+        }
+
+        .gate-action-btn {
+          width: 22px;
+          height: 22px;
+          border-radius: 4px;
+          border: 1px solid #d1d5db;
+          font-size: 11px;
+          font-weight: 700;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.12s ease;
+        }
+
+        .gate-action-btn.approve {
+          background: #d1fae5;
+          color: #065f46;
+          border-color: #a7f3d0;
+        }
+        .gate-action-btn.approve:hover { background: #a7f3d0; }
+
+        .gate-action-btn.reject {
+          background: #fee2e2;
+          color: #991b1b;
+          border-color: #fecaca;
+        }
+        .gate-action-btn.reject:hover { background: #fecaca; }
+
+        .gate-action-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .gate-summary {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          padding: 8px 10px;
           background: #fffbeb;
           border: 1px solid #fde68a;
-          color: #d97706;
-          border-radius: 3px;
+          border-radius: 6px;
+          margin-bottom: 10px;
+        }
+
+        .summary-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .summary-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+
+        .summary-label {
+          flex: 1;
+          font-size: 10px;
+          color: #4b5563;
+        }
+
+        .summary-count {
+          font-size: 10px;
           font-weight: 700;
+          color: #111827;
         }
 
         .approve-btn {
