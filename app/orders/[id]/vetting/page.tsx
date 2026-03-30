@@ -16,28 +16,27 @@ import { useVettingData } from './useVettingData';
 import { AddCandidateModal } from '@/components/vetting/AddCandidateModal';
 
 /**
- * Vetting Page — Structure Lock Implementation
- * 
- * LOCKED LANE NAMES:
- * 1. Opted-In (This Job)
- * 2. Awaiting Candidate Action
- * 3. MW4H Approved (Candidate Pool)
- * 4. Pre-Dispatch
- * 5. Dispatched
- * 6. Exceptions (No-Show)
- * 
- * Discovery is a compact utility strip, not the main work surface.
- * Customer Approval is a gate (side panel), not a lane.
+ * Vetting Page — Phase 8 Governance-Aligned Buckets
+ *
+ * CANONICAL BUCKET NAMES (governance-aligned):
+ * 1. OPTED_IN
+ * 2. AWAITING_CANDIDATE_ACTION
+ * 3. MW4H_APPROVED
+ * 4. PRE_DISPATCH
+ * 5. DISPATCHED
+ * 6. CLOSED
+ *
+ * Customer Approval is a GATE (side panel), not a bucket.
+ * Exceptions lane is preserved as a UI placeholder (not yet backed by status).
  */
 
-// Lane name mapping per lock specification
 const LANE_NAMES: Record<string, { name: string; description: string }> = {
-  identified: { name: 'Opted-In (This Job)', description: 'Candidates who opted in for this specific job' },
-  interested: { name: 'Awaiting Candidate Action', description: 'Worker-blocked: docs, certs, reconfirm needed' },
-  vetted: { name: 'MW4H Approved (Candidate Pool)', description: 'Approved candidates ready for assignment' },
-  pre_dispatch: { name: 'Pre-Dispatch', description: 'Ready for dispatch assignment' },
-  dispatched: { name: 'Dispatched', description: 'Actively dispatched to job site' },
-  closed: { name: 'Closed', description: 'Out of active recruiting flow' },
+  OPTED_IN: { name: 'Opted-In', description: 'Candidates who opted in for this specific job' },
+  AWAITING_CANDIDATE_ACTION: { name: 'Awaiting Candidate Action', description: 'Worker-blocked: docs, certs, reconfirm needed' },
+  MW4H_APPROVED: { name: 'MW4H Approved', description: 'Approved candidates ready for consideration' },
+  PRE_DISPATCH: { name: 'Pre-Dispatch', description: 'Ready for dispatch assignment' },
+  DISPATCHED: { name: 'Dispatched', description: 'Actively dispatched to job site' },
+  CLOSED: { name: 'Closed', description: 'Out of active recruiting flow' },
 };
 
 // Mock PPE list
@@ -184,10 +183,8 @@ export default function VettingPage() {
 
   const order = vettingState.order;
 
-  // Filter buckets: exclude customer_held and closed from main active pipeline
-  const pipelineBuckets = order.buckets.filter(bucket => bucket.id !== 'customer_held' && bucket.id !== 'closed');
-  const customerHeldBucket = order.buckets.find(b => b.id === 'customer_held');
-  const closedBucket = order.buckets.find(b => b.id === 'closed');
+  const pipelineBuckets = order.buckets.filter(bucket => bucket.id !== 'CLOSED');
+  const closedBucket = order.buckets.find(b => b.id === 'CLOSED');
 
   // Handler for adding to Identified (mock)
   const handleAddToIdentified = (candidate: Candidate) => {
@@ -213,7 +210,7 @@ export default function VettingPage() {
 
   // Calculate totals
   const totalCandidates = order.buckets.reduce((sum, b) => sum + b.candidates.length, 0);
-  const dispatchedCount = order.buckets.find(b => b.id === 'dispatched')?.candidates.length || 0;
+  const dispatchedCount = order.buckets.find(b => b.id === 'DISPATCHED')?.candidates.length || 0;
   const totalRequired = order.trades.reduce((sum, t) => sum + t.totalRequired, 0);
 
   // Mock discovery counts
@@ -328,13 +325,13 @@ export default function VettingPage() {
                 demoTitle={demoTitle}
               />
               
-                            {/* Closed Lane (Phase 5) */}
+                            {/* Closed Lane */}
               {closedBucket && (
                 <LaneColumn
                   bucket={closedBucket}
                   trades={order.trades}
-                  laneName={LANE_NAMES['closed'].name}
-                  laneDescription={LANE_NAMES['closed'].description}
+                  laneName={LANE_NAMES['CLOSED'].name}
+                  laneDescription={LANE_NAMES['CLOSED'].description}
                   isLast
                   onDispatch={handleDispatch}
                   onCardClick={handleCardClick}
@@ -344,9 +341,9 @@ export default function VettingPage() {
               )}
             </div>
 
-            {/* Customer Approval Gate (Side Panel) */}
+            {/* Customer Approval Gate (Side Panel — gate only, not a bucket) */}
             <CustomerApprovalGate
-              bucket={customerHeldBucket}
+              bucket={undefined}
               requiresPreApproval={requiresPreApproval}
               onToggle={setRequiresPreApproval}
               onCardClick={handleCardClick}
@@ -771,16 +768,16 @@ function LaneColumn({
   demoTitle: string;
 }) {
   const tradeBreakdown = getBucketTradeBreakdown(bucket, trades);
-  const isDispatchedBucket = bucket.id === 'dispatched';
-  const isPreDispatchBucket = bucket.id === 'pre_dispatch';
-  const showSemantics = bucket.id === 'identified' || bucket.id === 'interested';
+  const isDispatchedBucket = bucket.id === 'DISPATCHED';
+  const isPreDispatchBucket = bucket.id === 'PRE_DISPATCH';
+  const showSemantics = bucket.id === 'OPTED_IN' || bucket.id === 'AWAITING_CANDIDATE_ACTION';
 
   const laneColors: Record<string, string> = {
-    identified: '#6366f1',
-    interested: '#f59e0b',
-    vetted: '#a855f7',
-    pre_dispatch: '#22c55e',
-    dispatched: '#10b981',
+    OPTED_IN: '#6366f1',
+    AWAITING_CANDIDATE_ACTION: '#f59e0b',
+    MW4H_APPROVED: '#a855f7',
+    PRE_DISPATCH: '#22c55e',
+    DISPATCHED: '#10b981',
   };
 
   const accentColor = laneColors[bucket.id] || '#6366f1';

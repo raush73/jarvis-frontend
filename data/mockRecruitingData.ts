@@ -1,7 +1,8 @@
 /**
- * Mock Recruiting Data — Canonical Flow v2
- * 
- * Buckets: Identified → Interested → Vetted → Customer-Held (conditional) → Pre-Dispatch → Dispatched
+ * Mock Recruiting Data — Canonical governance-aligned buckets
+ *
+ * Buckets: OPTED_IN → AWAITING_CANDIDATE_ACTION → MW4H_APPROVED → PRE_DISPATCH → DISPATCHED → CLOSED
+ * Customer Approval is a GATE (not a bucket).
  * Trade count semantics: Open / Total Required
  * Open changes ONLY at Dispatch or No-Show
  */
@@ -50,6 +51,8 @@ export type CandidateSignals = {
   };
 };
 
+export type CustomerApprovalStatusType = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
+
 export type Candidate = {
   id: string;
   name: string;
@@ -68,16 +71,16 @@ export type Candidate = {
   originalTradeName?: string;
   altTrade?: AltTradeInfo;
   signals?: CandidateSignals;
+  customerApprovalStatus?: CustomerApprovalStatusType;
 };
 
-export type BucketId = 
-  | 'identified'
-  | 'interested'
-  | 'vetted'
-  | 'customer_held'
-  | 'pre_dispatch'
-  | 'dispatched'
-  | 'closed';
+export type BucketId =
+  | 'OPTED_IN'
+  | 'AWAITING_CANDIDATE_ACTION'
+  | 'MW4H_APPROVED'
+  | 'PRE_DISPATCH'
+  | 'DISPATCHED'
+  | 'CLOSED';
 
 export type Bucket = {
   id: BucketId;
@@ -114,7 +117,7 @@ export function getOpenSlots(trade: Trade): number {
 
 // Mock Candidates
 const mockCandidates: Record<BucketId, Candidate[]> = {
-  closed: [
+  CLOSED: [
     {
       id: 'cand_closed_001',
       name: 'Frank Morrison',
@@ -192,7 +195,7 @@ const mockCandidates: Record<BucketId, Candidate[]> = {
       },
     },
   ],
-  identified: [
+  OPTED_IN: [
     {
       id: 'cand_001',
       name: 'Marcus Johnson',
@@ -239,7 +242,7 @@ const mockCandidates: Record<BucketId, Candidate[]> = {
       availability: 'partial',
     },
   ],
-  interested: [
+  AWAITING_CANDIDATE_ACTION: [
     {
       id: 'cand_004',
       name: 'Elena Rodriguez',
@@ -271,7 +274,7 @@ const mockCandidates: Record<BucketId, Candidate[]> = {
       availability: 'available',
     },
   ],
-  vetted: [
+  MW4H_APPROVED: [
     {
       id: 'cand_006',
       name: 'Aisha Patel',
@@ -306,25 +309,7 @@ const mockCandidates: Record<BucketId, Candidate[]> = {
       notes: 'MW4H Approved',
     },
   ],
-  customer_held: [
-    {
-      id: 'cand_008',
-      name: 'Linda Nakamura',
-      tradeId: 'trade_carp',
-      tradeName: 'Carpenter',
-      phone: '(555) 890-1234',
-      email: 'linda.n@email.com',
-      distance: 7,
-      matchConfidence: 89,
-      sourceType: 'system',
-      certifications: [
-        { id: 'cert_12', name: 'Framing Specialist', verified: true },
-      ],
-      availability: 'available',
-      notes: 'Awaiting customer approval',
-    },
-  ],
-  pre_dispatch: [
+  PRE_DISPATCH: [
     {
       id: 'cand_009',
       name: 'Robert Kim',
@@ -358,7 +343,7 @@ const mockCandidates: Record<BucketId, Candidate[]> = {
       availability: 'available',
     },
   ],
-  dispatched: [
+  DISPATCHED: [
     {
       id: 'cand_011',
       name: 'Thomas Washington',
@@ -486,41 +471,35 @@ const mockCandidates: Record<BucketId, Candidate[]> = {
   ],
 };
 
-// Bucket definitions
+// Bucket definitions — canonical governance-aligned names
 const bucketDefinitions: Omit<Bucket, 'candidates'>[] = [
   {
-    id: 'identified',
-    name: 'Identified / Sourced',
-    description: 'Candidates identified via system matching or recruiter search',
+    id: 'OPTED_IN',
+    name: 'Opted-In',
+    description: 'Candidates who opted in for this specific job',
   },
   {
-    id: 'interested',
-    name: 'Interested / Opted-In',
-    description: 'Candidates who have expressed interest in the position',
+    id: 'AWAITING_CANDIDATE_ACTION',
+    name: 'Awaiting Candidate Action',
+    description: 'Worker-blocked: docs, certs, reconfirm needed',
   },
   {
-    id: 'vetted',
-    name: 'Vetted (MW4H Approved)',
-    description: 'Candidates approved by MW4H vetting process',
+    id: 'MW4H_APPROVED',
+    name: 'MW4H Approved',
+    description: 'Approved candidates ready for consideration',
   },
   {
-    id: 'customer_held',
-    name: 'Customer-Held',
-    description: 'Awaiting customer pre-approval (conditional gate)',
-    isConditional: true,
-  },
-  {
-    id: 'pre_dispatch',
+    id: 'PRE_DISPATCH',
     name: 'Pre-Dispatch',
     description: 'Ready for dispatch assignment',
   },
   {
-    id: 'dispatched',
+    id: 'DISPATCHED',
     name: 'Dispatched',
     description: 'Actively dispatched to job site',
   },
   {
-    id: 'closed',
+    id: 'CLOSED',
     name: 'Closed',
     description: 'No longer in active recruiting flow',
   },

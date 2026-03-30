@@ -11,6 +11,7 @@ import type {
   CandidateSignals,
   ClosedDisposition,
   AltTradeInfo,
+  CustomerApprovalStatusType,
 } from '@/data/mockRecruitingData';
 
 /**
@@ -22,6 +23,8 @@ interface BackendCandidate {
   orderId: string;
   candidateId: string;
   status: string;
+  bucket: string;
+  customerApprovalStatus: string;
   createdAt: string;
   updatedAt: string;
   candidate: {
@@ -102,23 +105,22 @@ interface BackendOrder {
   tradeRequirements: BackendTradeRequirement[];
 }
 
-const STATUS_TO_BUCKET: Record<string, BucketId> = {
-  OPTED_IN: 'identified',
-  IDENTIFIED: 'identified',
-  CLOSED: 'closed',
-  WITHDRAWN_PLACED_ELSEWHERE: 'closed',
-  WITHDRAWN_REJECTED: 'closed',
-  WITHDRAWN_WITHDRAWN: 'closed',
-};
+const CANONICAL_BUCKETS: BucketId[] = [
+  'OPTED_IN',
+  'AWAITING_CANDIDATE_ACTION',
+  'MW4H_APPROVED',
+  'PRE_DISPATCH',
+  'DISPATCHED',
+  'CLOSED',
+];
 
-const BUCKET_DEFINITIONS: { id: BucketId; name: string; description: string; isConditional?: boolean }[] = [
-  { id: 'identified', name: 'Identified / Sourced', description: 'Candidates identified via system matching or recruiter search' },
-  { id: 'interested', name: 'Interested / Opted-In', description: 'Candidates who have expressed interest in the position' },
-  { id: 'vetted', name: 'Vetted (MW4H Approved)', description: 'Candidates approved by MW4H vetting process' },
-  { id: 'customer_held', name: 'Customer-Held', description: 'Awaiting customer pre-approval (conditional gate)', isConditional: true },
-  { id: 'pre_dispatch', name: 'Pre-Dispatch', description: 'Ready for dispatch assignment' },
-  { id: 'dispatched', name: 'Dispatched', description: 'Actively dispatched to job site' },
-  { id: 'closed', name: 'Closed', description: 'No longer in active recruiting flow' },
+const BUCKET_DEFINITIONS: { id: BucketId; name: string; description: string }[] = [
+  { id: 'OPTED_IN', name: 'Opted-In', description: 'Candidates who opted in for this specific job' },
+  { id: 'AWAITING_CANDIDATE_ACTION', name: 'Awaiting Candidate Action', description: 'Worker-blocked: docs, certs, reconfirm needed' },
+  { id: 'MW4H_APPROVED', name: 'MW4H Approved', description: 'Approved candidates ready for consideration' },
+  { id: 'PRE_DISPATCH', name: 'Pre-Dispatch', description: 'Ready for dispatch assignment' },
+  { id: 'DISPATCHED', name: 'Dispatched', description: 'Actively dispatched to job site' },
+  { id: 'CLOSED', name: 'Closed', description: 'No longer in active recruiting flow' },
 ];
 
 function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
@@ -162,6 +164,8 @@ function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
     };
   }
 
+  const customerApprovalStatus = bc.customerApprovalStatus as CustomerApprovalStatusType | undefined;
+
   return {
     id: bc.id,
     name,
@@ -177,22 +181,22 @@ function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
     originalTradeName: tradeName,
     altTrade,
     signals,
+    customerApprovalStatus: customerApprovalStatus !== 'NOT_REQUIRED' ? customerApprovalStatus : undefined,
   };
 }
 
 function buildBuckets(backendCandidates: BackendCandidate[]): Bucket[] {
   const grouped: Record<BucketId, Candidate[]> = {
-    identified: [],
-    interested: [],
-    vetted: [],
-    customer_held: [],
-    pre_dispatch: [],
-    dispatched: [],
-    closed: [],
+    OPTED_IN: [],
+    AWAITING_CANDIDATE_ACTION: [],
+    MW4H_APPROVED: [],
+    PRE_DISPATCH: [],
+    DISPATCHED: [],
+    CLOSED: [],
   };
 
   for (const bc of backendCandidates) {
-    const bucketId = STATUS_TO_BUCKET[bc.status] ?? 'identified';
+    const bucketId = (CANONICAL_BUCKETS.includes(bc.bucket as BucketId) ? bc.bucket : 'OPTED_IN') as BucketId;
     grouped[bucketId].push(mapBackendCandidateToShell(bc));
   }
 
@@ -263,7 +267,7 @@ export function useVettingData(orderId: string | undefined): {
       );
 
       const buckets = buildBuckets(backendCandidates);
-      const dispatchedBucket = buckets.find((b) => b.id === 'dispatched');
+      const dispatchedBucket = buckets.find((b) => b.id === 'DISPATCHED');
       const trades = buildTrades(backendOrder.tradeRequirements ?? [], dispatchedBucket?.candidates ?? []);
 
       const startDates = (backendOrder.tradeRequirements ?? [])
