@@ -13,9 +13,20 @@ import {
 import { BucketTradeSummary } from '@/components/BucketTradeSummary';
 import { useAuth } from "@/lib/auth/useAuth";
 import { EventSpineTimelineSnapshot } from "@/components/EventSpineTimelineSnapshot";
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getAccessToken } from '@/lib/api';
 import { useVettingData } from './useVettingData';
 import { AddCandidateModal } from '@/components/vetting/AddCandidateModal';
+
+function getCurrentUserId(): string | null {
+  const token = getAccessToken();
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.sub ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Vetting Page — Phase 8 Governance-Aligned Buckets
@@ -226,6 +237,25 @@ export default function VettingPage() {
     }
   };
 
+  // Handler for selection toggle (Phase 11)
+  const handleSelectToggle = async (candidate: Candidate) => {
+    const userId = getCurrentUserId();
+    if (!userId) return;
+    const endpoint = candidate.selectedForDispatch ? '/recruiting/deselect' : '/recruiting/select';
+    try {
+      await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({
+          orderCandidateId: candidate.id,
+          userId,
+        }),
+      });
+      refetch();
+    } catch (err) {
+      console.error('Failed to toggle selection:', err);
+    }
+  };
+
   // Calculate totals
   const totalCandidates = order.buckets.reduce((sum, b) => sum + b.candidates.length, 0);
   const dispatchedCount = order.buckets.find(b => b.id === 'DISPATCHED')?.candidates.length || 0;
@@ -330,6 +360,7 @@ export default function VettingPage() {
                   onDispatch={handleDispatch}
                   onCardClick={handleCardClick}
                   onApprovalChange={handleApprovalChange}
+                  onSelectToggle={handleSelectToggle}
                   isAuthenticated={isAuthenticated}
                   demoTitle={demoTitle}
                 />
@@ -777,6 +808,7 @@ function LaneColumn({
   onDispatch,
   onCardClick,
   onApprovalChange,
+  onSelectToggle,
   isAuthenticated,
   demoTitle,
 }: {
@@ -788,6 +820,7 @@ function LaneColumn({
   onDispatch: (candidate: Candidate) => void;
   onCardClick: (candidate: Candidate) => void;
   onApprovalChange: (candidateId: string, status: CustomerApprovalStatusType) => void;
+  onSelectToggle?: (candidate: Candidate) => void;
   isAuthenticated: boolean;
   demoTitle: string;
 }) {
@@ -795,6 +828,10 @@ function LaneColumn({
   const isDispatchedBucket = bucket.id === 'DISPATCHED';
   const isPreDispatchBucket = bucket.id === 'PRE_DISPATCH';
   const showSemantics = bucket.id === 'OPTED_IN' || bucket.id === 'AWAITING_CANDIDATE_ACTION';
+  const selectedCount = isPreDispatchBucket
+    ? bucket.candidates.filter(c => c.selectedForDispatch).length
+    : 0;
+  const totalInLane = bucket.candidates.length;
 
   const laneColors: Record<string, string> = {
     OPTED_IN: '#6366f1',
@@ -816,6 +853,13 @@ function LaneColumn({
           </span>
         </div>
         <span className="lane-desc">{laneDescription}</span>
+        {isPreDispatchBucket && totalInLane > 0 && (
+          <div className="selection-summary">
+            <span className="selection-count">{selectedCount} selected</span>
+            <span className="selection-separator">of</span>
+            <span className="selection-total">{totalInLane} staged</span>
+          </div>
+        )}
         <BucketTradeSummary tradeCounts={tradeBreakdown} />
       </div>
 
@@ -830,9 +874,11 @@ function LaneColumn({
               showSemantics={showSemantics}
               showDispatchButton={isPreDispatchBucket}
               showDispatchDate={isDispatchedBucket}
+              showSelectionControl={isPreDispatchBucket}
               onDispatch={() => onDispatch(candidate)}
               onClick={() => onCardClick(candidate)}
               onApprovalChange={(status) => onApprovalChange(candidate.id, status)}
+              onSelectToggle={isPreDispatchBucket && onSelectToggle ? () => onSelectToggle(candidate) : undefined}
               isAuthenticated={isAuthenticated}
               demoTitle={demoTitle}
             />
@@ -894,6 +940,28 @@ function LaneColumn({
           font-size: 10px;
           color: #6b7280;
           display: block;
+        }
+
+        .selection-summary {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          margin-top: 4px;
+          font-size: 11px;
+        }
+        .selection-count {
+          font-weight: 700;
+          color: #16a34a;
+          background: #f0fdf4;
+          border: 1px solid #bbf7d0;
+          padding: 1px 6px;
+          border-radius: 3px;
+        }
+        .selection-separator {
+          color: #9ca3af;
+        }
+        .selection-total {
+          color: #6b7280;
         }
 
         .lane-candidates {
@@ -972,9 +1040,11 @@ function VettingCandidateCard({
   showSemantics,
   showDispatchButton,
   showDispatchDate,
+  showSelectionControl,
   onDispatch,
   onClick,
   onApprovalChange,
+  onSelectToggle,
   isAuthenticated,
   demoTitle,
 }: {
@@ -982,9 +1052,11 @@ function VettingCandidateCard({
   showSemantics: boolean;
   showDispatchButton?: boolean;
   showDispatchDate?: boolean;
+  showSelectionControl?: boolean;
   onDispatch: () => void;
   onClick: () => void;
   onApprovalChange: (status: CustomerApprovalStatusType) => void;
+  onSelectToggle?: () => void;
   isAuthenticated: boolean;
   demoTitle: string;
 }) {
@@ -999,10 +1071,20 @@ function VettingCandidateCard({
     red: '#ef4444',
   };
 
+  const isSelected = candidate.selectedForDispatch === true;
+
   return (
-    <div className="candidate-card" onClick={onClick}>
+    <div
+      className={`candidate-card${showSelectionControl && isSelected ? ' selected-card' : ''}`}
+      onClick={onClick}
+    >
       <div className="card-header">
         <div className="candidate-info">
+          {showSelectionControl && (
+            <span className={`selection-indicator ${isSelected ? 'sel-active' : 'sel-inactive'}`}>
+              {isSelected ? '✓' : '○'}
+            </span>
+          )}
           <span className="candidate-name">{candidate.name}</span>
           <span className="candidate-trade">{candidate.tradeName}</span>
         </div>
@@ -1094,7 +1176,18 @@ function VettingCandidateCard({
         </div>
       )}
 
-      {showDispatchButton && (
+      {showSelectionControl && (
+        <button
+          className={`select-toggle-btn ${isSelected ? 'selected' : 'not-selected'}`}
+          disabled={!isAuthenticated}
+          title={!isAuthenticated ? demoTitle : isSelected ? 'Deselect from dispatch' : 'Select for dispatch'}
+          onClick={(e) => { e.stopPropagation(); if (!isAuthenticated || !onSelectToggle) return; onSelectToggle(); }}
+        >
+          {isSelected ? '✓ Selected' : 'Select'}
+        </button>
+      )}
+
+      {showDispatchButton && isSelected && (
         <button 
           className="dispatch-btn" 
           disabled={!isAuthenticated} 
@@ -1119,6 +1212,58 @@ function VettingCandidateCard({
         .candidate-card:hover {
           background: #f9fafb;
           border-color: #bfdbfe;
+        }
+
+        .candidate-card.selected-card {
+          border-color: #22c55e;
+          background: #f0fdf4;
+        }
+
+        .candidate-card.selected-card:hover {
+          background: #dcfce7;
+          border-color: #16a34a;
+        }
+
+        .selection-indicator {
+          font-size: 11px;
+          font-weight: 700;
+          margin-right: 4px;
+        }
+        .sel-active { color: #16a34a; }
+        .sel-inactive { color: #9ca3af; }
+
+        .select-toggle-btn {
+          width: 100%;
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.12s ease;
+          margin-top: 4px;
+        }
+        .select-toggle-btn.not-selected {
+          background: #f8fafc;
+          border: 1px solid #d1d5db;
+          color: #374151;
+        }
+        .select-toggle-btn.not-selected:hover:not(:disabled) {
+          background: #f0fdf4;
+          border-color: #22c55e;
+          color: #16a34a;
+        }
+        .select-toggle-btn.selected {
+          background: #22c55e;
+          border: 1px solid #16a34a;
+          color: #ffffff;
+        }
+        .select-toggle-btn.selected:hover:not(:disabled) {
+          background: #ef4444;
+          border-color: #dc2626;
+        }
+        .select-toggle-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .card-header {

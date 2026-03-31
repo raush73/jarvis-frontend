@@ -72,6 +72,8 @@ export type Candidate = {
   altTrade?: AltTradeInfo;
   signals?: CandidateSignals;
   customerApprovalStatus?: CustomerApprovalStatusType;
+  selectedForDispatch?: boolean;
+  selectedAt?: string;
 };
 
 export type BucketId =

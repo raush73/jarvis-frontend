@@ -25,6 +25,8 @@ interface BackendCandidate {
   status: string;
   bucket: string;
   customerApprovalStatus: string;
+  selectedForDispatch: boolean;
+  selectedAt: string | null;
   createdAt: string;
   updatedAt: string;
   candidate: {
@@ -182,6 +184,8 @@ function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
     altTrade,
     signals,
     customerApprovalStatus: customerApprovalStatus !== 'NOT_REQUIRED' ? customerApprovalStatus : undefined,
+    selectedForDispatch: bc.selectedForDispatch,
+    selectedAt: bc.selectedAt ?? undefined,
   };
 }
 
