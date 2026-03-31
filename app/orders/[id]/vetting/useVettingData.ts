@@ -12,6 +12,7 @@ import type {
   ClosedDisposition,
   AltTradeInfo,
   CustomerApprovalStatusType,
+  AssignmentInfo,
 } from '@/data/mockRecruitingData';
 
 /**
@@ -60,6 +61,14 @@ interface BackendCandidate {
     confirmedAt: string | null;
     confirmedByUser: { id: string; fullName: string } | null;
     note: string | null;
+  } | null;
+  assignment: {
+    assignmentId: string;
+    assignmentStatus: string;
+    dispatchedAt: string | null;
+    startDate: string | null;
+    expectedEndDate: string | null;
+    orderTradeRequirementId: string | null;
   } | null;
   computed: {
     isClosed: boolean;
@@ -168,8 +177,21 @@ function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
 
   const customerApprovalStatus = bc.customerApprovalStatus as CustomerApprovalStatusType | undefined;
 
+  let assignment: AssignmentInfo | undefined;
+  if (bc.assignment) {
+    assignment = {
+      assignmentId: bc.assignment.assignmentId,
+      assignmentStatus: bc.assignment.assignmentStatus,
+      dispatchedAt: bc.assignment.dispatchedAt,
+      startDate: bc.assignment.startDate,
+      expectedEndDate: bc.assignment.expectedEndDate,
+    };
+  }
+
   return {
     id: bc.id,
+    candidateId: bc.candidateId,
+    orderTradeRequirementId: bc.originalTrade?.orderTradeRequirementId,
     name,
     tradeId,
     tradeName,
@@ -186,6 +208,7 @@ function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
     customerApprovalStatus: customerApprovalStatus !== 'NOT_REQUIRED' ? customerApprovalStatus : undefined,
     selectedForDispatch: bc.selectedForDispatch,
     selectedAt: bc.selectedAt ?? undefined,
+    assignment,
   };
 }
 

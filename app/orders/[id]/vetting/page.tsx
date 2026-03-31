@@ -152,6 +152,8 @@ export default function VettingPage() {
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [dispatchDate, setDispatchDate] = useState('');
+  const [dispatchLoading, setDispatchLoading] = useState(false);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
   
   // State for split-view panel (card click drill-down)
   const [splitViewCandidate, setSplitViewCandidate] = useState<Candidate | null>(null);
@@ -491,16 +493,42 @@ export default function VettingPage() {
           candidate={selectedCandidate}
           dispatchDate={dispatchDate}
           onDateChange={setDispatchDate}
+          loading={dispatchLoading}
+          error={dispatchError}
           onClose={() => {
             setShowDispatchModal(false);
             setSelectedCandidate(null);
             setDispatchDate('');
+            setDispatchError(null);
           }}
-          onConfirm={() => {
-            console.log('Dispatching:', selectedCandidate.name, 'on', dispatchDate);
-            setShowDispatchModal(false);
-            setSelectedCandidate(null);
-            setDispatchDate('');
+          onConfirm={async () => {
+            if (!selectedCandidate.candidateId || !selectedCandidate.orderTradeRequirementId) {
+              setDispatchError('Missing candidate or trade requirement data.');
+              return;
+            }
+            setDispatchLoading(true);
+            setDispatchError(null);
+            try {
+              await apiFetch('/assignments/dispatch', {
+                method: 'POST',
+                body: JSON.stringify({
+                  orderId,
+                  orderTradeRequirementId: selectedCandidate.orderTradeRequirementId,
+                  candidateId: selectedCandidate.candidateId,
+                  startDate: dispatchDate,
+                }),
+              });
+              setShowDispatchModal(false);
+              setSelectedCandidate(null);
+              setDispatchDate('');
+              setDispatchError(null);
+              refetch();
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : 'Dispatch failed';
+              setDispatchError(msg);
+            } finally {
+              setDispatchLoading(false);
+            }
           }}
           isAuthenticated={isAuthenticated}
           demoTitle={demoTitle}
@@ -868,20 +896,23 @@ function LaneColumn({
           <div className="empty-state">No candidates</div>
         ) : (
           bucket.candidates.map(candidate => (
-            <VettingCandidateCard
-              key={candidate.id}
-              candidate={candidate}
-              showSemantics={showSemantics}
-              showDispatchButton={isPreDispatchBucket}
-              showDispatchDate={isDispatchedBucket}
-              showSelectionControl={isPreDispatchBucket}
-              onDispatch={() => onDispatch(candidate)}
-              onClick={() => onCardClick(candidate)}
-              onApprovalChange={(status) => onApprovalChange(candidate.id, status)}
-              onSelectToggle={isPreDispatchBucket && onSelectToggle ? () => onSelectToggle(candidate) : undefined}
-              isAuthenticated={isAuthenticated}
-              demoTitle={demoTitle}
-            />
+            isDispatchedBucket ? (
+              <DispatchedCard key={candidate.id} candidate={candidate} />
+            ) : (
+              <VettingCandidateCard
+                key={candidate.id}
+                candidate={candidate}
+                showSemantics={showSemantics}
+                showDispatchButton={isPreDispatchBucket}
+                showSelectionControl={isPreDispatchBucket}
+                onDispatch={() => onDispatch(candidate)}
+                onClick={() => onCardClick(candidate)}
+                onApprovalChange={(status) => onApprovalChange(candidate.id, status)}
+                onSelectToggle={isPreDispatchBucket && onSelectToggle ? () => onSelectToggle(candidate) : undefined}
+                isAuthenticated={isAuthenticated}
+                demoTitle={demoTitle}
+              />
+            )
           ))
         )}
       </div>
@@ -1008,6 +1039,110 @@ function LaneColumn({
   );
 }
 
+function formatDispatchDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  try {
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return '—';
+  }
+}
+
+const ASSIGNMENT_STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  DISPATCHED: { label: 'Dispatched', color: '#065f46', bg: '#d1fae5' },
+  ON_ASSIGNMENT: { label: 'On Assignment', color: '#1e40af', bg: '#dbeafe' },
+  ARRIVED: { label: 'Arrived', color: '#1e40af', bg: '#dbeafe' },
+  COMPLETED: { label: 'Completed', color: '#6b7280', bg: '#f3f4f6' },
+  NO_SHOW: { label: 'No Show', color: '#991b1b', bg: '#fee2e2' },
+};
+
+function DispatchedCard({ candidate }: { candidate: Candidate }) {
+  const a = candidate.assignment;
+  const statusInfo = a ? (ASSIGNMENT_STATUS_LABELS[a.assignmentStatus] ?? { label: a.assignmentStatus, color: '#6b7280', bg: '#f3f4f6' }) : null;
+
+  return (
+    <div className="dispatched-card">
+      <div className="dc-header">
+        <span className="dc-name">{candidate.name}</span>
+        <span className="dc-trade">{candidate.tradeName}</span>
+      </div>
+      {statusInfo && (
+        <span className="dc-status-badge" style={{ background: statusInfo.bg, color: statusInfo.color }}>
+          {statusInfo.label}
+        </span>
+      )}
+      {a && (
+        <div className="dc-meta">
+          {a.dispatchedAt && (
+            <div className="dc-row">
+              <span className="dc-label">Dispatched</span>
+              <span className="dc-value">{formatDispatchDate(a.dispatchedAt)}</span>
+            </div>
+          )}
+          <div className="dc-row">
+            <span className="dc-label">Start</span>
+            <span className="dc-value">{formatDispatchDate(a.startDate)}</span>
+          </div>
+          {a.expectedEndDate && (
+            <div className="dc-row">
+              <span className="dc-label">Expected End</span>
+              <span className="dc-value">{formatDispatchDate(a.expectedEndDate)}</span>
+            </div>
+          )}
+        </div>
+      )}
+      <style jsx>{`
+        .dispatched-card {
+          background: #f0fdf4;
+          border: 1px solid #bbf7d0;
+          border-radius: 6px;
+          padding: 8px;
+        }
+        .dc-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          margin-bottom: 4px;
+        }
+        .dc-name {
+          font-size: 12px;
+          font-weight: 700;
+          color: #111827;
+        }
+        .dc-trade {
+          font-size: 10px;
+          color: #6b7280;
+        }
+        .dc-status-badge {
+          display: inline-block;
+          font-size: 9px;
+          font-weight: 700;
+          padding: 1px 6px;
+          border-radius: 3px;
+          margin-bottom: 4px;
+        }
+        .dc-meta {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .dc-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 10px;
+        }
+        .dc-label {
+          color: #6b7280;
+        }
+        .dc-value {
+          color: #111827;
+          font-weight: 500;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // Vetting Candidate Card with Semantics
 const APPROVAL_BADGE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
   PENDING: { bg: '#fef3c7', color: '#92400e', label: 'Pending' },
@@ -1039,7 +1174,6 @@ function VettingCandidateCard({
   candidate,
   showSemantics,
   showDispatchButton,
-  showDispatchDate,
   showSelectionControl,
   onDispatch,
   onClick,
@@ -1051,7 +1185,6 @@ function VettingCandidateCard({
   candidate: Candidate;
   showSemantics: boolean;
   showDispatchButton?: boolean;
-  showDispatchDate?: boolean;
   showSelectionControl?: boolean;
   onDispatch: () => void;
   onClick: () => void;
@@ -1060,7 +1193,6 @@ function VettingCandidateCard({
   isAuthenticated: boolean;
   demoTitle: string;
 }) {
-  const [editableDate, setEditableDate] = useState(candidate.dispatchStartDate || '');
   const source = SOURCE_LABELS[candidate.sourceType] || SOURCE_LABELS.recruiter;
   const readiness = getReadinessSignal(candidate);
   const eligibility = getEligibilitySummary(candidate);
@@ -1158,21 +1290,6 @@ function VettingCandidateCard({
             <option value="REJECTED">Rejected</option>
             <option value="NOT_REQUIRED">Not Required</option>
           </select>
-        </div>
-      )}
-
-      {showDispatchDate && (
-        <div className="dispatch-date-edit">
-          <label className="date-label">Start Date:</label>
-          <input
-            type="date"
-            className="date-input"
-            disabled={!isAuthenticated}
-            title={!isAuthenticated ? demoTitle : undefined}
-            value={editableDate}
-            onChange={(e) => setEditableDate(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-          />
         </div>
       )}
 
@@ -1429,34 +1546,6 @@ function VettingCandidateCard({
         .approval-select:disabled {
           opacity: 0.6;
           cursor: not-allowed;
-        }
-
-        .dispatch-date-edit {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px;
-          background: #f0fdf4;
-          border: 1px solid #bbf7d0;
-          border-radius: 4px;
-          margin-top: 6px;
-        }
-
-        .date-label {
-          font-size: 9px;
-          color: #6b7280;
-        }
-
-        .date-input {
-          flex: 1;
-          padding: 4px 6px;
-          background: #ffffff;
-          border: 1px solid #bbf7d0;
-          border-radius: 3px;
-          color: #16a34a;
-          font-size: 10px;
-          font-weight: 600;
-          outline: none;
         }
 
         .dispatch-btn {
@@ -2755,6 +2844,8 @@ function DispatchModal({
   onDateChange,
   onClose,
   onConfirm,
+  loading,
+  error,
   isAuthenticated,
   demoTitle,
 }: {
@@ -2763,10 +2854,12 @@ function DispatchModal({
   onDateChange: (date: string) => void;
   onClose: () => void;
   onConfirm: () => void;
+  loading?: boolean;
+  error?: string | null;
   isAuthenticated: boolean;
   demoTitle: string;
 }) {
-  const canConfirm = dispatchDate.length > 0;
+  const canConfirm = dispatchDate.length > 0 && !loading;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -2814,14 +2907,20 @@ function DispatchModal({
           </div>
         </div>
 
+        {error && (
+          <div style={{ padding: '0 18px 8px', color: '#dc2626', fontSize: 12, fontWeight: 600 }}>
+            {error}
+          </div>
+        )}
+
         <div className="modal-footer">
-          <button className="cancel-btn" onClick={onClose}>Cancel</button>
+          <button className="cancel-btn" onClick={onClose} disabled={loading}>Cancel</button>
           <button
             className="confirm-btn"
             onClick={onConfirm}
             disabled={!canConfirm}
           >
-            Confirm Dispatch
+            {loading ? 'Dispatching...' : 'Confirm Dispatch'}
           </button>
         </div>
 

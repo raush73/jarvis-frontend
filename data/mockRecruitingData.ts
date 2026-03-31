@@ -53,8 +53,18 @@ export type CandidateSignals = {
 
 export type CustomerApprovalStatusType = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
+export type AssignmentInfo = {
+  assignmentId: string;
+  assignmentStatus: string;
+  dispatchedAt: string | null;
+  startDate: string | null;
+  expectedEndDate: string | null;
+};
+
 export type Candidate = {
   id: string;
+  candidateId?: string;
+  orderTradeRequirementId?: string;
   name: string;
   tradeId: string;
   tradeName: string;
@@ -74,6 +84,7 @@ export type Candidate = {
   customerApprovalStatus?: CustomerApprovalStatusType;
   selectedForDispatch?: boolean;
   selectedAt?: string;
+  assignment?: AssignmentInfo;
 };
 
 export type BucketId =
