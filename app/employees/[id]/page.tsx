@@ -1011,8 +1011,8 @@ export default function EmployeeDetailPage() {
           <div className="header-title">
             <h1>{displayName || emp.email || `Candidate ${emp.id.slice(0, 8)}`}</h1>
             <span className="id-badge">{emp.id.slice(0, 12)}</span>
-            <span className={`status-badge ${emp.status === "ACTIVE_SEEKING" ? "sb-active" : "sb-inactive"}`}>
-              {emp.status === "ACTIVE_SEEKING" ? "Active" : "Not Active"}
+            <span className={`status-badge ${emp.status === "ACTIVE" ? "sb-active" : "sb-inactive"}`}>
+              {emp.status === "ACTIVE" ? "Active" : emp.status === "INACTIVE" ? "Not Active" : emp.status}
             </span>
             {emp.trades.map((t) => (
               <span key={t.id} className="trade-badge">{t.tradeName}</span>
@@ -1041,7 +1041,7 @@ export default function EmployeeDetailPage() {
         </div>
         <div className="summary-item">
           <span className="summary-label">STATUS</span>
-          <span className="summary-value">{emp.status === "ACTIVE_SEEKING" ? "Active / Seeking" : "Not Active"}</span>
+          <span className="summary-value">{emp.status === "ACTIVE" ? "Active" : emp.status === "INACTIVE" ? "Not Active" : emp.status}</span>
         </div>
       </div>
 

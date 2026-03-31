@@ -9,6 +9,10 @@ import type {
   BucketId,
   Candidate,
   CandidateSignals,
+  CertSignalItem,
+  ComplianceSignalItem,
+  PpeSignalItem,
+  ToolSignalItem,
   ClosedDisposition,
   AltTradeInfo,
   CustomerApprovalStatusType,
@@ -81,12 +85,12 @@ interface BackendCandidate {
     readiness: string;
     blockers: string[];
     hardGates: {
-      certifications: { met: number; total: number; items?: unknown[] };
-      compliance: { met: number; total: number; items?: unknown[] };
+      certifications: { met: number; total: number; items?: CertSignalItem[] };
+      compliance: { met: number; total: number; items?: ComplianceSignalItem[] };
     };
     softSignals: {
-      tools: { met: number; total: number; deferred?: boolean };
-      ppe: { met: number; total: number };
+      tools: { met: number; total: number; deferred?: boolean; items?: ToolSignalItem[] };
+      ppe: { met: number; total: number; items?: PpeSignalItem[] };
       capabilities: { matched: number; total: number };
     };
     availability?: {
@@ -163,12 +167,29 @@ function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
       readiness: bc.signals.readiness as CandidateSignals['readiness'],
       blockers: bc.signals.blockers,
       hardGates: {
-        certifications: { met: bc.signals.hardGates.certifications.met, total: bc.signals.hardGates.certifications.total },
-        compliance: { met: bc.signals.hardGates.compliance.met, total: bc.signals.hardGates.compliance.total },
+        certifications: {
+          met: bc.signals.hardGates.certifications.met,
+          total: bc.signals.hardGates.certifications.total,
+          items: bc.signals.hardGates.certifications.items,
+        },
+        compliance: {
+          met: bc.signals.hardGates.compliance.met,
+          total: bc.signals.hardGates.compliance.total,
+          items: bc.signals.hardGates.compliance.items,
+        },
       },
       softSignals: {
-        tools: { met: bc.signals.softSignals.tools.met, total: bc.signals.softSignals.tools.total, deferred: bc.signals.softSignals.tools.deferred },
-        ppe: { met: bc.signals.softSignals.ppe.met, total: bc.signals.softSignals.ppe.total },
+        tools: {
+          met: bc.signals.softSignals.tools.met,
+          total: bc.signals.softSignals.tools.total,
+          deferred: bc.signals.softSignals.tools.deferred,
+          items: bc.signals.softSignals.tools.items,
+        },
+        ppe: {
+          met: bc.signals.softSignals.ppe.met,
+          total: bc.signals.softSignals.ppe.total,
+          items: bc.signals.softSignals.ppe.items,
+        },
         capabilities: { matched: bc.signals.softSignals.capabilities.matched, total: bc.signals.softSignals.capabilities.total },
       },
       availability: bc.signals.availability ?? undefined,

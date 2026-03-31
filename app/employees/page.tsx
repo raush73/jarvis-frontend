@@ -22,7 +22,7 @@ export default function EmployeesPage() {
 
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "ACTIVE_SEEKING" | "NOT_ACTIVE">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "ACTIVE" | "INACTIVE">("all");
 
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,8 +93,8 @@ export default function EmployeesPage() {
           className="control-select"
         >
           <option value="all">All Statuses</option>
-          <option value="ACTIVE_SEEKING">Active / Seeking</option>
-          <option value="NOT_ACTIVE">Not Active</option>
+          <option value="ACTIVE">Active</option>
+          <option value="INACTIVE">Not Active</option>
         </select>
       </div>
 
@@ -137,9 +137,9 @@ export default function EmployeesPage() {
                     <td>{emp.primaryTrade || "\u2014"}</td>
                     <td>
                       <span
-                        className={`status-badge ${emp.status === "ACTIVE_SEEKING" ? "status-active" : "status-inactive"}`}
+                        className={`status-badge ${emp.status === "ACTIVE" ? "status-active" : "status-inactive"}`}
                       >
-                        {emp.status === "ACTIVE_SEEKING" ? "Active" : "Not Active"}
+                        {emp.status === "ACTIVE" ? "Active" : emp.status === "INACTIVE" ? "Not Active" : emp.status}
                       </span>
                     </td>
                   </tr>

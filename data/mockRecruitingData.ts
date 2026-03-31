@@ -31,17 +31,41 @@ export type AltTradeInfo = {
   note?: string;
 };
 
+export type CertSignalItem = {
+  certTypeId: string;
+  certTypeName: string;
+  candidateStatus: 'VALID' | 'EXPIRED' | 'MISSING';
+};
+
+export type ComplianceSignalItem = {
+  requirementTypeId: string;
+  requirementName: string;
+  candidateStatus: 'COMPLETED' | 'PENDING' | 'EXPIRED' | 'MISSING' | 'FAILED';
+};
+
+export type PpeSignalItem = {
+  ppeTypeId: string;
+  ppeTypeName: string;
+  candidateStatus: 'HAS' | 'MISSING';
+};
+
+export type ToolSignalItem = {
+  toolId: string;
+  toolName: string;
+  candidateStatus: 'DEFERRED';
+};
+
 export type CandidateSignals = {
   candidateStatus: 'ACTIVE' | 'INACTIVE' | 'DO_NOT_DISPATCH';
   readiness: 'READY' | 'BLOCKED' | 'PENDING';
   blockers: string[];
   hardGates: {
-    certifications: { met: number; total: number };
-    compliance: { met: number; total: number };
+    certifications: { met: number; total: number; items?: CertSignalItem[] };
+    compliance: { met: number; total: number; items?: ComplianceSignalItem[] };
   };
   softSignals: {
-    tools: { met: number; total: number; deferred?: boolean };
-    ppe: { met: number; total: number };
+    tools: { met: number; total: number; deferred?: boolean; items?: ToolSignalItem[] };
+    ppe: { met: number; total: number; items?: PpeSignalItem[] };
     capabilities: { matched: number; total: number };
   };
   availability?: {

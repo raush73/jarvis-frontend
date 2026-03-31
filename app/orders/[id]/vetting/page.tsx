@@ -1,14 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Bucket,
+  BucketId,
   Candidate,
   Trade,
   getBucketTradeBreakdown,
   getOpenSlots,
   CustomerApprovalStatusType,
+  CertSignalItem,
+  ComplianceSignalItem,
+  PpeSignalItem,
+  ToolSignalItem,
 } from '@/data/mockRecruitingData';
 import { BucketTradeSummary } from '@/components/BucketTradeSummary';
 import { useAuth } from "@/lib/auth/useAuth";
@@ -16,6 +21,24 @@ import { EventSpineTimelineSnapshot } from "@/components/EventSpineTimelineSnaps
 import { apiFetch, getAccessToken } from '@/lib/api';
 import { useVettingData } from './useVettingData';
 import { AddCandidateModal } from '@/components/vetting/AddCandidateModal';
+
+const SELECTABLE_BUCKETS = new Set<BucketId>([
+  'OPTED_IN',
+  'AWAITING_CANDIDATE_ACTION',
+  'MW4H_APPROVED',
+  'PRE_DISPATCH',
+]);
+
+type VettingActionType =
+  | 'ADVANCE_TO_AWAITING_ACTION'
+  | 'APPROVE_MW4H'
+  | 'MOVE_TO_PRE_DISPATCH';
+
+const FORWARD_ACTION: Partial<Record<BucketId, VettingActionType>> = {
+  OPTED_IN: 'ADVANCE_TO_AWAITING_ACTION',
+  AWAITING_CANDIDATE_ACTION: 'APPROVE_MW4H',
+  MW4H_APPROVED: 'MOVE_TO_PRE_DISPATCH',
+};
 
 function getCurrentUserId(): string | null {
   const token = getAccessToken();
@@ -52,32 +75,6 @@ const LANE_NAMES: Record<string, { name: string; description: string }> = {
   CLOSED: { name: 'Closed', description: 'Out of active recruiting flow' },
 };
 
-// Mock PPE list
-const REQUIRED_PPE = [
-  'Hard hat',
-  'Safety glasses',
-  'Hi-vis vest',
-  'Gloves',
-  'Steel-toe boots',
-  'FR clothing',
-];
-
-// Mock tools list
-const REQUIRED_TOOLS = [
-  'Torque Wrenches',
-  'Dial Indicators',
-  'Laser Alignment Kit',
-  'Rigging Equipment',
-  'Multimeter',
-  'Pipe Wrenches',
-];
-
-// Mock certifications required
-const REQUIRED_CERTS = [
-  'OSHA 30',
-  'First Aid/CPR',
-  'Confined Space Entry',
-];
 
 // Mock No-Show candidates
 const MOCK_NO_SHOWS: Candidate[] = [
@@ -160,6 +157,56 @@ export default function VettingPage() {
   
   // State for No-Show candidates (UI-only mock)
   const [noShowCandidates, setNoShowCandidates] = useState<Candidate[]>(MOCK_NO_SHOWS);
+
+  // UI selection state for "Move Selected" — bucket-scoped, NOT selectedForDispatch
+  const [selectedIds, setSelectedIds] = useState<Record<string, Set<string>>>({});
+  const [moveLoading, setMoveLoading] = useState(false);
+
+  const toggleSelection = useCallback((bucketId: string, candidateId: string) => {
+    setSelectedIds(prev => {
+      const next = { ...prev };
+      const bucketSet = new Set(prev[bucketId] || []);
+      if (bucketSet.has(candidateId)) {
+        bucketSet.delete(candidateId);
+      } else {
+        bucketSet.add(candidateId);
+      }
+      next[bucketId] = bucketSet;
+      return next;
+    });
+  }, []);
+
+  const clearBucketSelection = useCallback((bucketId: string) => {
+    setSelectedIds(prev => {
+      const next = { ...prev };
+      next[bucketId] = new Set();
+      return next;
+    });
+  }, []);
+
+  const handleBulkMove = useCallback(async (bucketId: BucketId) => {
+    const action = FORWARD_ACTION[bucketId];
+    if (!action) return;
+    const ids = Array.from(selectedIds[bucketId] || []);
+    if (ids.length === 0) return;
+
+    setMoveLoading(true);
+    try {
+      await apiFetch('/recruiting/bulk-move', {
+        method: 'POST',
+        body: JSON.stringify({
+          orderCandidateIds: ids,
+          action,
+        }),
+      });
+      clearBucketSelection(bucketId);
+      refetch();
+    } catch (err) {
+      console.error('Bulk move failed:', err);
+    } finally {
+      setMoveLoading(false);
+    }
+  }, [selectedIds, clearBucketSelection, refetch]);
 
   // Loading state — preserve shell structure
   if (vettingState.status === 'loading') {
@@ -365,6 +412,12 @@ export default function VettingPage() {
                   onSelectToggle={handleSelectToggle}
                   isAuthenticated={isAuthenticated}
                   demoTitle={demoTitle}
+                  isSelectable={SELECTABLE_BUCKETS.has(bucket.id)}
+                  selectedIds={selectedIds[bucket.id] || new Set()}
+                  onToggleSelection={(candidateId: string) => toggleSelection(bucket.id, candidateId)}
+                  hasForwardAction={!!FORWARD_ACTION[bucket.id]}
+                  onBulkMove={() => handleBulkMove(bucket.id)}
+                  moveLoading={moveLoading}
                 />
               ))}
               
@@ -414,9 +467,6 @@ export default function VettingPage() {
         <section className="split-view-section">
           <SplitViewPanel
             candidate={splitViewCandidate}
-            requiredPPE={REQUIRED_PPE}
-            requiredTools={REQUIRED_TOOLS}
-            requiredCerts={REQUIRED_CERTS}
             onClose={() => setSplitViewCandidate(null)}
           />
         </section>
@@ -839,6 +889,12 @@ function LaneColumn({
   onSelectToggle,
   isAuthenticated,
   demoTitle,
+  isSelectable,
+  selectedIds,
+  onToggleSelection,
+  hasForwardAction,
+  onBulkMove,
+  moveLoading,
 }: {
   bucket: Bucket;
   trades: Trade[];
@@ -851,6 +907,12 @@ function LaneColumn({
   onSelectToggle?: (candidate: Candidate) => void;
   isAuthenticated: boolean;
   demoTitle: string;
+  isSelectable?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelection?: (candidateId: string) => void;
+  hasForwardAction?: boolean;
+  onBulkMove?: () => void;
+  moveLoading?: boolean;
 }) {
   const tradeBreakdown = getBucketTradeBreakdown(bucket, trades);
   const isDispatchedBucket = bucket.id === 'DISPATCHED';
@@ -860,6 +922,7 @@ function LaneColumn({
     ? bucket.candidates.filter(c => c.selectedForDispatch).length
     : 0;
   const totalInLane = bucket.candidates.length;
+  const bucketSelectedCount = selectedIds?.size ?? 0;
 
   const laneColors: Record<string, string> = {
     OPTED_IN: '#6366f1',
@@ -911,16 +974,24 @@ function LaneColumn({
                 onSelectToggle={isPreDispatchBucket && onSelectToggle ? () => onSelectToggle(candidate) : undefined}
                 isAuthenticated={isAuthenticated}
                 demoTitle={demoTitle}
+                showCheckbox={!!isSelectable}
+                isChecked={!!selectedIds?.has(candidate.id)}
+                onCheckboxToggle={onToggleSelection ? () => onToggleSelection(candidate.id) : undefined}
               />
             )
           ))
         )}
       </div>
 
-      {!isLast && !isDispatchedBucket && (
+      {!isLast && !isDispatchedBucket && hasForwardAction && (
         <div className="lane-actions">
-          <button className="action-btn" disabled title={demoTitle}>
-            Move Selected →
+          <button
+            className={`action-btn${bucketSelectedCount > 0 ? ' action-btn-active' : ''}`}
+            disabled={bucketSelectedCount === 0 || !isAuthenticated || !!moveLoading}
+            title={!isAuthenticated ? demoTitle : bucketSelectedCount === 0 ? 'Select candidates first' : `Move ${bucketSelectedCount} selected`}
+            onClick={(e) => { e.stopPropagation(); if (onBulkMove) onBulkMove(); }}
+          >
+            {moveLoading ? 'Moving...' : `Move Selected (${bucketSelectedCount}) →`}
           </button>
         </div>
       )}
@@ -1033,6 +1104,26 @@ function LaneColumn({
           font-weight: 500;
           cursor: not-allowed;
           opacity: 0.7;
+          transition: all 0.15s ease;
+        }
+
+        .action-btn.action-btn-active {
+          background: #2563eb;
+          border-color: #1d4ed8;
+          color: #ffffff;
+          font-weight: 700;
+          cursor: pointer;
+          opacity: 1;
+        }
+
+        .action-btn.action-btn-active:hover:not(:disabled) {
+          background: #1d4ed8;
+        }
+
+        .action-btn.action-btn-active:disabled {
+          background: #93c5fd;
+          border-color: #93c5fd;
+          cursor: wait;
         }
       `}</style>
     </div>
@@ -1181,6 +1272,9 @@ function VettingCandidateCard({
   onSelectToggle,
   isAuthenticated,
   demoTitle,
+  showCheckbox,
+  isChecked,
+  onCheckboxToggle,
 }: {
   candidate: Candidate;
   showSemantics: boolean;
@@ -1192,6 +1286,9 @@ function VettingCandidateCard({
   onSelectToggle?: () => void;
   isAuthenticated: boolean;
   demoTitle: string;
+  showCheckbox?: boolean;
+  isChecked?: boolean;
+  onCheckboxToggle?: () => void;
 }) {
   const source = SOURCE_LABELS[candidate.sourceType] || SOURCE_LABELS.recruiter;
   const readiness = getReadinessSignal(candidate);
@@ -1207,10 +1304,21 @@ function VettingCandidateCard({
 
   return (
     <div
-      className={`candidate-card${showSelectionControl && isSelected ? ' selected-card' : ''}`}
+      className={`candidate-card${showSelectionControl && isSelected ? ' selected-card' : ''}${showCheckbox && isChecked ? ' checkbox-selected-card' : ''}`}
       onClick={onClick}
     >
       <div className="card-header">
+        {showCheckbox && (
+          <label className="card-checkbox-label" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              className="card-checkbox"
+              checked={!!isChecked}
+              disabled={!isAuthenticated}
+              onChange={() => { if (isAuthenticated && onCheckboxToggle) onCheckboxToggle(); }}
+            />
+          </label>
+        )}
         <div className="candidate-info">
           {showSelectionControl && (
             <span className={`selection-indicator ${isSelected ? 'sel-active' : 'sel-inactive'}`}>
@@ -1341,6 +1449,38 @@ function VettingCandidateCard({
           border-color: #16a34a;
         }
 
+        .candidate-card.checkbox-selected-card {
+          border-color: #2563eb;
+          background: #eff6ff;
+        }
+
+        .candidate-card.checkbox-selected-card:hover {
+          background: #dbeafe;
+          border-color: #1d4ed8;
+        }
+
+        .card-checkbox-label {
+          display: flex;
+          align-items: center;
+          cursor: pointer;
+          flex-shrink: 0;
+          padding: 2px;
+        }
+
+        .card-checkbox {
+          width: 16px;
+          height: 16px;
+          accent-color: #2563eb;
+          cursor: pointer;
+          margin: 0;
+          flex-shrink: 0;
+        }
+
+        .card-checkbox:disabled {
+          cursor: not-allowed;
+          opacity: 0.5;
+        }
+
         .selection-indicator {
           font-size: 11px;
           font-weight: 700;
@@ -1387,12 +1527,15 @@ function VettingCandidateCard({
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
+          gap: 6px;
           margin-bottom: 4px;
         }
 
         .candidate-info {
           display: flex;
           flex-direction: column;
+          flex: 1;
+          min-width: 0;
         }
 
         .candidate-name {
@@ -2428,28 +2571,19 @@ function CustomerApprovalGate({
   );
 }
 
-// Split View Panel (Card Drill-Down Scaffold)
+// Split View Panel (Card Drill-Down — order-linked requirement truth)
 function SplitViewPanel({
   candidate,
-  requiredPPE,
-  requiredTools,
-  requiredCerts,
   onClose,
 }: {
   candidate: Candidate;
-  requiredPPE: string[];
-  requiredTools: string[];
-  requiredCerts: string[];
   onClose: () => void;
 }) {
-  // Mock data for employee profile
-  const workerPPE = ['Hard hat', 'Safety glasses', 'Steel-toe boots'];
-  const workerTools = ['Torque Wrenches', 'Multimeter', 'Pipe Wrenches'];
-  const workerCertNames = candidate.certifications.map(c => c.name);
-  
-  const missingPPE = requiredPPE.filter(item => !workerPPE.includes(item));
-  const missingTools = requiredTools.filter(tool => !workerTools.includes(tool));
-  const missingCerts = requiredCerts.filter(cert => !workerCertNames.includes(cert));
+  const certItems: CertSignalItem[] = candidate.signals?.hardGates?.certifications?.items ?? [];
+  const complianceItems: ComplianceSignalItem[] = candidate.signals?.hardGates?.compliance?.items ?? [];
+  const ppeItems: PpeSignalItem[] = candidate.signals?.softSignals?.ppe?.items ?? [];
+  const toolItems: ToolSignalItem[] = candidate.signals?.softSignals?.tools?.items ?? [];
+  const hasSignals = !!candidate.signals;
 
   return (
     <div className="split-view-panel">
@@ -2505,11 +2639,21 @@ function SplitViewPanel({
           <div className="profile-group">
             <h4>Certifications</h4>
             <div className="cert-list">
-              {candidate.certifications.map(cert => (
-                <span key={cert.id} className={`cert-item ${cert.verified ? 'verified' : 'pending'}`}>
-                  {cert.verified ? '✓' : '○'} {cert.name}
-                </span>
-              ))}
+              {candidate.certifications.length > 0 ? (
+                candidate.certifications.map(cert => (
+                  <span key={cert.id} className={`cert-item ${cert.verified ? 'verified' : 'pending'}`}>
+                    {cert.verified ? '✓' : '○'} {cert.name}
+                  </span>
+                ))
+              ) : certItems.length > 0 ? (
+                certItems.map(item => (
+                  <span key={item.certTypeId} className={`cert-item ${item.candidateStatus === 'VALID' ? 'verified' : 'pending'}`}>
+                    {item.candidateStatus === 'VALID' ? '✓' : '○'} {item.certTypeName}
+                  </span>
+                ))
+              ) : (
+                <span className="cert-item pending">No certifications on file</span>
+              )}
             </div>
           </div>
 
@@ -2519,67 +2663,114 @@ function SplitViewPanel({
           </div>
         </div>
 
-        {/* Right: Job Eligibility Checklist (Order-Specific) */}
+        {/* Right: Job Eligibility Checklist (Order-Specific from OrderTradeRequirement) */}
         <div className="eligibility-section">
           <div className="section-header">
             <h3>Job Eligibility Checklist</h3>
             <span className="section-badge order">This Order</span>
           </div>
 
-          <div className="checklist-group">
-            <h4>Required Certifications</h4>
-            <ul className="checklist">
-              {requiredCerts.map(cert => {
-                const isMissing = missingCerts.includes(cert);
-                return (
-                  <li key={cert} className={isMissing ? 'missing' : 'satisfied'}>
-                    <span className="check-icon">{isMissing ? '⚠️' : '✓'}</span>
-                    {cert}
-                    {isMissing && <span className="missing-tag">MISSING</span>}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+          {!hasSignals ? (
+            <div className="checklist-group">
+              <div className="empty-checklist">
+                No trade line linked — requirements cannot be evaluated.
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="checklist-group">
+                <h4>Required Certifications</h4>
+                <ul className="checklist">
+                  {certItems.length === 0 ? (
+                    <li className="no-requirements">No certification requirements defined for this order line</li>
+                  ) : (
+                    certItems.map(item => {
+                      const isSatisfied = item.candidateStatus === 'VALID';
+                      return (
+                        <li key={item.certTypeId} className={isSatisfied ? 'satisfied' : 'missing'}>
+                          <span className="check-icon">{isSatisfied ? '✓' : '⚠️'}</span>
+                          {item.certTypeName}
+                          {!isSatisfied && (
+                            <span className="missing-tag">
+                              {item.candidateStatus === 'EXPIRED' ? 'EXPIRED' : 'MISSING'}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
 
-          <div className="checklist-group">
-            <h4>Required Tools</h4>
-            <ul className="checklist">
-              {missingTools.length === 0 ? (
-                <li className="all-good">✓ All required tools available</li>
-              ) : (
-                missingTools.map(tool => (
-                  <li key={tool} className="missing">
-                    <span className="check-icon">⚠️</span>
-                    {tool}
-                    <span className="missing-tag">MISSING</span>
-                  </li>
-                ))
-              )}
-            </ul>
-          </div>
+              <div className="checklist-group">
+                <h4>Required Compliance</h4>
+                <ul className="checklist">
+                  {complianceItems.length === 0 ? (
+                    <li className="no-requirements">No compliance requirements defined for this order line</li>
+                  ) : (
+                    complianceItems.map(item => {
+                      const isSatisfied = item.candidateStatus === 'COMPLETED';
+                      const isPending = item.candidateStatus === 'PENDING';
+                      const className = isSatisfied ? 'satisfied' : isPending ? 'pending-item' : 'missing';
+                      return (
+                        <li key={item.requirementTypeId} className={className}>
+                          <span className="check-icon">{isSatisfied ? '✓' : isPending ? '○' : '⚠️'}</span>
+                          {item.requirementName}
+                          {!isSatisfied && (
+                            <span className="missing-tag">
+                              {item.candidateStatus}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
 
-          <div className="checklist-group">
-            <h4>Required PPE</h4>
-            <ul className="checklist">
-              {requiredPPE.map(item => {
-                const isMissing = missingPPE.includes(item);
-                return (
-                  <li key={item} className={isMissing ? 'missing' : 'satisfied'}>
-                    <span className="check-icon">{isMissing ? '⚠️' : '✓'}</span>
-                    {item}
-                    {isMissing && <span className="missing-tag">MISSING</span>}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+              <div className="checklist-group">
+                <h4>Required Tools</h4>
+                <ul className="checklist">
+                  {toolItems.length === 0 ? (
+                    <li className="no-requirements">No tool requirements defined for this order line</li>
+                  ) : (
+                    toolItems.map(item => (
+                      <li key={item.toolId} className="deferred-item">
+                        <span className="check-icon">○</span>
+                        {item.toolName}
+                        <span className="deferred-tag">SOFT</span>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </div>
+
+              <div className="checklist-group">
+                <h4>Required PPE</h4>
+                <ul className="checklist">
+                  {ppeItems.length === 0 ? (
+                    <li className="no-requirements">No PPE requirements defined for this order line</li>
+                  ) : (
+                    ppeItems.map(item => {
+                      const isSatisfied = item.candidateStatus === 'HAS';
+                      return (
+                        <li key={item.ppeTypeId} className={isSatisfied ? 'satisfied' : 'missing'}>
+                          <span className="check-icon">{isSatisfied ? '✓' : '⚠️'}</span>
+                          {item.ppeTypeName}
+                          {!isSatisfied && <span className="missing-tag">MISSING</span>}
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
+            </>
+          )}
 
           <div className="checklist-group">
             <h4>Distance / Travel</h4>
             <div className="travel-info">
               <span className="travel-item">📍 {candidate.distance} miles from site</span>
-              <span className="travel-item">🚗 Est. 25 min commute</span>
             </div>
           </div>
 
@@ -2803,6 +2994,47 @@ function SplitViewPanel({
           background: #f0fdf4;
           color: #16a34a;
           border: 1px solid #bbf7d0;
+        }
+
+        .checklist li.no-requirements {
+          background: #f8fafc;
+          color: #9ca3af;
+          border: 1px solid #e5e7eb;
+          font-style: italic;
+        }
+
+        .checklist li.pending-item {
+          background: #fffbeb;
+          color: #92400e;
+          border: 1px solid #fde68a;
+        }
+
+        .checklist li.deferred-item {
+          background: #f8fafc;
+          color: #374151;
+          border: 1px solid #e5e7eb;
+        }
+
+        .deferred-tag {
+          margin-left: auto;
+          font-size: 8px;
+          font-weight: 700;
+          padding: 2px 4px;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          color: #1d4ed8;
+          border-radius: 2px;
+        }
+
+        .empty-checklist {
+          padding: 16px;
+          text-align: center;
+          color: #9ca3af;
+          font-size: 11px;
+          font-style: italic;
+          background: #f8fafc;
+          border: 1px dashed #e5e7eb;
+          border-radius: 6px;
         }
 
         .check-icon { font-size: 11px; }
