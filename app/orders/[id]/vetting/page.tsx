@@ -145,12 +145,23 @@ export default function VettingPage() {
   // State for Add Candidate modal (Direct Add — Path 4)
   const [showAddCandidateModal, setShowAddCandidateModal] = useState(false);
   
-  // State for dispatch modal
-  const [showDispatchModal, setShowDispatchModal] = useState(false);
-  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
-  const [dispatchDate, setDispatchDate] = useState('');
-  const [dispatchLoading, setDispatchLoading] = useState(false);
-  const [dispatchError, setDispatchError] = useState<string | null>(null);
+  // State for bulk dispatch
+  const [showBulkDispatchModal, setShowBulkDispatchModal] = useState(false);
+  const [bulkDispatchDate, setBulkDispatchDate] = useState('');
+  const [bulkDispatchLoading, setBulkDispatchLoading] = useState(false);
+  const [bulkDispatchError, setBulkDispatchError] = useState<string | null>(null);
+
+  // State for dispatch result reporting
+  const [dispatchSuccessSummary, setDispatchSuccessSummary] = useState<{
+    dispatchedCount: number;
+    blockedCount: number;
+    totalRequested: number;
+  } | null>(null);
+  const [dispatchFailureDetails, setDispatchFailureDetails] = useState<{
+    orderCandidateId: string;
+    candidateName: string;
+    reasons: string[];
+  }[]>([]);
   
   // State for split-view panel (card click drill-down)
   const [splitViewCandidate, setSplitViewCandidate] = useState<Candidate | null>(null);
@@ -161,6 +172,7 @@ export default function VettingPage() {
   // UI selection state for "Move Selected" — bucket-scoped, NOT selectedForDispatch
   const [selectedIds, setSelectedIds] = useState<Record<string, Set<string>>>({});
   const [moveLoading, setMoveLoading] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
 
   const toggleSelection = useCallback((bucketId: string, candidateId: string) => {
     setSelectedIds(prev => {
@@ -191,6 +203,7 @@ export default function VettingPage() {
     if (ids.length === 0) return;
 
     setMoveLoading(true);
+    setMoveError(null);
     try {
       await apiFetch('/recruiting/bulk-move', {
         method: 'POST',
@@ -199,10 +212,35 @@ export default function VettingPage() {
           action,
         }),
       });
+      setMoveError(null);
       clearBucketSelection(bucketId);
       refetch();
     } catch (err) {
-      console.error('Bulk move failed:', err);
+      const raw = err instanceof Error ? err.message : String(err);
+      let friendlyMessage = 'Move failed. Please try again.';
+
+      try {
+        const jsonStart = raw.indexOf('{');
+        if (jsonStart !== -1) {
+          const jsonString = raw.slice(jsonStart);
+          const payload = JSON.parse(jsonString);
+          if (payload.code === 'HARD_GATE_BLOCKED') {
+            const labels = Array.isArray(payload.missingItems)
+              ? [...new Set(payload.missingItems.map((item: { label?: string }) => item.label).filter(Boolean))]
+              : [];
+            const base = (payload.message || friendlyMessage).replace(/\.?\s*$/, '');
+            friendlyMessage = labels.length > 0
+              ? `${base}. Waiting on: ${labels.join(', ')}.`
+              : payload.message || friendlyMessage;
+          } else if (payload.message) {
+            friendlyMessage = payload.message;
+          }
+        }
+      } catch {
+        // JSON parse failed — use fallback message
+      }
+
+      setMoveError(friendlyMessage);
     } finally {
       setMoveLoading(false);
     }
@@ -249,14 +287,8 @@ export default function VettingPage() {
   const closedBucket = order.buckets.find(b => b.id === 'CLOSED');
 
   // Handler for adding to Identified (mock)
-  const handleAddToIdentified = (candidate: Candidate) => {
-    console.log('Adding to Opted-In:', candidate.name);
-  };
-
-  // Handler for dispatch
-  const handleDispatch = (candidate: Candidate) => {
-    setSelectedCandidate(candidate);
-    setShowDispatchModal(true);
+  const handleAddToIdentified = (_candidate: Candidate) => {
+    // no-op placeholder for future implementation
   };
 
   // Handler for card click - opens split view
@@ -267,7 +299,54 @@ export default function VettingPage() {
   // Handler for redispatching a no-show
   const handleRedispatch = (candidate: Candidate) => {
     setNoShowCandidates(prev => prev.filter(c => c.id !== candidate.id));
-    console.log('Redispatching:', candidate.name);
+  };
+
+  // Handler for bulk dispatch from PRE_DISPATCH lane (CANONICAL dispatch path)
+  const handleBulkDispatch = async () => {
+    if (!orderId) return;
+    const startDate = new Date().toISOString().split('T')[0];
+
+    const preDispatchBucket = order.buckets.find(b => b.id === 'PRE_DISPATCH');
+    const selectedCandidates = preDispatchBucket?.candidates.filter(c => c.selectedForDispatch) || [];
+    if (selectedCandidates.length === 0) return;
+
+    setBulkDispatchLoading(true);
+    setBulkDispatchError(null);
+    setDispatchSuccessSummary(null);
+    setDispatchFailureDetails([]);
+
+    try {
+      const result = await apiFetch<{
+        ok: boolean;
+        totalRequested: number;
+        dispatchedCount: number;
+        blockedCount: number;
+        dispatched: { orderCandidateId: string; candidateName: string }[];
+        blocked: { orderCandidateId: string; candidateName: string; reasons: string[] }[];
+      }>('/recruiting/bulk-dispatch', {
+        method: 'POST',
+        body: JSON.stringify({
+          orderId,
+          orderCandidateIds: selectedCandidates.map(c => c.id),
+          startDate: startDate,
+        }),
+      });
+
+      setDispatchSuccessSummary({
+        dispatchedCount: result.dispatchedCount,
+        blockedCount: result.blockedCount,
+        totalRequested: result.totalRequested,
+      });
+      setDispatchFailureDetails(result.blocked);
+      setShowBulkDispatchModal(false);
+      setBulkDispatchDate('');
+      refetch();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Bulk dispatch failed';
+      setBulkDispatchError(msg);
+    } finally {
+      setBulkDispatchLoading(false);
+    }
   };
 
   // Handler for customer approval status change (Phase 9 — soft gate)
@@ -395,6 +474,50 @@ export default function VettingPage() {
             </p>
           </div>
 
+          {moveError && (
+            <div className="move-error-banner" role="alert">
+              <span className="move-error-icon">⚠</span>
+              <span className="move-error-text">{moveError}</span>
+              <button className="move-error-dismiss" onClick={() => setMoveError(null)} aria-label="Dismiss">×</button>
+            </div>
+          )}
+
+          {dispatchSuccessSummary && (
+            <div className="dispatch-result-banner" role="status">
+              <div className="dispatch-result-header">
+                <span className="dispatch-result-icon">
+                  {dispatchSuccessSummary.blockedCount === 0 ? '✓' : dispatchSuccessSummary.dispatchedCount === 0 ? '✗' : '⚠'}
+                </span>
+                <span className="dispatch-result-text">
+                  {dispatchSuccessSummary.blockedCount === 0
+                    ? `All ${dispatchSuccessSummary.dispatchedCount} workers dispatched successfully.`
+                    : dispatchSuccessSummary.dispatchedCount === 0
+                      ? 'No workers were dispatched.'
+                      : `${dispatchSuccessSummary.dispatchedCount} workers dispatched. ${dispatchSuccessSummary.blockedCount} were not dispatched.`}
+                </span>
+                <button
+                  className="dispatch-result-dismiss"
+                  onClick={() => { setDispatchSuccessSummary(null); setDispatchFailureDetails([]); }}
+                  aria-label="Dismiss"
+                >×</button>
+              </div>
+              {dispatchFailureDetails.length > 0 && (
+                <div className="dispatch-blocked-details">
+                  <div className="dispatch-blocked-title">Not dispatched:</div>
+                  <ul className="dispatch-blocked-list">
+                    {dispatchFailureDetails.map((item) => (
+                      <li key={item.orderCandidateId} className="dispatch-blocked-item">
+                        <span className="dispatch-blocked-name">{item.candidateName}</span>
+                        <span className="dispatch-blocked-separator"> — </span>
+                        <span className="dispatch-blocked-reasons">{item.reasons.join(', ')}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="pipeline-container">
             {/* Primary Pipeline Lanes */}
             <div className="primary-pipeline">
@@ -406,7 +529,6 @@ export default function VettingPage() {
                   laneName={LANE_NAMES[bucket.id]?.name || bucket.name}
                   laneDescription={LANE_NAMES[bucket.id]?.description || bucket.description}
                   isLast={index === pipelineBuckets.length - 1}
-                  onDispatch={handleDispatch}
                   onCardClick={handleCardClick}
                   onApprovalChange={handleApprovalChange}
                   onSelectToggle={handleSelectToggle}
@@ -418,6 +540,8 @@ export default function VettingPage() {
                   hasForwardAction={!!FORWARD_ACTION[bucket.id]}
                   onBulkMove={() => handleBulkMove(bucket.id)}
                   moveLoading={moveLoading}
+                  onBulkDispatch={handleBulkDispatch}
+                  bulkDispatchLoading={bulkDispatchLoading}
                 />
               ))}
               
@@ -438,7 +562,6 @@ export default function VettingPage() {
                   laneName={LANE_NAMES['CLOSED'].name}
                   laneDescription={LANE_NAMES['CLOSED'].description}
                   isLast
-                  onDispatch={handleDispatch}
                   onCardClick={handleCardClick}
                   onApprovalChange={handleApprovalChange}
                   isAuthenticated={isAuthenticated}
@@ -537,53 +660,29 @@ export default function VettingPage() {
         />
       )}
 
-      {/* Dispatch Modal */}
-      {showDispatchModal && selectedCandidate && (
-        <DispatchModal
-          candidate={selectedCandidate}
-          dispatchDate={dispatchDate}
-          onDateChange={setDispatchDate}
-          loading={dispatchLoading}
-          error={dispatchError}
-          onClose={() => {
-            setShowDispatchModal(false);
-            setSelectedCandidate(null);
-            setDispatchDate('');
-            setDispatchError(null);
-          }}
-          onConfirm={async () => {
-            if (!selectedCandidate.candidateId || !selectedCandidate.orderTradeRequirementId) {
-              setDispatchError('Missing candidate or trade requirement data.');
-              return;
-            }
-            setDispatchLoading(true);
-            setDispatchError(null);
-            try {
-              await apiFetch('/assignments/dispatch', {
-                method: 'POST',
-                body: JSON.stringify({
-                  orderId,
-                  orderTradeRequirementId: selectedCandidate.orderTradeRequirementId,
-                  candidateId: selectedCandidate.candidateId,
-                  startDate: dispatchDate,
-                }),
-              });
-              setShowDispatchModal(false);
-              setSelectedCandidate(null);
-              setDispatchDate('');
-              setDispatchError(null);
-              refetch();
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : 'Dispatch failed';
-              setDispatchError(msg);
-            } finally {
-              setDispatchLoading(false);
-            }
-          }}
-          isAuthenticated={isAuthenticated}
-          demoTitle={demoTitle}
-        />
-      )}
+      {/* Bulk Dispatch Modal (CANONICAL dispatch path) */}
+      {showBulkDispatchModal && (() => {
+        const preDispatchBucket = order.buckets.find(b => b.id === 'PRE_DISPATCH');
+        const selectedForDispatchCandidates = preDispatchBucket?.candidates.filter(c => c.selectedForDispatch) || [];
+        return (
+          <BulkDispatchModal
+            candidateCount={selectedForDispatchCandidates.length}
+            candidates={selectedForDispatchCandidates}
+            dispatchDate={bulkDispatchDate}
+            onDateChange={setBulkDispatchDate}
+            loading={bulkDispatchLoading}
+            error={bulkDispatchError}
+            onClose={() => {
+              setShowBulkDispatchModal(false);
+              setBulkDispatchDate('');
+              setBulkDispatchError(null);
+            }}
+            onConfirm={handleBulkDispatch}
+            isAuthenticated={isAuthenticated}
+            demoTitle={demoTitle}
+          />
+        );
+      })()}
 
       <style jsx>{`
         /* ============================================================
@@ -871,6 +970,146 @@ export default function VettingPage() {
         .add-candidate-header-btn:hover {
           background: #1d4ed8;
         }
+
+        .move-error-banner {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 14px;
+          background: #fef2f2;
+          border: 1px solid #fecaca;
+          border-radius: 8px;
+          margin-bottom: 12px;
+        }
+
+        .move-error-icon {
+          font-size: 14px;
+          flex-shrink: 0;
+          color: #dc2626;
+        }
+
+        .move-error-text {
+          flex: 1;
+          font-size: 13px;
+          font-weight: 600;
+          color: #991b1b;
+          line-height: 1.4;
+        }
+
+        .move-error-dismiss {
+          width: 24px;
+          height: 24px;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: transparent;
+          border: 1px solid #fecaca;
+          border-radius: 4px;
+          color: #991b1b;
+          font-size: 16px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: background 0.12s ease;
+        }
+
+        .move-error-dismiss:hover {
+          background: #fee2e2;
+        }
+
+        .dispatch-result-banner {
+          margin-bottom: 12px;
+          border-radius: 8px;
+          border: 1px solid #bbf7d0;
+          background: #f0fdf4;
+          overflow: hidden;
+        }
+
+        .dispatch-result-banner:has(.dispatch-blocked-details) {
+          border-color: #fde68a;
+          background: #fffbeb;
+        }
+
+        .dispatch-result-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 14px;
+        }
+
+        .dispatch-result-icon {
+          font-size: 14px;
+          flex-shrink: 0;
+          font-weight: 700;
+        }
+
+        .dispatch-result-text {
+          flex: 1;
+          font-size: 13px;
+          font-weight: 600;
+          color: #1f2937;
+          line-height: 1.4;
+        }
+
+        .dispatch-result-dismiss {
+          width: 24px;
+          height: 24px;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: transparent;
+          border: 1px solid #d1d5db;
+          border-radius: 4px;
+          color: #6b7280;
+          font-size: 16px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: background 0.12s ease;
+        }
+
+        .dispatch-result-dismiss:hover {
+          background: #f3f4f6;
+        }
+
+        .dispatch-blocked-details {
+          padding: 8px 14px 12px;
+          border-top: 1px solid #fde68a;
+        }
+
+        .dispatch-blocked-title {
+          font-size: 12px;
+          font-weight: 700;
+          color: #92400e;
+          margin-bottom: 6px;
+        }
+
+        .dispatch-blocked-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .dispatch-blocked-item {
+          font-size: 12px;
+          color: #1f2937;
+          line-height: 1.4;
+        }
+
+        .dispatch-blocked-name {
+          font-weight: 600;
+        }
+
+        .dispatch-blocked-separator {
+          color: #9ca3af;
+        }
+
+        .dispatch-blocked-reasons {
+          color: #dc2626;
+        }
       `}</style>
     </div>
   );
@@ -883,7 +1122,6 @@ function LaneColumn({
   laneName,
   laneDescription,
   isLast,
-  onDispatch,
   onCardClick,
   onApprovalChange,
   onSelectToggle,
@@ -895,13 +1133,14 @@ function LaneColumn({
   hasForwardAction,
   onBulkMove,
   moveLoading,
+  onBulkDispatch,
+  bulkDispatchLoading,
 }: {
   bucket: Bucket;
   trades: Trade[];
   laneName: string;
   laneDescription: string;
   isLast?: boolean;
-  onDispatch: (candidate: Candidate) => void;
   onCardClick: (candidate: Candidate) => void;
   onApprovalChange: (candidateId: string, status: CustomerApprovalStatusType) => void;
   onSelectToggle?: (candidate: Candidate) => void;
@@ -913,6 +1152,8 @@ function LaneColumn({
   hasForwardAction?: boolean;
   onBulkMove?: () => void;
   moveLoading?: boolean;
+  onBulkDispatch?: () => void;
+  bulkDispatchLoading?: boolean;
 }) {
   const tradeBreakdown = getBucketTradeBreakdown(bucket, trades);
   const isDispatchedBucket = bucket.id === 'DISPATCHED';
@@ -966,9 +1207,7 @@ function LaneColumn({
                 key={candidate.id}
                 candidate={candidate}
                 showSemantics={showSemantics}
-                showDispatchButton={isPreDispatchBucket}
                 showSelectionControl={isPreDispatchBucket}
-                onDispatch={() => onDispatch(candidate)}
                 onClick={() => onCardClick(candidate)}
                 onApprovalChange={(status) => onApprovalChange(candidate.id, status)}
                 onSelectToggle={isPreDispatchBucket && onSelectToggle ? () => onSelectToggle(candidate) : undefined}
@@ -992,6 +1231,19 @@ function LaneColumn({
             onClick={(e) => { e.stopPropagation(); if (onBulkMove) onBulkMove(); }}
           >
             {moveLoading ? 'Moving...' : `Move Selected (${bucketSelectedCount}) →`}
+          </button>
+        </div>
+      )}
+
+      {isPreDispatchBucket && selectedCount > 0 && (
+        <div className="lane-actions">
+          <button
+            className="action-btn action-btn-dispatch-bulk"
+            disabled={!isAuthenticated || !!bulkDispatchLoading}
+            title={!isAuthenticated ? demoTitle : `Dispatch ${selectedCount} selected workers`}
+            onClick={(e) => { e.stopPropagation(); if (onBulkDispatch) onBulkDispatch(); }}
+          >
+            {bulkDispatchLoading ? 'Dispatching...' : `Dispatch Selected (${selectedCount})`}
           </button>
         </div>
       )}
@@ -1123,6 +1375,25 @@ function LaneColumn({
         .action-btn.action-btn-active:disabled {
           background: #93c5fd;
           border-color: #93c5fd;
+          cursor: wait;
+        }
+
+        .action-btn-dispatch-bulk {
+          background: #16a34a;
+          border-color: #15803d;
+          color: #ffffff;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .action-btn-dispatch-bulk:hover:not(:disabled) {
+          background: #15803d;
+        }
+
+        .action-btn-dispatch-bulk:disabled {
+          background: #86efac;
+          border-color: #86efac;
+          color: #fff;
           cursor: wait;
         }
       `}</style>
@@ -1264,9 +1535,7 @@ function ApprovalBadge({ status }: { status: CustomerApprovalStatusType }) {
 function VettingCandidateCard({
   candidate,
   showSemantics,
-  showDispatchButton,
   showSelectionControl,
-  onDispatch,
   onClick,
   onApprovalChange,
   onSelectToggle,
@@ -1278,9 +1547,7 @@ function VettingCandidateCard({
 }: {
   candidate: Candidate;
   showSemantics: boolean;
-  showDispatchButton?: boolean;
   showSelectionControl?: boolean;
-  onDispatch: () => void;
   onClick: () => void;
   onApprovalChange: (status: CustomerApprovalStatusType) => void;
   onSelectToggle?: () => void;
@@ -1409,17 +1676,6 @@ function VettingCandidateCard({
           onClick={(e) => { e.stopPropagation(); if (!isAuthenticated || !onSelectToggle) return; onSelectToggle(); }}
         >
           {isSelected ? '✓ Selected' : 'Select'}
-        </button>
-      )}
-
-      {showDispatchButton && isSelected && (
-        <button 
-          className="dispatch-btn" 
-          disabled={!isAuthenticated} 
-          title={!isAuthenticated ? demoTitle : undefined} 
-          onClick={(e) => { e.stopPropagation(); if (!isAuthenticated) return; onDispatch(); }}
-        >
-          🚀 Dispatch
         </button>
       )}
 
@@ -1691,22 +1947,6 @@ function VettingCandidateCard({
           cursor: not-allowed;
         }
 
-        .dispatch-btn {
-          width: 100%;
-          padding: 6px;
-          margin-top: 6px;
-          background: #16a34a;
-          border: none;
-          border-radius: 4px;
-          color: #fff;
-          font-size: 11px;
-          font-weight: 700;
-          cursor: pointer;
-          transition: background 0.12s ease;
-        }
-
-        .dispatch-btn:hover:not(:disabled) { background: #15803d; }
-        .dispatch-btn:disabled { background: #bbf7d0; color: #6b7280; cursor: not-allowed; }
       `}</style>
     </div>
   );
@@ -3069,9 +3309,9 @@ function SplitViewPanel({
   );
 }
 
-// Dispatch Modal Component
-function DispatchModal({
-  candidate,
+function BulkDispatchModal({
+  candidateCount,
+  candidates,
   dispatchDate,
   onDateChange,
   onClose,
@@ -3081,7 +3321,8 @@ function DispatchModal({
   isAuthenticated,
   demoTitle,
 }: {
-  candidate: Candidate;
+  candidateCount: number;
+  candidates: Candidate[];
   dispatchDate: string;
   onDateChange: (date: string) => void;
   onClose: () => void;
@@ -3091,21 +3332,32 @@ function DispatchModal({
   isAuthenticated: boolean;
   demoTitle: string;
 }) {
-  const canConfirm = dispatchDate.length > 0 && !loading;
+  const canConfirm = dispatchDate.length > 0 && !loading && candidateCount > 0;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>🚀 Dispatch Worker</h2>
+          <h2>Bulk Dispatch</h2>
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
 
         <div className="modal-body">
-          <div className="worker-preview">
-            <span className="worker-name">{candidate.name}</span>
-            <span className="worker-trade">{candidate.tradeName}</span>
+          <div className="bulk-summary">
+            <span className="bulk-count">{candidateCount}</span>
+            <span className="bulk-label">workers selected for dispatch</span>
           </div>
+
+          {candidates.length > 0 && candidates.length <= 20 && (
+            <div className="bulk-candidate-list">
+              {candidates.map(c => (
+                <div key={c.id} className="bulk-candidate-row">
+                  <span className="bulk-candidate-name">{c.name}</span>
+                  <span className="bulk-candidate-trade">{c.tradeName}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="form-group">
             <label className="form-label">
@@ -3120,22 +3372,6 @@ function DispatchModal({
               onChange={e => onDateChange(e.target.value)}
               min={new Date().toISOString().split('T')[0]}
             />
-          </div>
-
-          <div className="dispatch-preview">
-            <h4>Dispatch Summary</h4>
-            <div className="preview-row">
-              <span className="preview-label">Worker:</span>
-              <span className="preview-value">{candidate.name}</span>
-            </div>
-            <div className="preview-row">
-              <span className="preview-label">Trade:</span>
-              <span className="preview-value">{candidate.tradeName}</span>
-            </div>
-            <div className="preview-row">
-              <span className="preview-label">Start Date:</span>
-              <span className="preview-value">{dispatchDate || '—'}</span>
-            </div>
           </div>
         </div>
 
@@ -3152,12 +3388,11 @@ function DispatchModal({
             onClick={onConfirm}
             disabled={!canConfirm}
           >
-            {loading ? 'Dispatching...' : 'Confirm Dispatch'}
+            {loading ? 'Dispatching...' : `Dispatch ${candidateCount} Workers`}
           </button>
         </div>
 
         <style jsx>{`
-          /* Dispatch Modal — IL V1 light */
           .modal-overlay {
             position: fixed;
             inset: 0;
@@ -3171,7 +3406,7 @@ function DispatchModal({
 
           .modal-content {
             width: 100%;
-            max-width: 420px;
+            max-width: 440px;
             background: #ffffff;
             border-radius: 12px;
             border: 1px solid #e5e7eb;
@@ -3184,15 +3419,15 @@ function DispatchModal({
             justify-content: space-between;
             align-items: center;
             padding: 14px 18px;
-            background: #f1f5f9;
-            border-bottom: 1px solid #e5e7eb;
+            background: #f0fdf4;
+            border-bottom: 1px solid #bbf7d0;
           }
 
           .modal-header h2 {
             margin: 0;
             font-size: 15px;
             font-weight: 700;
-            color: #111827;
+            color: #166534;
           }
 
           .close-btn {
@@ -3211,10 +3446,10 @@ function DispatchModal({
 
           .modal-body { padding: 18px; }
 
-          .worker-preview {
+          .bulk-summary {
             display: flex;
-            flex-direction: column;
-            align-items: center;
+            align-items: baseline;
+            gap: 8px;
             padding: 14px;
             background: #f0fdf4;
             border: 1px solid #bbf7d0;
@@ -3222,14 +3457,42 @@ function DispatchModal({
             margin-bottom: 16px;
           }
 
-          .worker-name {
-            font-size: 16px;
-            font-weight: 700;
+          .bulk-count {
+            font-size: 28px;
+            font-weight: 800;
+            color: #16a34a;
+          }
+
+          .bulk-label {
+            font-size: 13px;
+            color: #374151;
+            font-weight: 500;
+          }
+
+          .bulk-candidate-list {
+            max-height: 160px;
+            overflow-y: auto;
+            margin-bottom: 16px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+          }
+
+          .bulk-candidate-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 10px;
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 12px;
+          }
+
+          .bulk-candidate-row:last-child { border-bottom: none; }
+
+          .bulk-candidate-name {
+            font-weight: 600;
             color: #111827;
           }
 
-          .worker-trade {
-            font-size: 12px;
+          .bulk-candidate-trade {
             color: #6b7280;
           }
 
@@ -3260,42 +3523,6 @@ function DispatchModal({
           .date-input:focus {
             border-color: #16a34a;
             box-shadow: 0 0 0 2px rgba(22,163,74,0.12);
-          }
-
-          .dispatch-preview {
-            background: #f8fafc;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            padding: 12px;
-          }
-
-          .dispatch-preview h4 {
-            margin: 0 0 10px 0;
-            font-size: 10px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: #6b7280;
-          }
-
-          .preview-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 0;
-            border-bottom: 1px solid #f1f5f9;
-          }
-
-          .preview-row:last-child { border-bottom: none; }
-
-          .preview-label {
-            font-size: 12px;
-            color: #6b7280;
-          }
-
-          .preview-value {
-            font-size: 12px;
-            font-weight: 600;
-            color: #111827;
           }
 
           .modal-footer {
@@ -3339,6 +3566,12 @@ function DispatchModal({
     </div>
   );
 }
+
+
+
+
+
+
 
 
 
