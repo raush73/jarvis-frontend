@@ -226,7 +226,7 @@ function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
     originalTradeName: tradeName,
     altTrade,
     signals,
-    customerApprovalStatus: customerApprovalStatus !== 'NOT_REQUIRED' ? customerApprovalStatus : undefined,
+    customerApprovalStatus: customerApprovalStatus ?? undefined,
     selectedForDispatch: bc.selectedForDispatch,
     selectedAt: bc.selectedAt ?? undefined,
     assignment,

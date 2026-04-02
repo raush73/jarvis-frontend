@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import type {
@@ -68,6 +68,28 @@ export function OrderDetailView({
   const [locCodeDraft, setLocCodeDraft] = useState("");
   const [locCodeSaving, setLocCodeSaving] = useState(false);
 
+  type ApprovalTier = "TIER_1" | "TIER_2" | "TIER_3";
+  type ApprovalSource = "ORDER_OVERRIDE" | "CUSTOMER_DEFAULT" | "SYSTEM_DEFAULT";
+  interface ApprovalConfigState {
+    orderId: string;
+    customerId: string;
+    override: {
+      approvalRequiredOverride: boolean | null;
+      tierOverride: ApprovalTier | null;
+    };
+    resolved: {
+      approvalRequired: boolean;
+      tier: ApprovalTier;
+      approvalRequiredSource: ApprovalSource;
+      tierSource: ApprovalSource;
+    };
+  }
+
+  const [approvalConfig, setApprovalConfig] = useState<ApprovalConfigState | null>(null);
+  const [approvalConfigLoading, setApprovalConfigLoading] = useState(false);
+  const [approvalConfigSaving, setApprovalConfigSaving] = useState(false);
+  const [approvalConfigMessage, setApprovalConfigMessage] = useState<string | null>(null);
+
   const phase: OrderPhase = order ? getOrderPhase(order.status) : "DRAFT";
   const approvalStatus = order?.approvalStatus;
   const isReadOnly =
@@ -88,11 +110,54 @@ export function OrderDetailView({
     }
   }
 
+  const loadApprovalConfig = useCallback(async () => {
+    setApprovalConfigLoading(true);
+    try {
+      const data = await apiFetch<ApprovalConfigState>(
+        `/orders/${orderId}/approval-config`
+      );
+      setApprovalConfig(data);
+    } catch {
+      // non-critical; section will show fallback
+    } finally {
+      setApprovalConfigLoading(false);
+    }
+  }, [orderId]);
+
+  async function saveApprovalOverride(patch: {
+    approvalRequiredOverride?: boolean | null;
+    tierOverride?: ApprovalTier | null;
+  }) {
+    setApprovalConfigSaving(true);
+    setApprovalConfigMessage(null);
+    try {
+      const data = await apiFetch<ApprovalConfigState>(
+        `/orders/${orderId}/approval-config`,
+        { method: "PATCH", body: JSON.stringify(patch) }
+      );
+      setApprovalConfig(data);
+      setApprovalConfigMessage("Saved");
+      setTimeout(() => setApprovalConfigMessage(null), 2000);
+    } catch {
+      setApprovalConfigMessage("Save failed");
+    } finally {
+      setApprovalConfigSaving(false);
+    }
+  }
+
+  async function resetApprovalOverrides() {
+    await saveApprovalOverride({
+      approvalRequiredOverride: null,
+      tierOverride: null,
+    });
+  }
+
   useEffect(() => {
     let alive = true;
     loadOrder().then(() => {
       if (!alive) return;
     });
+    loadApprovalConfig();
     return () => {
       alive = false;
     };
@@ -608,6 +673,141 @@ export function OrderDetailView({
             )}
           </div>
 
+          {/* Customer Approval Settings */}
+          <div className="od-section">
+            <h2>Customer Approval Settings</h2>
+            {approvalConfigLoading ? (
+              <p className="od-empty">Loading approval configuration…</p>
+            ) : approvalConfig ? (
+              <div className="od-ac-grid">
+                {/* Resolved values */}
+                <div className="od-ac-resolved">
+                  <div className="od-ac-field">
+                    <span className="od-label">Approval Required</span>
+                    <span className="od-value">
+                      {approvalConfig.resolved.approvalRequired ? "Yes" : "No"}
+                      <span
+                        className={`od-plan-tag ${
+                          approvalConfig.resolved.approvalRequiredSource === "ORDER_OVERRIDE"
+                            ? "od-plan-override"
+                            : approvalConfig.resolved.approvalRequiredSource === "CUSTOMER_DEFAULT"
+                              ? "od-plan-inherited"
+                              : "od-ac-system-tag"
+                        }`}
+                      >
+                        {approvalConfig.resolved.approvalRequiredSource === "ORDER_OVERRIDE"
+                          ? "Order Override"
+                          : approvalConfig.resolved.approvalRequiredSource === "CUSTOMER_DEFAULT"
+                            ? "Customer Default"
+                            : "System Default"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="od-ac-field">
+                    <span className="od-label">Active Tier</span>
+                    <span className="od-value">
+                      {approvalConfig.resolved.tier.replace("_", " ")}
+                      <span
+                        className={`od-plan-tag ${
+                          approvalConfig.resolved.tierSource === "ORDER_OVERRIDE"
+                            ? "od-plan-override"
+                            : approvalConfig.resolved.tierSource === "CUSTOMER_DEFAULT"
+                              ? "od-plan-inherited"
+                              : "od-ac-system-tag"
+                        }`}
+                      >
+                        {approvalConfig.resolved.tierSource === "ORDER_OVERRIDE"
+                          ? "Order Override"
+                          : approvalConfig.resolved.tierSource === "CUSTOMER_DEFAULT"
+                            ? "Customer Default"
+                            : "System Default"}
+                      </span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Override controls (edit mode only) */}
+                {!isReadOnly && (
+                  <div className="od-ac-controls">
+                    <div className="od-ac-control-row">
+                      <span className="od-label">Override Approval Required</span>
+                      <select
+                        className="od-ac-select"
+                        value={
+                          approvalConfig.override.approvalRequiredOverride == null
+                            ? "inherit"
+                            : approvalConfig.override.approvalRequiredOverride
+                              ? "true"
+                              : "false"
+                        }
+                        disabled={approvalConfigSaving}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          saveApprovalOverride({
+                            approvalRequiredOverride:
+                              val === "inherit" ? null : val === "true",
+                          });
+                        }}
+                      >
+                        <option value="inherit">Inherit from Customer</option>
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                      </select>
+                    </div>
+                    <div className="od-ac-control-row">
+                      <span className="od-label">Override Tier</span>
+                      <select
+                        className="od-ac-select"
+                        value={approvalConfig.override.tierOverride ?? "inherit"}
+                        disabled={approvalConfigSaving}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          saveApprovalOverride({
+                            tierOverride:
+                              val === "inherit" ? null : (val as ApprovalTier),
+                          });
+                        }}
+                      >
+                        <option value="inherit">Inherit from Customer</option>
+                        <option value="TIER_1">Tier 1</option>
+                        <option value="TIER_2">Tier 2</option>
+                        <option value="TIER_3">Tier 3</option>
+                      </select>
+                    </div>
+                    {(approvalConfig.override.approvalRequiredOverride != null ||
+                      approvalConfig.override.tierOverride != null) && (
+                      <button
+                        className="od-ac-reset-btn"
+                        disabled={approvalConfigSaving}
+                        onClick={resetApprovalOverrides}
+                      >
+                        Reset to Customer Default
+                      </button>
+                    )}
+                    {approvalConfigSaving && (
+                      <span className="od-ac-saving">Saving…</span>
+                    )}
+                    {approvalConfigMessage && !approvalConfigSaving && (
+                      <span
+                        className={`od-ac-msg ${
+                          approvalConfigMessage === "Saved"
+                            ? "od-ac-msg-ok"
+                            : "od-ac-msg-err"
+                        }`}
+                      >
+                        {approvalConfigMessage}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="od-empty">
+                Approval configuration unavailable.
+              </p>
+            )}
+          </div>
+
           {showLifecycle && (
             <>
               <div className="od-section">
@@ -811,7 +1011,7 @@ function TradeRequirementCard({
           </span>
           {tr.assignments.map((a) => (
             <div key={a.id} className="trc-asn-row">
-              <span className="trc-asn-id">{a.userId.slice(0, 8)}…</span>
+              <span className="trc-asn-id">{(a.id ?? "—").slice(0, 8)}…</span>
               <span className="trc-asn-status">{a.status}</span>
               {a.effectiveAssignmentState && (
                 <span className="trc-asn-eff">
@@ -1415,4 +1615,22 @@ const shellStyles = `
   .od-trades-stat { display: flex; flex-direction: column; }
   .od-stat-value { font-size: 32px; font-weight: 700; color: #fff; line-height: 1; }
   .od-stat-label { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 4px; }
+
+  /* Approval config section */
+  .od-ac-grid { display: flex; flex-direction: column; gap: 16px; }
+  .od-ac-resolved { display: flex; gap: 32px; flex-wrap: wrap; }
+  .od-ac-field { display: flex; flex-direction: column; gap: 4px; }
+  .od-ac-system-tag { background: rgba(148,163,184,0.12); color: rgba(148,163,184,0.8); border: 1px solid rgba(148,163,184,0.25); }
+  .od-ac-controls { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); }
+  .od-ac-control-row { display: flex; flex-direction: column; gap: 4px; }
+  .od-ac-select { padding: 6px 10px; font-size: 13px; color: #fff; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; cursor: pointer; min-width: 180px; }
+  .od-ac-select:focus { outline: none; border-color: rgba(59,130,246,0.5); }
+  .od-ac-select:disabled { opacity: 0.5; cursor: not-allowed; }
+  .od-ac-reset-btn { padding: 6px 14px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.04); border: 1px dashed rgba(255,255,255,0.15); border-radius: 6px; cursor: pointer; align-self: flex-end; }
+  .od-ac-reset-btn:hover { color: #f59e0b; border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.06); }
+  .od-ac-reset-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .od-ac-saving { font-size: 12px; color: rgba(255,255,255,0.5); align-self: flex-end; }
+  .od-ac-msg { font-size: 12px; align-self: flex-end; }
+  .od-ac-msg-ok { color: #22c55e; }
+  .od-ac-msg-err { color: #f87171; }
 `;

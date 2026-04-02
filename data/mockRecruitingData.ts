@@ -75,7 +75,7 @@ export type CandidateSignals = {
   };
 };
 
-export type CustomerApprovalStatusType = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
+export type CustomerApprovalStatusType = 'NOT_REQUIRED' | 'UNSENT' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export type AssignmentInfo = {
   assignmentId: string;

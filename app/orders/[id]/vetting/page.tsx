@@ -141,8 +141,104 @@ export default function VettingPage() {
   
   const { state: vettingState, refetch, tradeLines } = useVettingData(orderId);
   
-  // State for customer pre-approval toggle (UI-only)
-  const [requiresPreApproval, setRequiresPreApproval] = useState(false);
+  // Vetting approval config (Slice C — live data from backend)
+  const [vettingApprovalConfig, setVettingApprovalConfig] = useState<{
+    orderId: string;
+    jobOrderResolved: { approvalRequired: boolean; tier: string };
+    vettingOverride: {
+      overrideEnabled: boolean;
+      approvalRequiredOverride: boolean | null;
+      tierOverride: string | null;
+      setByUserId: string | null;
+      setAt: string | null;
+    };
+    liveResolved: { approvalRequired: boolean; tier: string; source: string };
+    counts: { unsent: number; pending: number; approved: number; rejected: number };
+  } | null>(null);
+  const [vettingConfigLoading, setVettingConfigLoading] = useState(false);
+  const [vettingConfigSaving, setVettingConfigSaving] = useState(false);
+
+  const loadVettingApprovalConfig = useCallback(async () => {
+    if (!orderId) return;
+    setVettingConfigLoading(true);
+    try {
+      const config = await apiFetch<typeof vettingApprovalConfig>(`/recruiting/vetting-approval-config/${orderId}`);
+      setVettingApprovalConfig(config);
+    } catch (err) {
+      console.error('Failed to load vetting approval config:', err);
+    } finally {
+      setVettingConfigLoading(false);
+    }
+  }, [orderId]);
+
+  useEffect(() => {
+    loadVettingApprovalConfig();
+  }, [loadVettingApprovalConfig]);
+
+  const saveVettingOverride = useCallback(async (overrideData: {
+    overrideEnabled: boolean;
+    approvalRequiredOverride?: boolean | null;
+    tierOverride?: string | null;
+  }) => {
+    if (!orderId) return;
+    setVettingConfigSaving(true);
+    try {
+      const userId = getCurrentUserId();
+      const config = await apiFetch<typeof vettingApprovalConfig>(`/recruiting/vetting-override/${orderId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ...overrideData, userId }),
+      });
+      setVettingApprovalConfig(config);
+    } catch (err) {
+      console.error('Failed to save vetting override:', err);
+    } finally {
+      setVettingConfigSaving(false);
+    }
+  }, [orderId]);
+
+  const [sendingPacket, setSendingPacket] = useState(false);
+
+  const handleSendPacket = useCallback(async () => {
+    if (!orderId) return;
+    setSendingPacket(true);
+    try {
+      const res = await fetch(`/api/recruiting/send-approval-packet/${orderId}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        const msg = errorData?.message ?? 'Failed to generate approval packet.';
+        alert(msg);
+        return;
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get('content-disposition') ?? '';
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
+      const filename = filenameMatch?.[1] ?? `approval-packet-${orderId.slice(0, 8)}.pdf`;
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+
+      refetch();
+      loadVettingApprovalConfig();
+    } catch (err) {
+      console.error('Failed to generate approval packet:', err);
+      alert('Failed to generate approval packet. Please try again.');
+    } finally {
+      setSendingPacket(false);
+    }
+  }, [orderId, refetch, loadVettingApprovalConfig]);
+
+  const requiresPreApproval = vettingApprovalConfig?.liveResolved?.approvalRequired ?? false;
   
   // State for Add Candidate modal (Direct Add — Path 4)
   const [showAddCandidateModal, setShowAddCandidateModal] = useState(false);
@@ -254,6 +350,8 @@ export default function VettingPage() {
             friendlyMessage = labels.length > 0
               ? `${base}. Waiting on: ${labels.join(', ')}.`
               : payload.message || friendlyMessage;
+          } else if (payload.code === 'CUSTOMER_APPROVAL_REQUIRED') {
+            friendlyMessage = payload.message || 'Customer approval is required before moving to Pre-Dispatch.';
           } else if (payload.message) {
             friendlyMessage = payload.message;
           }
@@ -424,16 +522,20 @@ export default function VettingPage() {
   };
 
   // Handler for customer approval status change (Phase 9 — soft gate)
-  const handleApprovalChange = async (candidateId: string, newStatus: CustomerApprovalStatusType) => {
+  const handleApprovalChange = async (candidateId: string, newStatus: CustomerApprovalStatusType, note?: string) => {
     try {
+      const userId = getCurrentUserId();
       await apiFetch('/recruiting/customer-approval', {
         method: 'POST',
         body: JSON.stringify({
           orderCandidateId: candidateId,
           customerApprovalStatus: newStatus,
+          userId: userId ?? undefined,
+          note: note ?? undefined,
         }),
       });
       refetch();
+      loadVettingApprovalConfig();
     } catch (err) {
       console.error('Failed to update customer approval:', err);
     }
@@ -677,10 +779,13 @@ export default function VettingPage() {
 
             {/* Customer Approval Gate (Side Panel — gate only, not a bucket) */}
             <CustomerApprovalGate
-              bucket={undefined}
               allCandidates={order.buckets.flatMap(b => b.candidates)}
-              requiresPreApproval={requiresPreApproval}
-              onToggle={setRequiresPreApproval}
+              approvalConfig={vettingApprovalConfig}
+              configLoading={vettingConfigLoading}
+              configSaving={vettingConfigSaving}
+              sendingPacket={sendingPacket}
+              onOverrideChange={saveVettingOverride}
+              onSendPacket={handleSendPacket}
               onApprovalChange={handleApprovalChange}
               onCardClick={handleCardClick}
               isAuthenticated={isAuthenticated}
@@ -1598,6 +1703,7 @@ function DispatchedCard({ candidate }: { candidate: Candidate }) {
 
 // Vetting Candidate Card with Semantics
 const APPROVAL_BADGE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
+  UNSENT: { bg: '#e2e8f0', color: '#475569', label: 'Unsent' },
   PENDING: { bg: '#fef3c7', color: '#92400e', label: 'Pending' },
   APPROVED: { bg: '#d1fae5', color: '#065f46', label: 'Approved' },
   REJECTED: { bg: '#fee2e2', color: '#991b1b', label: 'Rejected' },
@@ -1741,21 +1847,24 @@ function VettingCandidateCard({
         </div>
       )}
 
-      {candidate.customerApprovalStatus && (
+      {candidate.customerApprovalStatus && candidate.customerApprovalStatus !== 'NOT_REQUIRED' && (
         <div className="approval-row" onClick={(e) => e.stopPropagation()}>
           <ApprovalBadge status={candidate.customerApprovalStatus} />
-          <select
-            className="approval-select"
-            value={candidate.customerApprovalStatus}
-            disabled={!isAuthenticated}
-            title={!isAuthenticated ? demoTitle : 'Update customer approval'}
-            onChange={(e) => onApprovalChange(e.target.value as CustomerApprovalStatusType)}
-          >
-            <option value="PENDING">Pending</option>
-            <option value="APPROVED">Approved</option>
-            <option value="REJECTED">Rejected</option>
-            <option value="NOT_REQUIRED">Not Required</option>
-          </select>
+          {(candidate.customerApprovalStatus === 'PENDING' ||
+            candidate.customerApprovalStatus === 'APPROVED' ||
+            candidate.customerApprovalStatus === 'REJECTED') && (
+            <select
+              className="approval-select"
+              value={candidate.customerApprovalStatus}
+              disabled={!isAuthenticated}
+              title={!isAuthenticated ? demoTitle : 'Update customer approval'}
+              onChange={(e) => onApprovalChange(e.target.value as CustomerApprovalStatusType)}
+            >
+              <option value="PENDING">Pending</option>
+              <option value="APPROVED">Approved</option>
+              <option value="REJECTED">Rejected</option>
+            </select>
+          )}
         </div>
       )}
 
@@ -2467,30 +2576,80 @@ function ClosedLane({
 }
 
 // Customer Approval Gate (Side Panel - NOT a lane)
+// Slice C: Wired to live backend data — vetting override + job order resolved
 function CustomerApprovalGate({
-  bucket,
   allCandidates,
-  requiresPreApproval,
-  onToggle,
+  approvalConfig,
+  configLoading,
+  configSaving,
+  sendingPacket,
+  onOverrideChange,
+  onSendPacket,
   onApprovalChange,
   onCardClick,
   isAuthenticated,
   demoTitle,
 }: {
-  bucket: Bucket | undefined;
   allCandidates: Candidate[];
-  requiresPreApproval: boolean;
-  onToggle: (value: boolean) => void;
-  onApprovalChange: (candidateId: string, status: CustomerApprovalStatusType) => void;
+  approvalConfig: {
+    orderId: string;
+    jobOrderResolved: { approvalRequired: boolean; tier: string };
+    vettingOverride: {
+      overrideEnabled: boolean;
+      approvalRequiredOverride: boolean | null;
+      tierOverride: string | null;
+    };
+    liveResolved: { approvalRequired: boolean; tier: string; source: string };
+    counts: { unsent: number; pending: number; approved: number; rejected: number };
+  } | null;
+  configLoading: boolean;
+  configSaving: boolean;
+  sendingPacket: boolean;
+  onOverrideChange: (data: {
+    overrideEnabled: boolean;
+    approvalRequiredOverride?: boolean | null;
+    tierOverride?: string | null;
+  }) => void;
+  onSendPacket: () => void;
+  onApprovalChange: (candidateId: string, status: CustomerApprovalStatusType, note?: string) => void;
   onCardClick: (candidate: Candidate) => void;
   isAuthenticated: boolean;
   demoTitle: string;
 }) {
+  const unsentCandidates = allCandidates.filter(c => c.customerApprovalStatus === 'UNSENT');
   const pendingCandidates = allCandidates.filter(c => c.customerApprovalStatus === 'PENDING');
   const approvedCandidates = allCandidates.filter(c => c.customerApprovalStatus === 'APPROVED');
   const rejectedCandidates = allCandidates.filter(c => c.customerApprovalStatus === 'REJECTED');
 
-  const mockApprovalPackage = 'Tier 2 — Standard';
+  const overrideEnabled = approvalConfig?.vettingOverride?.overrideEnabled ?? false;
+  const liveApprovalRequired = approvalConfig?.liveResolved?.approvalRequired ?? false;
+  const liveTier = approvalConfig?.liveResolved?.tier ?? 'TIER_1';
+  const liveSource = approvalConfig?.liveResolved?.source ?? 'JOB_ORDER';
+  const joApprovalRequired = approvalConfig?.jobOrderResolved?.approvalRequired ?? false;
+  const joTier = approvalConfig?.jobOrderResolved?.tier ?? 'TIER_1';
+
+  const tierLabel = (t: string) => {
+    if (t === 'TIER_1') return 'Tier 1';
+    if (t === 'TIER_2') return 'Tier 2';
+    if (t === 'TIER_3') return 'Tier 3';
+    return t;
+  };
+
+  const sourceLabel = liveSource === 'VETTING_OVERRIDE' ? 'Vetting Override' : 'Job Order';
+
+  const handleOverrideToggle = (enabled: boolean) => {
+    if (!enabled) {
+      onOverrideChange({ overrideEnabled: false });
+    } else {
+      onOverrideChange({
+        overrideEnabled: true,
+        approvalRequiredOverride: joApprovalRequired,
+        tierOverride: joTier,
+      });
+    }
+  };
+
+  const counts = approvalConfig?.counts ?? { unsent: unsentCandidates.length, pending: pendingCandidates.length, approved: approvedCandidates.length, rejected: rejectedCandidates.length };
 
   return (
     <div className="approval-gate">
@@ -2499,65 +2658,175 @@ function CustomerApprovalGate({
           <span className="gate-icon">🔒</span>
           <h3>Customer Approval Gate</h3>
         </div>
+        {/* Override Toggle */}
         <label className="gate-toggle">
           <input
             type="checkbox"
-            checked={requiresPreApproval}
-            onChange={(e) => onToggle(e.target.checked)}
+            checked={overrideEnabled}
+            disabled={configSaving || !isAuthenticated}
+            onChange={(e) => handleOverrideToggle(e.target.checked)}
           />
           <span className="toggle-slider"></span>
-          <span className={`toggle-label ${requiresPreApproval ? 'active' : ''}`}>
-            {requiresPreApproval ? 'Required' : 'Not Required'}
+          <span className={`toggle-label ${overrideEnabled ? 'active' : ''}`}>
+            {overrideEnabled ? 'Override Active' : 'Using Job Order'}
           </span>
         </label>
       </div>
 
-      {/* Approval Context Block (Read-only, Informational) */}
+      {configLoading && (
+        <div className="gate-loading">Loading...</div>
+      )}
+
+      {/* Source indicator */}
+      <div className={`gate-source-badge ${overrideEnabled ? 'override' : 'job-order'}`}>
+        {sourceLabel}
+      </div>
+
+      {/* Approval Context Block */}
       <div className="approval-context">
         <div className="context-header">
-          <span className="context-label">Approval Context</span>
+          <span className="context-label">Live Settings</span>
         </div>
         <div className="context-rows">
           <div className="context-row">
-            <span className="context-key">Customer Approval Required:</span>
-            <span className={`context-value ${requiresPreApproval ? 'yes' : 'no'}`}>
-              {requiresPreApproval ? 'YES' : 'NO'}
+            <span className="context-key">Approval Required:</span>
+            <span className={`context-value ${liveApprovalRequired ? 'yes' : 'no'}`}>
+              {liveApprovalRequired ? 'YES' : 'NO'}
             </span>
           </div>
           <div className="context-row">
-            <span className="context-key">Approval Package:</span>
-            <span className="context-value package">{mockApprovalPackage}</span>
+            <span className="context-key">Active Tier:</span>
+            <span className="context-value package">{tierLabel(liveTier)}</span>
           </div>
         </div>
-        <p className="context-helper">
-          Approval requirements are defined at the customer level and may be overridden per order.
-        </p>
+
+        {/* Override edit controls — only when override is ON */}
+        {overrideEnabled && (
+          <div className="override-controls">
+            <div className="override-field">
+              <label className="override-label">Approval Required</label>
+              <select
+                className="override-select"
+                value={approvalConfig?.vettingOverride?.approvalRequiredOverride != null
+                  ? (approvalConfig.vettingOverride.approvalRequiredOverride ? 'true' : 'false')
+                  : 'inherit'}
+                disabled={configSaving || !isAuthenticated}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  onOverrideChange({
+                    overrideEnabled: true,
+                    approvalRequiredOverride: v === 'inherit' ? null : v === 'true',
+                    tierOverride: approvalConfig?.vettingOverride?.tierOverride,
+                  });
+                }}
+              >
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+                <option value="inherit">Inherit (Job Order)</option>
+              </select>
+            </div>
+            <div className="override-field">
+              <label className="override-label">Active Tier</label>
+              <select
+                className="override-select"
+                value={approvalConfig?.vettingOverride?.tierOverride ?? 'inherit'}
+                disabled={configSaving || !isAuthenticated}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  onOverrideChange({
+                    overrideEnabled: true,
+                    approvalRequiredOverride: approvalConfig?.vettingOverride?.approvalRequiredOverride,
+                    tierOverride: v === 'inherit' ? null : v,
+                  });
+                }}
+              >
+                <option value="TIER_1">Tier 1</option>
+                <option value="TIER_2">Tier 2</option>
+                <option value="TIER_3">Tier 3</option>
+                <option value="inherit">Inherit (Job Order)</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {!overrideEnabled && (
+          <p className="context-helper">
+            Using job order settings. Enable override to edit live values.
+          </p>
+        )}
       </div>
 
-      {/* Live approval status summary */}
+      {/* Job Order baseline (collapsed reference) */}
+      {overrideEnabled && (
+        <div className="jo-baseline">
+          <span className="jo-baseline-label">Job Order:</span>
+          <span className="jo-baseline-value">{joApprovalRequired ? 'Required' : 'Not Required'} · {tierLabel(joTier)}</span>
+        </div>
+      )}
+
+      {/* Live approval status summary — 4 statuses */}
       <div className="gate-summary">
+        <div className="summary-row">
+          <span className="summary-dot" style={{ background: '#94a3b8' }}></span>
+          <span className="summary-label">Unsent</span>
+          <span className="summary-count">{counts.unsent}</span>
+        </div>
         <div className="summary-row">
           <span className="summary-dot" style={{ background: '#f59e0b' }}></span>
           <span className="summary-label">Pending</span>
-          <span className="summary-count">{pendingCandidates.length}</span>
+          <span className="summary-count">{counts.pending}</span>
         </div>
         <div className="summary-row">
           <span className="summary-dot" style={{ background: '#22c55e' }}></span>
           <span className="summary-label">Approved</span>
-          <span className="summary-count">{approvedCandidates.length}</span>
+          <span className="summary-count">{counts.approved}</span>
         </div>
         <div className="summary-row">
           <span className="summary-dot" style={{ background: '#ef4444' }}></span>
           <span className="summary-label">Rejected</span>
-          <span className="summary-count">{rejectedCandidates.length}</span>
+          <span className="summary-count">{counts.rejected}</span>
         </div>
       </div>
 
-      {requiresPreApproval && pendingCandidates.length > 0 && (
+      {/* Generate Packet — sends UNSENT candidates to customer (UNSENT→PENDING) */}
+      {liveApprovalRequired && counts.unsent > 0 && (
+        <div className="gate-packet-action">
+          <button
+            className="gate-packet-btn"
+            disabled={sendingPacket || !isAuthenticated}
+            title={!isAuthenticated ? demoTitle : `Send ${counts.unsent} unsent candidate(s) to customer`}
+            onClick={onSendPacket}
+          >
+            {sendingPacket ? 'Generating PDF...' : `Generate Packet PDF (${counts.unsent})`}
+          </button>
+          <span className="packet-helper">Generates PDF and marks candidates as sent</span>
+        </div>
+      )}
+
+      {/* UNSENT candidates — not yet sent to customer */}
+      {liveApprovalRequired && unsentCandidates.length > 0 && (
+        <div className="gate-decided-section">
+          <div className="decided-header unsent">Unsent ({unsentCandidates.length})</div>
+          <div className="gate-candidates">
+            {unsentCandidates.map(candidate => (
+              <div key={candidate.id} className="gate-card decided-unsent">
+                <div className="gate-card-info" onClick={() => onCardClick(candidate)}>
+                  <span className="candidate-name">{candidate.name}</span>
+                  <span className="candidate-trade">{candidate.tradeName}</span>
+                </div>
+                <span className="unsent-badge">Not yet sent</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* PENDING candidates — sent to customer, awaiting response */}
+      {liveApprovalRequired && pendingCandidates.length > 0 && (
         <>
           <div className="gate-status">
             <span className="status-indicator pending"></span>
-            <span className="status-text">Pending customer approval</span>
+            <span className="status-text">Awaiting customer response</span>
             <span className="status-count">{pendingCandidates.length}</span>
           </div>
 
@@ -2591,6 +2860,62 @@ function CustomerApprovalGate({
           </div>
         </>
       )}
+
+      {/* Approved candidates with reversal */}
+      {liveApprovalRequired && approvedCandidates.length > 0 && (
+        <div className="gate-decided-section">
+          <div className="decided-header">Approved ({approvedCandidates.length})</div>
+          <div className="gate-candidates">
+            {approvedCandidates.map(candidate => (
+              <div key={candidate.id} className="gate-card decided-approved">
+                <div className="gate-card-info" onClick={() => onCardClick(candidate)}>
+                  <span className="candidate-name">{candidate.name}</span>
+                  <span className="candidate-trade">{candidate.tradeName}</span>
+                </div>
+                <div className="gate-card-actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="gate-action-btn reject"
+                    disabled={!isAuthenticated}
+                    title={!isAuthenticated ? demoTitle : 'Reverse to Rejected'}
+                    onClick={() => onApprovalChange(candidate.id, 'REJECTED')}
+                  >
+                    ✗
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Rejected candidates with reversal */}
+      {liveApprovalRequired && rejectedCandidates.length > 0 && (
+        <div className="gate-decided-section">
+          <div className="decided-header rejected">Rejected ({rejectedCandidates.length})</div>
+          <div className="gate-candidates">
+            {rejectedCandidates.map(candidate => (
+              <div key={candidate.id} className="gate-card decided-rejected">
+                <div className="gate-card-info" onClick={() => onCardClick(candidate)}>
+                  <span className="candidate-name">{candidate.name}</span>
+                  <span className="candidate-trade">{candidate.tradeName}</span>
+                </div>
+                <div className="gate-card-actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="gate-action-btn approve"
+                    disabled={!isAuthenticated}
+                    title={!isAuthenticated ? demoTitle : 'Reverse to Approved'}
+                    onClick={() => onApprovalChange(candidate.id, 'APPROVED')}
+                  >
+                    ✓
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {configSaving && <div className="gate-saving">Saving...</div>}
 
       <style jsx>{`
         /* Customer Approval Gate — IL V1 amber semantic panel */
@@ -2668,6 +2993,93 @@ function CustomerApprovalGate({
           font-weight: 700;
         }
 
+        .gate-loading {
+          text-align: center;
+          font-size: 10px;
+          color: #9ca3af;
+          padding: 8px 0;
+        }
+
+        .gate-saving {
+          text-align: center;
+          font-size: 9px;
+          color: #d97706;
+          padding: 4px 0;
+          font-style: italic;
+        }
+
+        .gate-source-badge {
+          display: inline-block;
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-size: 9px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+          margin-bottom: 8px;
+        }
+
+        .gate-source-badge.job-order {
+          background: #e0e7ff;
+          color: #3730a3;
+        }
+
+        .gate-source-badge.override {
+          background: #fef3c7;
+          color: #92400e;
+        }
+
+        .override-controls {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px dashed #fde68a;
+        }
+
+        .override-field {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .override-label {
+          font-size: 9px;
+          font-weight: 600;
+          color: #6b7280;
+        }
+
+        .override-select {
+          padding: 3px 4px;
+          font-size: 10px;
+          border: 1px solid #d1d5db;
+          border-radius: 4px;
+          background: white;
+          color: #111827;
+        }
+
+        .jo-baseline {
+          display: flex;
+          gap: 4px;
+          align-items: center;
+          padding: 4px 8px;
+          background: #f0f4ff;
+          border-radius: 4px;
+          margin-bottom: 8px;
+        }
+
+        .jo-baseline-label {
+          font-size: 9px;
+          font-weight: 600;
+          color: #6b7280;
+        }
+
+        .jo-baseline-value {
+          font-size: 9px;
+          color: #374151;
+        }
+
         .gate-status {
           display: flex;
           align-items: center;
@@ -2730,6 +3142,9 @@ function CustomerApprovalGate({
         }
 
         .gate-card:hover { background: #fffbeb; }
+        .gate-card.decided-unsent { border-color: #cbd5e1; background: #f8fafc; }
+        .gate-card.decided-approved { border-color: #a7f3d0; background: #f0fdf4; }
+        .gate-card.decided-rejected { border-color: #fecaca; background: #fef2f2; }
 
         .gate-card .candidate-name {
           font-size: 11px;
@@ -2790,6 +3205,71 @@ function CustomerApprovalGate({
           cursor: not-allowed;
         }
 
+        .gate-decided-section {
+          margin-bottom: 8px;
+        }
+
+        .decided-header {
+          font-size: 9px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+          color: #065f46;
+          margin-bottom: 4px;
+        }
+
+        .decided-header.unsent {
+          color: #475569;
+        }
+
+        .decided-header.rejected {
+          color: #991b1b;
+        }
+
+        .unsent-badge {
+          font-size: 8px;
+          color: #64748b;
+          background: #e2e8f0;
+          padding: 1px 5px;
+          border-radius: 3px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+        }
+
+        .gate-packet-action {
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+          gap: 4px;
+          margin-bottom: 10px;
+        }
+
+        .gate-packet-btn {
+          padding: 6px 10px;
+          font-size: 10px;
+          font-weight: 700;
+          border: 1px solid #f59e0b;
+          border-radius: 5px;
+          background: #fef3c7;
+          color: #92400e;
+          cursor: pointer;
+          transition: background 0.12s ease;
+        }
+
+        .gate-packet-btn:hover { background: #fde68a; }
+
+        .gate-packet-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .packet-helper {
+          font-size: 8px;
+          color: #9ca3af;
+          text-align: center;
+        }
+
         .gate-summary {
           display: flex;
           flex-direction: column;
@@ -2824,19 +3304,6 @@ function CustomerApprovalGate({
           font-size: 10px;
           font-weight: 700;
           color: #111827;
-        }
-
-        .approve-btn {
-          width: 100%;
-          padding: 8px;
-          background: #fffbeb;
-          border: 1px solid #fde68a;
-          border-radius: 5px;
-          color: #d97706;
-          font-size: 10px;
-          font-weight: 700;
-          cursor: not-allowed;
-          opacity: 0.75;
         }
 
         /* Approval Context (read-only info block) */
