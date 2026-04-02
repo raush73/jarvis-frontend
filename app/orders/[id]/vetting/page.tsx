@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Bucket,
@@ -132,6 +133,7 @@ function getEligibilitySummary(candidate: Candidate): { met: number; total: numb
 }
 
 export default function VettingPage() {
+  const pageInstanceId = useRef(Math.random().toString(36).slice(2));
   const params = useParams();
   const orderId = params?.id as string;
   const router = useRouter();
@@ -147,9 +149,23 @@ export default function VettingPage() {
   
   // State for bulk dispatch
   const [showBulkDispatchModal, setShowBulkDispatchModal] = useState(false);
+
+  // --- DIAGNOSTIC: instance tracking ---
+  console.log('[VETTING PAGE RENDER] instance=' + pageInstanceId.current + ' showBulkDispatchModal=' + showBulkDispatchModal + ' vettingStatus=' + vettingState.status);
+
+  useEffect(() => {
+    console.log('[VETTING PAGE] mounted instance=' + pageInstanceId.current);
+    return () => { console.log('[VETTING PAGE] unmounted instance=' + pageInstanceId.current); };
+  }, []);
+
+  useEffect(() => {
+    console.log('[MODAL STATE EFFECT] instance=' + pageInstanceId.current + ' showBulkDispatchModal changed to ' + showBulkDispatchModal);
+  }, [showBulkDispatchModal]);
   const [bulkDispatchDate, setBulkDispatchDate] = useState('');
+  const [bulkDispatchNote, setBulkDispatchNote] = useState('');
   const [bulkDispatchLoading, setBulkDispatchLoading] = useState(false);
   const [bulkDispatchError, setBulkDispatchError] = useState<string | null>(null);
+  const [workerOverrides, setWorkerOverrides] = useState<Record<string, { startDate?: string; dispatchNote?: string }>>({});
 
   // State for dispatch result reporting
   const [dispatchSuccessSummary, setDispatchSuccessSummary] = useState<{
@@ -157,6 +173,12 @@ export default function VettingPage() {
     blockedCount: number;
     totalRequested: number;
   } | null>(null);
+  const [dispatchSuccessDetails, setDispatchSuccessDetails] = useState<{
+    orderCandidateId: string;
+    candidateName: string;
+    startDate: string;
+    dispatchNote: string | null;
+  }[]>([]);
   const [dispatchFailureDetails, setDispatchFailureDetails] = useState<{
     orderCandidateId: string;
     candidateName: string;
@@ -246,6 +268,104 @@ export default function VettingPage() {
     }
   }, [selectedIds, clearBucketSelection, refetch]);
 
+  const dismissModal = useCallback(() => {
+    setShowBulkDispatchModal(false);
+    setBulkDispatchDate('');
+    setBulkDispatchNote('');
+    setBulkDispatchError(null);
+    setWorkerOverrides({});
+  }, []);
+
+  const preDispatchCheckedIds = selectedIds['PRE_DISPATCH'] || new Set<string>();
+  const dispatchModalCandidates = (vettingState.status === 'ready')
+    ? (vettingState.order.buckets.find(b => b.id === 'PRE_DISPATCH')?.candidates.filter(c => preDispatchCheckedIds.has(c.id)) || [])
+    : [];
+
+  const handleBulkDispatch = async () => {
+    if (vettingState.status !== 'ready') return;
+    console.log('[DISPATCH CHAIN] Step 4: handleBulkDispatch called. orderId=', orderId, 'bulkDispatchDate=', bulkDispatchDate);
+    if (!orderId || !bulkDispatchDate) { console.log('[DISPATCH CHAIN] Step 4: EARLY RETURN — orderId or bulkDispatchDate falsy'); return; }
+
+    const checkedIds = selectedIds['PRE_DISPATCH'] || new Set<string>();
+    const selectedCandidates = dispatchModalCandidates.filter(c => checkedIds.has(c.id));
+    console.log('[DISPATCH CHAIN] Step 4: selectedCandidates.length=', selectedCandidates.length, 'checkedIds.size=', checkedIds.size);
+    if (selectedCandidates.length === 0) { console.log('[DISPATCH CHAIN] Step 4: EARLY RETURN — no selected candidates'); return; }
+
+    setBulkDispatchLoading(true);
+    setBulkDispatchError(null);
+    setDispatchSuccessSummary(null);
+    setDispatchSuccessDetails([]);
+    setDispatchFailureDetails([]);
+
+    try {
+      const result = await apiFetch<{
+        ok: boolean;
+        totalRequested: number;
+        dispatchedCount: number;
+        blockedCount: number;
+        dispatched: { orderCandidateId: string; candidateName: string; startDate: string; dispatchNote: string | null }[];
+        blocked: { orderCandidateId: string; candidateName: string; reasons: string[] }[];
+      }>('/recruiting/bulk-dispatch', {
+        method: 'POST',
+        body: JSON.stringify({
+          orderId,
+          defaultStartDate: bulkDispatchDate,
+          defaultDispatchNote: bulkDispatchNote.trim() || undefined,
+          workers: selectedCandidates.map(c => {
+            const ov = workerOverrides[c.id];
+            return {
+              orderCandidateId: c.id,
+              startDate: ov?.startDate || undefined,
+              dispatchNote: ov?.dispatchNote || undefined,
+            };
+          }),
+        }),
+      });
+
+      setDispatchSuccessSummary({
+        dispatchedCount: result.dispatchedCount,
+        blockedCount: result.blockedCount,
+        totalRequested: result.totalRequested,
+      });
+      setDispatchSuccessDetails(result.dispatched);
+      setDispatchFailureDetails(result.blocked);
+      setShowBulkDispatchModal(false);
+      setBulkDispatchDate('');
+      setBulkDispatchNote('');
+      setWorkerOverrides({});
+      refetch();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Bulk dispatch failed';
+      setBulkDispatchError(msg);
+    } finally {
+      setBulkDispatchLoading(false);
+    }
+  };
+
+  const dispatchModalElement = showBulkDispatchModal ? (
+    <BulkDispatchModal
+      candidateCount={dispatchModalCandidates.length}
+      candidates={dispatchModalCandidates}
+      dispatchDate={bulkDispatchDate}
+      onDateChange={setBulkDispatchDate}
+      dispatchNote={bulkDispatchNote}
+      onNoteChange={setBulkDispatchNote}
+      workerOverrides={workerOverrides}
+      onWorkerOverrideChange={(id: string, field: 'startDate' | 'dispatchNote', value: string) => {
+        setWorkerOverrides(prev => ({
+          ...prev,
+          [id]: { ...prev[id], [field]: value },
+        }));
+      }}
+      loading={bulkDispatchLoading}
+      error={bulkDispatchError}
+      onClose={dismissModal}
+      onConfirm={handleBulkDispatch}
+      isAuthenticated={isAuthenticated}
+      demoTitle={demoTitle}
+    />
+  ) : null;
+
   // Loading state — preserve shell structure
   if (vettingState.status === 'loading') {
     return (
@@ -257,6 +377,7 @@ export default function VettingPage() {
           </div>
         </header>
         <div style={{ textAlign: 'center', padding: 40, color: '#6b7280', fontSize: 14 }}>Loading candidates and order context...</div>
+        {dispatchModalElement}
       </div>
     );
   }
@@ -277,6 +398,7 @@ export default function VettingPage() {
           </div>
           <button onClick={refetch} style={{ padding: '8px 16px', background: '#2563eb', border: 'none', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Retry</button>
         </header>
+        {dispatchModalElement}
       </div>
     );
   }
@@ -299,54 +421,6 @@ export default function VettingPage() {
   // Handler for redispatching a no-show
   const handleRedispatch = (candidate: Candidate) => {
     setNoShowCandidates(prev => prev.filter(c => c.id !== candidate.id));
-  };
-
-  // Handler for bulk dispatch from PRE_DISPATCH lane (CANONICAL dispatch path)
-  const handleBulkDispatch = async () => {
-    if (!orderId) return;
-    const startDate = new Date().toISOString().split('T')[0];
-
-    const preDispatchBucket = order.buckets.find(b => b.id === 'PRE_DISPATCH');
-    const selectedCandidates = preDispatchBucket?.candidates.filter(c => c.selectedForDispatch) || [];
-    if (selectedCandidates.length === 0) return;
-
-    setBulkDispatchLoading(true);
-    setBulkDispatchError(null);
-    setDispatchSuccessSummary(null);
-    setDispatchFailureDetails([]);
-
-    try {
-      const result = await apiFetch<{
-        ok: boolean;
-        totalRequested: number;
-        dispatchedCount: number;
-        blockedCount: number;
-        dispatched: { orderCandidateId: string; candidateName: string }[];
-        blocked: { orderCandidateId: string; candidateName: string; reasons: string[] }[];
-      }>('/recruiting/bulk-dispatch', {
-        method: 'POST',
-        body: JSON.stringify({
-          orderId,
-          orderCandidateIds: selectedCandidates.map(c => c.id),
-          startDate: startDate,
-        }),
-      });
-
-      setDispatchSuccessSummary({
-        dispatchedCount: result.dispatchedCount,
-        blockedCount: result.blockedCount,
-        totalRequested: result.totalRequested,
-      });
-      setDispatchFailureDetails(result.blocked);
-      setShowBulkDispatchModal(false);
-      setBulkDispatchDate('');
-      refetch();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Bulk dispatch failed';
-      setBulkDispatchError(msg);
-    } finally {
-      setBulkDispatchLoading(false);
-    }
   };
 
   // Handler for customer approval status change (Phase 9 — soft gate)
@@ -482,6 +556,20 @@ export default function VettingPage() {
             </div>
           )}
 
+          {bulkDispatchError && !showBulkDispatchModal && (
+            <div className="dispatch-result-banner dispatch-error-banner" role="alert">
+              <div className="dispatch-result-header">
+                <span className="dispatch-result-icon">&#x2717;</span>
+                <span className="dispatch-result-text">{bulkDispatchError}</span>
+                <button
+                  className="dispatch-result-dismiss"
+                  onClick={() => setBulkDispatchError(null)}
+                  aria-label="Dismiss"
+                >x</button>
+              </div>
+            </div>
+          )}
+
           {dispatchSuccessSummary && (
             <div className="dispatch-result-banner" role="status">
               <div className="dispatch-result-header">
@@ -497,10 +585,26 @@ export default function VettingPage() {
                 </span>
                 <button
                   className="dispatch-result-dismiss"
-                  onClick={() => { setDispatchSuccessSummary(null); setDispatchFailureDetails([]); }}
+                  onClick={() => { setDispatchSuccessSummary(null); setDispatchSuccessDetails([]); setDispatchFailureDetails([]); }}
                   aria-label="Dismiss"
                 >×</button>
               </div>
+              {dispatchSuccessDetails.length > 0 && dispatchSuccessDetails.length <= 20 && (
+                <div className="dispatch-blocked-details">
+                  <div className="dispatch-blocked-title">Dispatched:</div>
+                  <ul className="dispatch-blocked-list">
+                    {dispatchSuccessDetails.map((item) => (
+                      <li key={item.orderCandidateId} className="dispatch-blocked-item">
+                        <span className="dispatch-blocked-name">{item.candidateName}</span>
+                        <span className="dispatch-blocked-separator"> — </span>
+                        <span className="dispatch-blocked-reasons">
+                          Start: {item.startDate}{item.dispatchNote ? ` | Note: ${item.dispatchNote}` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {dispatchFailureDetails.length > 0 && (
                 <div className="dispatch-blocked-details">
                   <div className="dispatch-blocked-title">Not dispatched:</div>
@@ -542,6 +646,7 @@ export default function VettingPage() {
                   moveLoading={moveLoading}
                   onBulkDispatch={handleBulkDispatch}
                   bulkDispatchLoading={bulkDispatchLoading}
+                  onOpenDispatchModal={() => { console.log('[DISPATCH CHAIN] Step 1: instance=' + pageInstanceId.current + ' setting showBulkDispatchModal=true'); setShowBulkDispatchModal(true); }}
                 />
               ))}
               
@@ -660,29 +765,8 @@ export default function VettingPage() {
         />
       )}
 
-      {/* Bulk Dispatch Modal (CANONICAL dispatch path) */}
-      {showBulkDispatchModal && (() => {
-        const preDispatchBucket = order.buckets.find(b => b.id === 'PRE_DISPATCH');
-        const selectedForDispatchCandidates = preDispatchBucket?.candidates.filter(c => c.selectedForDispatch) || [];
-        return (
-          <BulkDispatchModal
-            candidateCount={selectedForDispatchCandidates.length}
-            candidates={selectedForDispatchCandidates}
-            dispatchDate={bulkDispatchDate}
-            onDateChange={setBulkDispatchDate}
-            loading={bulkDispatchLoading}
-            error={bulkDispatchError}
-            onClose={() => {
-              setShowBulkDispatchModal(false);
-              setBulkDispatchDate('');
-              setBulkDispatchError(null);
-            }}
-            onConfirm={handleBulkDispatch}
-            isAuthenticated={isAuthenticated}
-            demoTitle={demoTitle}
-          />
-        );
-      })()}
+      {/* Bulk Dispatch Modal (CANONICAL dispatch path) — rendered via dispatchModalElement */}
+      {dispatchModalElement}
 
       <style jsx>{`
         /* ============================================================
@@ -1030,6 +1114,11 @@ export default function VettingPage() {
           background: #fffbeb;
         }
 
+        .dispatch-error-banner {
+          border-color: #fca5a5;
+          background: #fef2f2;
+        }
+
         .dispatch-result-header {
           display: flex;
           align-items: center;
@@ -1135,6 +1224,7 @@ function LaneColumn({
   moveLoading,
   onBulkDispatch,
   bulkDispatchLoading,
+  onOpenDispatchModal,
 }: {
   bucket: Bucket;
   trades: Trade[];
@@ -1154,6 +1244,7 @@ function LaneColumn({
   moveLoading?: boolean;
   onBulkDispatch?: () => void;
   bulkDispatchLoading?: boolean;
+  onOpenDispatchModal?: () => void;
 }) {
   const tradeBreakdown = getBucketTradeBreakdown(bucket, trades);
   const isDispatchedBucket = bucket.id === 'DISPATCHED';
@@ -1187,7 +1278,7 @@ function LaneColumn({
         <span className="lane-desc">{laneDescription}</span>
         {isPreDispatchBucket && totalInLane > 0 && (
           <div className="selection-summary">
-            <span className="selection-count">{selectedCount} selected</span>
+            <span className="selection-count">{bucketSelectedCount} selected</span>
             <span className="selection-separator">of</span>
             <span className="selection-total">{totalInLane} staged</span>
           </div>
@@ -1235,15 +1326,15 @@ function LaneColumn({
         </div>
       )}
 
-      {isPreDispatchBucket && selectedCount > 0 && (
+      {isPreDispatchBucket && bucketSelectedCount > 0 && (
         <div className="lane-actions">
           <button
             className="action-btn action-btn-dispatch-bulk"
             disabled={!isAuthenticated || !!bulkDispatchLoading}
-            title={!isAuthenticated ? demoTitle : `Dispatch ${selectedCount} selected workers`}
-            onClick={(e) => { e.stopPropagation(); if (onBulkDispatch) onBulkDispatch(); }}
+            title={!isAuthenticated ? demoTitle : `Dispatch ${bucketSelectedCount} selected workers`}
+            onClick={(e) => { e.stopPropagation(); console.log('[DISPATCH CHAIN] Step 0: Dispatch Selected button clicked, bucketSelectedCount=', bucketSelectedCount); if (onOpenDispatchModal) onOpenDispatchModal(); }}
           >
-            {bulkDispatchLoading ? 'Dispatching...' : `Dispatch Selected (${selectedCount})`}
+            {bulkDispatchLoading ? 'Dispatching...' : `Dispatch Selected (${bucketSelectedCount})`}
           </button>
         </div>
       )}
@@ -3314,6 +3405,10 @@ function BulkDispatchModal({
   candidates,
   dispatchDate,
   onDateChange,
+  dispatchNote,
+  onNoteChange,
+  workerOverrides,
+  onWorkerOverrideChange,
   onClose,
   onConfirm,
   loading,
@@ -3325,6 +3420,10 @@ function BulkDispatchModal({
   candidates: Candidate[];
   dispatchDate: string;
   onDateChange: (date: string) => void;
+  dispatchNote: string;
+  onNoteChange: (note: string) => void;
+  workerOverrides: Record<string, { startDate?: string; dispatchNote?: string }>;
+  onWorkerOverrideChange: (id: string, field: 'startDate' | 'dispatchNote', value: string) => void;
   onClose: () => void;
   onConfirm: () => void;
   loading?: boolean;
@@ -3332,46 +3431,126 @@ function BulkDispatchModal({
   isAuthenticated: boolean;
   demoTitle: string;
 }) {
+  const [showOverrides, setShowOverrides] = useState(false);
   const canConfirm = dispatchDate.length > 0 && !loading && candidateCount > 0;
+  const overrideCount = Object.values(workerOverrides).filter(
+    ov => (ov.startDate && ov.startDate.length > 0) || (ov.dispatchNote && ov.dispatchNote.trim().length > 0)
+  ).length;
 
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Bulk Dispatch</h2>
-          <button className="close-btn" onClick={onClose}>×</button>
+  console.log('[DISPATCH CHAIN] Step 3: BulkDispatchModal MOUNTED. candidateCount=', candidateCount, 'canConfirm=', canConfirm, 'dispatchDate=', dispatchDate);
+
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        background: 'rgba(0,0,0,0.4)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 9999,
+      }}
+    >
+      <div
+        style={{
+          background: '#ffffff',
+          borderRadius: 12,
+          minWidth: 400,
+          maxWidth: 600,
+          width: '100%',
+          maxHeight: '85vh',
+          overflowY: 'auto',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <div className="dm-header">
+          <h2 className="dm-title">Dispatch Workers</h2>
+          <button className="dm-close" onClick={onClose}>×</button>
         </div>
 
-        <div className="modal-body">
-          <div className="bulk-summary">
-            <span className="bulk-count">{candidateCount}</span>
-            <span className="bulk-label">workers selected for dispatch</span>
+        <div className="dm-body">
+          <div className="dm-summary">
+            <span className="dm-count">{candidateCount}</span>
+            <span className="dm-label">workers selected for dispatch</span>
           </div>
 
-          {candidates.length > 0 && candidates.length <= 20 && (
-            <div className="bulk-candidate-list">
-              {candidates.map(c => (
-                <div key={c.id} className="bulk-candidate-row">
-                  <span className="bulk-candidate-name">{c.name}</span>
-                  <span className="bulk-candidate-trade">{c.tradeName}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="form-group">
-            <label className="form-label">
-              Official Start Date <span className="required">*</span>
+          <div className="dm-field">
+            <label className="dm-field-label">
+              Default Start Date <span style={{ color: '#dc2626' }}>*</span>
             </label>
             <input
               type="date"
-              className="date-input"
+              className="dm-input"
               disabled={!isAuthenticated}
               title={!isAuthenticated ? demoTitle : undefined}
               value={dispatchDate}
               onChange={e => onDateChange(e.target.value)}
               min={new Date().toISOString().split('T')[0]}
             />
+          </div>
+
+          <div className="dm-field">
+            <label className="dm-field-label">Default Dispatch Note</label>
+            <textarea
+              className="dm-input dm-textarea"
+              placeholder="Worker-facing instructions (optional)"
+              value={dispatchNote}
+              onChange={e => onNoteChange(e.target.value)}
+              rows={2}
+              disabled={!isAuthenticated}
+            />
+          </div>
+
+          <div className="dm-overrides-section">
+            <button
+              className="dm-overrides-toggle"
+              onClick={() => setShowOverrides(!showOverrides)}
+              type="button"
+            >
+              {showOverrides ? '▾' : '▸'} Per-Worker Overrides
+              {overrideCount > 0 && <span className="dm-override-badge">{overrideCount}</span>}
+            </button>
+
+            {showOverrides && (
+              <div className="dm-overrides-list">
+                {candidates.map(c => {
+                  const ov = workerOverrides[c.id] || {};
+                  const hasOverride = (ov.startDate && ov.startDate.length > 0) || (ov.dispatchNote && ov.dispatchNote.trim().length > 0);
+                  return (
+                    <div key={c.id} className={`dm-ov-row${hasOverride ? ' dm-ov-active' : ''}`}>
+                      <div className="dm-ov-worker">
+                        <span className="dm-ov-name">{c.name}</span>
+                        <span className="dm-ov-trade">{c.tradeName}</span>
+                      </div>
+                      <div className="dm-ov-fields">
+                        <input
+                          type="date"
+                          className="dm-ov-date"
+                          value={ov.startDate || ''}
+                          onChange={e => onWorkerOverrideChange(c.id, 'startDate', e.target.value)}
+                          placeholder="Default"
+                          min={new Date().toISOString().split('T')[0]}
+                        />
+                        <input
+                          type="text"
+                          className="dm-ov-note"
+                          value={ov.dispatchNote || ''}
+                          onChange={e => onWorkerOverrideChange(c.id, 'dispatchNote', e.target.value)}
+                          placeholder="Note override"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -3381,10 +3560,10 @@ function BulkDispatchModal({
           </div>
         )}
 
-        <div className="modal-footer">
-          <button className="cancel-btn" onClick={onClose} disabled={loading}>Cancel</button>
+        <div className="dm-footer">
+          <button className="dm-cancel" onClick={onClose} disabled={loading}>Cancel</button>
           <button
-            className="confirm-btn"
+            className="dm-confirm"
             onClick={onConfirm}
             disabled={!canConfirm}
           >
@@ -3393,177 +3572,101 @@ function BulkDispatchModal({
         </div>
 
         <style jsx>{`
-          .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(17, 24, 39, 0.45);
-            backdrop-filter: blur(2px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-          }
-
-          .modal-content {
-            width: 100%;
-            max-width: 440px;
-            background: #ffffff;
-            border-radius: 12px;
-            border: 1px solid #e5e7eb;
-            overflow: hidden;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.12);
-          }
-
-          .modal-header {
+          .dm-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 14px 18px;
             background: #f0fdf4;
             border-bottom: 1px solid #bbf7d0;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            border-radius: 12px 12px 0 0;
+          }
+          .dm-title { margin: 0; font-size: 15px; font-weight: 700; color: #166534; }
+          .dm-close {
+            width: 28px; height: 28px; background: #fff; border: 1px solid #e5e7eb;
+            border-radius: 6px; color: #374151; font-size: 18px; cursor: pointer;
+          }
+          .dm-close:hover { background: #f1f5f9; }
+
+          .dm-body { padding: 18px; }
+
+          .dm-summary {
+            display: flex; align-items: baseline; gap: 8px; padding: 14px;
+            background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; margin-bottom: 16px;
+          }
+          .dm-count { font-size: 28px; font-weight: 800; color: #16a34a; }
+          .dm-label { font-size: 13px; color: #374151; font-weight: 500; }
+
+          .dm-field { margin-bottom: 16px; }
+          .dm-field-label {
+            display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;
           }
 
-          .modal-header h2 {
-            margin: 0;
-            font-size: 15px;
-            font-weight: 700;
-            color: #166534;
+          .dm-input {
+            width: 100%; padding: 9px 11px; background: #fff; border: 1px solid #d1d5db;
+            border-radius: 6px; color: #111827; font-size: 13px; outline: none;
+            font-family: inherit; box-sizing: border-box;
+          }
+          .dm-input:focus { border-color: #16a34a; box-shadow: 0 0 0 2px rgba(22,163,74,0.12); }
+          .dm-textarea { resize: vertical; min-height: 40px; }
+
+          .dm-overrides-section { margin-bottom: 8px; }
+          .dm-overrides-toggle {
+            display: flex; align-items: center; gap: 6px; padding: 8px 0;
+            background: none; border: none; color: #374151; font-size: 12px; font-weight: 600; cursor: pointer;
+          }
+          .dm-overrides-toggle:hover { color: #111827; }
+          .dm-override-badge {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 18px; height: 18px; padding: 0 5px;
+            background: #dbeafe; color: #1d4ed8; font-size: 10px; font-weight: 700; border-radius: 9px;
           }
 
-          .close-btn {
-            width: 28px;
-            height: 28px;
-            background: #ffffff;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            color: #374151;
-            font-size: 18px;
-            cursor: pointer;
-            transition: background 0.12s ease;
+          .dm-overrides-list {
+            border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin-top: 6px;
           }
-
-          .close-btn:hover { background: #f1f5f9; }
-
-          .modal-body { padding: 18px; }
-
-          .bulk-summary {
-            display: flex;
-            align-items: baseline;
-            gap: 8px;
-            padding: 14px;
-            background: #f0fdf4;
-            border: 1px solid #bbf7d0;
-            border-radius: 8px;
-            margin-bottom: 16px;
+          .dm-ov-row { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; }
+          .dm-ov-row:last-child { border-bottom: none; }
+          .dm-ov-active { background: #eff6ff; }
+          .dm-ov-worker { display: flex; justify-content: space-between; margin-bottom: 6px; }
+          .dm-ov-name { font-size: 12px; font-weight: 600; color: #111827; }
+          .dm-ov-trade { font-size: 11px; color: #6b7280; }
+          .dm-ov-fields { display: flex; gap: 8px; }
+          .dm-ov-date {
+            width: 140px; padding: 5px 8px; border: 1px solid #d1d5db;
+            border-radius: 5px; font-size: 11px; color: #111827; background: #fff; outline: none;
           }
-
-          .bulk-count {
-            font-size: 28px;
-            font-weight: 800;
-            color: #16a34a;
+          .dm-ov-date:focus { border-color: #3b82f6; }
+          .dm-ov-note {
+            flex: 1; padding: 5px 8px; border: 1px solid #d1d5db;
+            border-radius: 5px; font-size: 11px; color: #111827; background: #fff; outline: none;
           }
+          .dm-ov-note:focus { border-color: #3b82f6; }
 
-          .bulk-label {
-            font-size: 13px;
-            color: #374151;
-            font-weight: 500;
+          .dm-footer {
+            display: flex; justify-content: flex-end; gap: 10px;
+            padding: 14px 18px; border-top: 1px solid #e5e7eb;
+            position: sticky; bottom: 0; background: #fff;
+            border-radius: 0 0 12px 12px;
           }
-
-          .bulk-candidate-list {
-            max-height: 160px;
-            overflow-y: auto;
-            margin-bottom: 16px;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
+          .dm-cancel {
+            padding: 8px 16px; background: #fff; border: 1px solid #e5e7eb;
+            border-radius: 7px; color: #374151; font-size: 13px; font-weight: 600; cursor: pointer;
           }
-
-          .bulk-candidate-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 6px 10px;
-            border-bottom: 1px solid #f1f5f9;
-            font-size: 12px;
+          .dm-cancel:hover { background: #f1f5f9; border-color: #d1d5db; }
+          .dm-confirm {
+            padding: 8px 20px; background: #16a34a; border: none;
+            border-radius: 7px; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer;
           }
-
-          .bulk-candidate-row:last-child { border-bottom: none; }
-
-          .bulk-candidate-name {
-            font-weight: 600;
-            color: #111827;
-          }
-
-          .bulk-candidate-trade {
-            color: #6b7280;
-          }
-
-          .form-group { margin-bottom: 16px; }
-
-          .form-label {
-            display: block;
-            font-size: 12px;
-            font-weight: 600;
-            color: #374151;
-            margin-bottom: 6px;
-          }
-
-          .required { color: #dc2626; }
-
-          .date-input {
-            width: 100%;
-            padding: 9px 11px;
-            background: #ffffff;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            color: #111827;
-            font-size: 13px;
-            outline: none;
-            transition: border-color 0.12s ease;
-          }
-
-          .date-input:focus {
-            border-color: #16a34a;
-            box-shadow: 0 0 0 2px rgba(22,163,74,0.12);
-          }
-
-          .modal-footer {
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-            padding: 14px 18px;
-            border-top: 1px solid #e5e7eb;
-          }
-
-          .cancel-btn {
-            padding: 8px 16px;
-            background: #ffffff;
-            border: 1px solid #e5e7eb;
-            border-radius: 7px;
-            color: #374151;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.12s ease;
-          }
-
-          .cancel-btn:hover { background: #f1f5f9; border-color: #d1d5db; }
-
-          .confirm-btn {
-            padding: 8px 20px;
-            background: #16a34a;
-            border: none;
-            border-radius: 7px;
-            color: #fff;
-            font-size: 13px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: background 0.12s ease;
-          }
-
-          .confirm-btn:hover:not(:disabled) { background: #15803d; }
-          .confirm-btn:disabled { background: #bbf7d0; color: #6b7280; cursor: not-allowed; }
+          .dm-confirm:hover:not(:disabled) { background: #15803d; }
+          .dm-confirm:disabled { background: #bbf7d0; color: #6b7280; cursor: not-allowed; }
         `}</style>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

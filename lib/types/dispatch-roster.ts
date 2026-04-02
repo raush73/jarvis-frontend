@@ -1,11 +1,12 @@
 export interface DispatchAssignment {
   assignmentId: string;
-  workerId: string;
+  candidateId: string;
   workerName: string | null;
   workerEmail: string | null;
   status: string | null;
   startDate: string | null;
   endDate: string | null;
+  dispatchNote: string | null;
 }
 
 export interface DispatchTradeLine {
