@@ -104,7 +104,7 @@ export function CandidateSearchSelect({ onSelect, placeholder = 'Search by name.
           marginTop: 2,
           maxHeight: 240,
           overflowY: 'auto',
-          zIndex: 50,
+          zIndex: 2000,
           boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
         }}>
           {results.length === 0 && !loading && (

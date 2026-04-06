@@ -3,80 +3,202 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { AddCandidateModal, TradeLineOption } from '@/components/vetting/AddCandidateModal';
-// Mock job orders data
-const MOCK_ORDERS = [
-  {
-    id: "ORD-2024-001",
-    customer: "Turner Construction",
-    site: "Downtown Tower - Los Angeles, CA",
-    startDate: "2024-02-15",
-    trades: { mw: { filled: 7, total: 10 }, pw: { filled: 18, total: 30 } },
-    lastUpdated: "2 hours ago",
-  },
-  {
-    id: "ORD-2024-002",
-    customer: "Skanska USA",
-    site: "Metro Hospital - San Diego, CA",
-    startDate: "2024-02-18",
-    trades: { mw: { filled: 4, total: 6 }, pw: { filled: 12, total: 15 } },
-    lastUpdated: "5 hours ago",
-  },
-  {
-    id: "ORD-2024-003",
-    customer: "McCarthy Building",
-    site: "Tech Campus Phase 2 - Phoenix, AZ",
-    startDate: "2024-02-20",
-    trades: { mw: { filled: 10, total: 12 }, pw: { filled: 25, total: 40 } },
-    lastUpdated: "1 day ago",
-  },
-  {
-    id: "ORD-2024-004",
-    customer: "DPR Construction",
-    site: "Data Center NV-01 - Las Vegas, NV",
-    startDate: "2024-02-22",
-    trades: { mw: { filled: 15, total: 20 }, pw: { filled: 8, total: 10 } },
-    lastUpdated: "3 days ago",
-  },
-  {
-    id: "ORD-2024-005",
-    customer: "Hensel Phelps",
-    site: "Airport Terminal Expansion - Denver, CO",
-    startDate: "2024-03-01",
-    trades: { mw: { filled: 0, total: 8 }, pw: { filled: 5, total: 20 } },
-    lastUpdated: "5 days ago",
-  },
-  {
-    id: "ORD-2024-006",
-    customer: "Holder Construction",
-    site: "University Research Lab - Austin, TX",
-    startDate: "2024-03-05",
-    trades: { mw: { filled: 3, total: 5 }, pw: { filled: 10, total: 12 } },
-    lastUpdated: "1 week ago",
-  },
-];
 
-// Orders source (UI-only). If/when backend wiring exists, replace with fetched orders.
-const orders = MOCK_ORDERS;
+/** Resolver staffing attached in listOrders (OrderStaffingResolverService); do not recompute openings client-side. */
+type OrderStaffingSummary = {
+  requested: number;
+  dispatched: number;
+  adjustments: number;
+  open: number;
+  hasOpenings: boolean;
+  fullyStaffed: boolean;
+};
 
+/** Shape returned by GET /orders (see orders.service listOrders select). */
+type OrderListRow = {
+  id: string;
+  title?: string | null;
+  status?: string;
+  approvalStatus?: string;
+  customerId?: string;
+  jobLocationCode?: string | null;
+  jobSiteName?: string | null;
+  jobSiteCity?: string | null;
+  jobSiteState?: string | null;
+  jobSiteZip?: string | null;
+  customer?: { id: string; name: string } | null;
+  location?: {
+    id: string;
+    name: string;
+    city?: string | null;
+    state?: string | null;
+    zip?: string | null;
+  } | null;
+  primaryCustomerContact?: {
+    id: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+  } | null;
+  tradeRequirements?: Array<{
+    startDate?: string | null;
+    requestedHeadcount?: number | null;
+    trade?: { name: string } | null;
+  }>;
+  createdAt?: string;
+  updatedAt?: string;
+  marginHealth?: {
+    orderHealthStatus?: string | null;
+    orderBlendedMarginPct?: number | null;
+  } | null;
+  staffing?: {
+    summary: OrderStaffingSummary;
+    trades?: Array<{ tradeId: string; tradeName: string; open: number }>;
+  };
+};
 
-function TradeBadge({ label, filled, total }: { label: string; filled: number; total: number }) {
-  const pct = total > 0 ? (filled / total) * 100 : 0;
-  const color = pct >= 100 ? "#22c55e" : pct >= 50 ? "#f59e0b" : "#ef4444";
+const EM_DASH = "\u2014";
 
-  return (
-    <span className="trade-badge" style={{ borderColor: color }}>
-      <span className="trade-label">{label}</span>
-      <span className="trade-count" style={{ color }}>
-        {filled}/{total}
-      </span>
-    </span>
+/** Title → job location code → id (no separate order-number field on Order today). */
+function orderDisplayName(order: OrderListRow): string {
+  const title = order.title?.trim();
+  if (title) return title;
+  const code = order.jobLocationCode?.trim();
+  if (code) return code;
+  return order.id;
+}
+
+function customerDisplayName(order: OrderListRow): string {
+  const n = order.customer?.name?.trim();
+  if (n) return n;
+  return EM_DASH;
+}
+
+function siteDisplay(order: OrderListRow): string {
+  const siteName = order.jobSiteName?.trim() || order.location?.name?.trim();
+  const city = order.jobSiteCity?.trim() || order.location?.city?.trim();
+  const state = order.jobSiteState?.trim() || order.location?.state?.trim();
+  const zip = order.jobSiteZip?.trim() || order.location?.zip?.trim();
+  const cityState = [city, state].filter(Boolean).join(", ");
+  const tail = [cityState, zip].filter(Boolean).join(" ");
+
+  if (siteName && tail) return `${siteName} — ${tail}`;
+  if (siteName) return siteName;
+  if (tail) return tail;
+  const code = order.jobLocationCode?.trim();
+  if (code) return code;
+  return "Unknown site";
+}
+
+function startDateDisplay(order: OrderListRow): string {
+  const reqs = order.tradeRequirements ?? [];
+  const times = reqs
+    .map((tr) => tr.startDate)
+    .filter((s): s is string => Boolean(s))
+    .map((s) => new Date(s).getTime())
+    .filter((t) => !Number.isNaN(t));
+  if (times.length === 0) return "TBD";
+  const min = new Date(Math.min(...times));
+  return min.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function lastUpdatedDisplay(order: OrderListRow): string {
+  const raw = order.updatedAt;
+  if (!raw) return EM_DASH;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return EM_DASH;
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function needFromStaffing(order: OrderListRow): number | null {
+  const open = order.staffing?.summary?.open;
+  return typeof open === "number" ? open : null;
+}
+
+/** Resolver `staffing.trades` only — no client-side staffing math. */
+function needDisplayFromTrades(order: OrderListRow): "unknown" | "zero" | { lines: { key: string; label: string; open: number }[] } {
+  const staffing = order.staffing;
+  if (!staffing) return "unknown";
+
+  const trades = staffing.trades;
+  if (!Array.isArray(trades)) {
+    return typeof staffing.summary?.open === "number" && staffing.summary.open === 0 ? "zero" : "unknown";
+  }
+
+  const positive = trades.filter((t) => typeof t.open === "number" && t.open > 0);
+  if (positive.length === 0) return "zero";
+
+  const lines = positive.map((t) => ({
+    key: t.tradeId,
+    label: (t.tradeName?.trim() || "Trade").trim(),
+    open: t.open,
+  }));
+
+  return { lines };
+}
+
+/** Demand-only summary from trade lines (requested headcount), not filled seats. */
+function tradeSummaryDisplay(order: OrderListRow): string {
+  const lines = order.tradeRequirements ?? [];
+  if (lines.length === 0) return "No trade summary";
+  return lines
+    .map((tr) => {
+      const name = tr.trade?.name?.trim() || "Trade";
+      const n = Number(tr.requestedHeadcount ?? 0);
+      return `${name} (${n})`;
+    })
+    .join("; ");
+}
+
+/** Deduped trade labels from structured row fields only (resolver trades + line items). */
+function buildTradeFilterOptions(orders: OrderListRow[]): string[] {
+  const byNorm = new Map<string, string>();
+  for (const order of orders) {
+    for (const t of order.staffing?.trades ?? []) {
+      const raw = (t.tradeName ?? "").trim();
+      if (!raw) continue;
+      const norm = raw.toLowerCase();
+      if (!byNorm.has(norm)) byNorm.set(norm, raw);
+    }
+    for (const tr of order.tradeRequirements ?? []) {
+      const raw = (tr.trade?.name ?? "").trim();
+      if (!raw) continue;
+      const norm = raw.toLowerCase();
+      if (!byNorm.has(norm)) byNorm.set(norm, raw);
+    }
+  }
+  return [...byNorm.values()].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" }),
   );
+}
+
+function orderIncludesTrade(order: OrderListRow, selectedDisplayName: string): boolean {
+  const want = selectedDisplayName.trim().toLowerCase();
+  if (!want) return true;
+  for (const t of order.staffing?.trades ?? []) {
+    if ((t.tradeName ?? "").trim().toLowerCase() === want) return true;
+  }
+  for (const tr of order.tradeRequirements ?? []) {
+    if ((tr.trade?.name ?? "").trim().toLowerCase() === want) return true;
+  }
+  return false;
 }
 
 export default function OrdersPage() {
   const router = useRouter();
 
   // HARD TOKEN GATE (safe version)
+  const [orders, setOrders] = useState<OrderListRow[]>([]);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -89,6 +211,22 @@ export default function OrdersPage() {
   }, [router]);
 
   const isAuthorized = authorized === true;
+
+  const loadOrders = useCallback(async () => {
+    try {
+      const data = await apiFetch<OrderListRow[]>('/orders');
+      setOrders(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load orders', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAuthorized) {
+      loadOrders();
+    }
+  }, [isAuthorized, loadOrders]);
+
 // Force re-render on hash change
   const [, forceUpdate] = useState(0);
 
@@ -115,22 +253,13 @@ export default function OrdersPage() {
       ? "fully-staffed"
       : "all-active";
 
-  // Helper: calculate total openings for an order
-  const getOpenSlots = (order: any) => {
-    const trades =
-      order?.trades && typeof order.trades === "object" ? order.trades : {};
-    return Object.values(trades).reduce((sum: number, t: any) => {
-      const total = Number(t?.total ?? 0);
-      const filled = Number(t?.filled ?? 0);
-      return sum + (total - filled);
-    }, 0);
-  };
-
   const [addCandidateOrderId, setAddCandidateOrderId] = useState<string | null>(null);
   const [addCandidateTradeLines, setAddCandidateTradeLines] = useState<TradeLineOption[]>([]);
   const [addCandidateLoading, setAddCandidateLoading] = useState(false);
+  const [selectedTradeFilter, setSelectedTradeFilter] = useState("");
 
   const handleOpenAddCandidate = useCallback(async (orderId: string, e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
     setAddCandidateLoading(true);
     try {
@@ -163,16 +292,31 @@ export default function OrdersPage() {
     }
   }, []);
 
+  const tradeFilterOptions = useMemo(() => buildTradeFilterOptions(orders), [orders]);
+
+  useEffect(() => {
+    if (!selectedTradeFilter) return;
+    const still = tradeFilterOptions.some(
+      (n) => n.toLowerCase() === selectedTradeFilter.toLowerCase(),
+    );
+    if (!still) setSelectedTradeFilter("");
+  }, [tradeFilterOptions, selectedTradeFilter]);
+
   const visibleOrders = useMemo(() => {
+    let list: OrderListRow[];
     switch (activeFilter) {
       case "has-openings":
-        return orders.filter((order) => getOpenSlots(order) > 0);
+        list = orders.filter((o) => o.staffing?.summary?.hasOpenings === true);
+        break;
       case "fully-staffed":
-        return orders.filter((order) => getOpenSlots(order) === 0);
+        list = orders.filter((o) => o.staffing?.summary?.fullyStaffed === true);
+        break;
       default:
-        return orders;
+        list = orders;
     }
-  }, [activeFilter]);
+    if (!selectedTradeFilter.trim()) return list;
+    return list.filter((o) => orderIncludesTrade(o, selectedTradeFilter));
+  }, [activeFilter, orders, selectedTradeFilter]);
 
 
   if (!isAuthorized) {
@@ -201,7 +345,7 @@ export default function OrdersPage() {
           </span>
         </div></div>
 
-      {/* Staffing Status Dropdown */}
+      {/* Staffing + trade filters */}
       <div className="staffing-filter">
         <label htmlFor="staffing-status-dropdown">Staffing Status:</label>
         <select
@@ -228,6 +372,19 @@ export default function OrdersPage() {
           <option value="has-openings">Has Openings</option>
           <option value="fully-staffed">Fully Staffed</option>
         </select>
+        <label htmlFor="trade-filter-dropdown">Trade:</label>
+        <select
+          id="trade-filter-dropdown"
+          value={selectedTradeFilter}
+          onChange={(e) => setSelectedTradeFilter(e.target.value)}
+        >
+          <option value="">All Trades</option>
+          {tradeFilterOptions.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Orders Table */}
@@ -235,12 +392,12 @@ export default function OrdersPage() {
         <table className="orders-table">
           <thead>
             <tr>
-              <th>Order ID</th>
+              <th>Order</th>
               <th>Customer</th>
               <th>Site / Location</th>
               <th>Start Date</th>
               <th>Trade Summary</th>
-              <th>Staffing Status</th>
+              <th>Need</th>
               <th>Last Updated</th>
               <th>Actions</th>
             </tr>
@@ -252,39 +409,48 @@ export default function OrdersPage() {
                 onClick={() => router.push(`/orders/${order.id}`)}
                 className="order-row"
               >
-                <td className="order-id">{order.id}</td>
-                <td className="customer">{order.customer}</td>
-                <td className="site">{order.site}</td>
-                <td className="start-date">
-                  {new Date(order.startDate).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })}
-                </td>
+                <td className="order-name">{orderDisplayName(order)}</td>
+                <td className="customer">{customerDisplayName(order)}</td>
+                <td className="site">{siteDisplay(order)}</td>
+                <td className="start-date">{startDateDisplay(order)}</td>
                 <td className="trades">
-                  <TradeBadge label="MW" filled={order.trades.mw.filled} total={order.trades.mw.total} />
-                  <TradeBadge label="PW" filled={order.trades.pw.filled} total={order.trades.pw.total} />
+                  <span className="trade-summary-placeholder">{tradeSummaryDisplay(order)}</span>
                 </td>
-                <td className="staffing-status">
-                  {getOpenSlots(order) > 0 ? (
-                    <span className="staffing-badge has-openings">Has Openings</span>
-                  ) : (
-                    <span className="staffing-badge fully-staffed">Fully Staffed</span>
-                  )}
+                <td className="need-cell">
+                  {(() => {
+                    const disp = needDisplayFromTrades(order);
+                    if (disp === "unknown") return EM_DASH;
+                    if (disp === "zero") return "0";
+                    return (
+                      <div className="need-by-trade">
+                        {disp.lines.map((row) => (
+                          <div key={row.key} className="need-trade-line">
+                            <span className="need-trade-name">{row.label}</span>
+                            <span className="need-trade-sep">: </span>
+                            <span className="need-trade-open">{row.open}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </td>
-                <td className="last-updated">{order.lastUpdated}</td>
+                <td className="last-updated">{lastUpdatedDisplay(order)}</td>
                 <td className="actions-cell">
-                  {getOpenSlots(order) > 0 && (
-                    <button
-                      className="add-candidate-btn"
-                      onClick={(e) => handleOpenAddCandidate(order.id, e)}
-                      disabled={addCandidateLoading}
-                      title="Add a candidate to this order"
-                    >
-                      + Add Candidate
-                    </button>
-                  )}
+                  {(() => {
+                    const need = needFromStaffing(order);
+                    if (need === 0) return null;
+                    return (
+                      <button
+                        type="button"
+                        className="add-candidate-btn"
+                        onClick={(e) => handleOpenAddCandidate(order.id, e)}
+                        disabled={addCandidateLoading}
+                        title="Add a candidate to this order"
+                      >
+                        + Add Candidate
+                      </button>
+                    );
+                  })()}
                 </td>
               </tr>
             ))}
@@ -294,11 +460,15 @@ export default function OrdersPage() {
 
       {addCandidateOrderId && (
         <AddCandidateModal
+          key={addCandidateOrderId}
           orderId={addCandidateOrderId}
           tradeLines={addCandidateTradeLines}
           entrySource="OPENINGS_HUB"
           onClose={() => setAddCandidateOrderId(null)}
-          onSuccess={() => setAddCandidateOrderId(null)}
+          onSuccess={() => {
+            void loadOrders();
+            setAddCandidateOrderId(null);
+          }}
         />
       )}
 
@@ -348,6 +518,7 @@ export default function OrdersPage() {
         /* Filter/control row */
         .staffing-filter {
           display: flex;
+          flex-wrap: wrap;
           align-items: center;
           gap: 10px;
           margin-bottom: 16px;
@@ -437,8 +608,7 @@ export default function OrdersPage() {
           border-bottom: none;
         }
 
-        .order-id {
-          font-family: var(--font-geist-mono), monospace;
+        .order-name {
           font-weight: 600;
           color: #2563eb !important;
         }
@@ -469,28 +639,38 @@ export default function OrdersPage() {
           white-space: nowrap;
         }
 
-        .staffing-status {
-          white-space: nowrap;
+        .need-cell {
+          white-space: normal;
+          vertical-align: top;
+          font-variant-numeric: tabular-nums;
+          font-weight: 600;
+          color: #111827;
         }
 
-        .staffing-badge {
-          display: inline-block;
-          padding: 4px 10px;
-          border-radius: 5px;
-          font-size: 12px;
+        .need-by-trade {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .need-trade-line {
+          font-size: 13px;
+          font-weight: 600;
+          line-height: 1.35;
+          color: #111827;
+        }
+
+        .need-trade-name {
           font-weight: 600;
         }
 
-        .staffing-badge.has-openings {
-          background: #fffbeb;
-          color: #d97706;
-          border: 1px solid #fde68a;
+        .need-trade-open {
+          font-variant-numeric: tabular-nums;
         }
 
-        .staffing-badge.fully-staffed {
-          background: #f0fdf4;
-          color: #16a34a;
-          border: 1px solid #bbf7d0;
+        .trade-summary-placeholder {
+          color: #6b7280;
+          font-size: 13px;
         }
 
         .actions-cell {
@@ -520,31 +700,12 @@ export default function OrdersPage() {
         }
       `}</style>
 
-      <style jsx global>{`
-        .trade-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 4px 10px;
-          background: #f8fafc;
-          border: 1px solid;
-          border-radius: 5px;
-          font-size: 12px;
-        }
-
-        .trade-label {
-          font-weight: 600;
-          color: #374151;
-        }
-
-        .trade-count {
-          font-weight: 600;
-          font-family: var(--font-geist-mono), monospace;
-        }
-      `}</style>
     </div>
   );
 }
+
+
+
 
 
 

@@ -66,7 +66,7 @@ export function AddCandidateModal({
 
   return (
     <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={onClose}>
-      <div className="modal-content" style={{ width: '100%', maxWidth: 440, background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '100%', maxWidth: 440, background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'visible', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Add Candidate</h2>
           <button className="close-btn" onClick={onClose}>×</button>
@@ -155,7 +155,7 @@ export function AddCandidateModal({
             background: #ffffff;
             border-radius: 12px;
             border: 1px solid #e5e7eb;
-            overflow: hidden;
+            overflow: visible;
             box-shadow: 0 8px 32px rgba(0,0,0,0.12);
           }
           .modal-header {
