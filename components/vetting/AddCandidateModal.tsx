@@ -11,6 +11,7 @@ export interface TradeLineOption {
   startDate?: string | null;
   expectedEndDate?: string | null;
   requestedHeadcount?: number;
+  openCount?: number;
 }
 
 interface AddCandidateModalProps {
@@ -115,7 +116,7 @@ export function AddCandidateModal({
                 {tradeLines.map((tl) => (
                   <option key={tl.id} value={tl.id}>
                     {tl.tradeName}
-                    {tl.requestedHeadcount ? ` (${tl.requestedHeadcount} needed)` : ''}
+                    {tl.openCount != null ? ` (${tl.openCount} open)` : tl.requestedHeadcount ? ` (${tl.requestedHeadcount} requested)` : ''}
                     {tl.startDate ? ` — starts ${new Date(tl.startDate).toLocaleDateString()}` : ''}
                   </option>
                 ))}

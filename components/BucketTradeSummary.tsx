@@ -1,10 +1,11 @@
 'use client';
 
-import { Trade, getOpenSlots, isTradeOverbooked } from '@/data/mockRecruitingData';
+import { Trade } from '@/data/mockRecruitingData';
 
 interface TradeCount {
   trade: Trade;
   countInBucket: number;
+  openSlots: number;
 }
 
 interface BucketTradeSummaryProps {
@@ -12,16 +13,12 @@ interface BucketTradeSummaryProps {
 }
 
 /**
- * Trade Summary Strip Component
- * 
- * Displays trade-level capacity for each bucket.
- * Format: Trade Name / X (open Y)
- * Shows ⚠️ warning when bucket count exceeds open slots
+ * Per-lane trade capacity strip.
+ * openSlots is resolver truth passed from the parent.
  */
 export function BucketTradeSummary({ tradeCounts }: BucketTradeSummaryProps) {
-  // Filter to only show trades with candidates in this bucket or with open slots
   const relevantTrades = tradeCounts.filter(
-    tc => tc.countInBucket > 0 || getOpenSlots(tc.trade) > 0
+    tc => tc.countInBucket > 0 || tc.openSlots > 0
   );
 
   if (relevantTrades.length === 0) {
@@ -30,9 +27,8 @@ export function BucketTradeSummary({ tradeCounts }: BucketTradeSummaryProps) {
 
   return (
     <div className="trade-summary-strip">
-      {relevantTrades.map(({ trade, countInBucket }) => {
-        const openSlots = getOpenSlots(trade);
-        const overbooked = isTradeOverbooked(countInBucket, openSlots);
+      {relevantTrades.map(({ trade, countInBucket, openSlots }) => {
+        const overbooked = countInBucket > openSlots;
 
         return (
           <div

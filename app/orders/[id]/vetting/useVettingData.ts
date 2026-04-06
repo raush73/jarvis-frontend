@@ -110,6 +110,29 @@ interface BackendTradeRequirement {
   expectedEndDate: string | null;
 }
 
+export interface StaffingTradeRow {
+  tradeId: string;
+  tradeName: string;
+  requested: number;
+  dispatched: number;
+  adjustments: number;
+  open: number;
+  hasOpenings: boolean;
+  fullyStaffed: boolean;
+}
+
+export interface StaffingResolution {
+  summary: {
+    requested: number;
+    dispatched: number;
+    adjustments: number;
+    open: number;
+    hasOpenings: boolean;
+    fullyStaffed: boolean;
+  };
+  trades: StaffingTradeRow[];
+}
+
 interface BackendOrder {
   id: string;
   title: string;
@@ -118,6 +141,7 @@ interface BackendOrder {
   jobSiteState: string | null;
   jobSiteAddress1: string | null;
   tradeRequirements: BackendTradeRequirement[];
+  staffing?: StaffingResolution;
 }
 
 const CANONICAL_BUCKETS: BucketId[] = [
@@ -271,10 +295,14 @@ function buildLocation(order: BackendOrder): string {
   return parts.join(', ') || 'Location not set';
 }
 
+export type VettingOrder = Order & {
+  staffing: StaffingResolution;
+};
+
 export type VettingDataState =
   | { status: 'loading' }
   | { status: 'error'; error: string }
-  | { status: 'ready'; order: Order };
+  | { status: 'ready'; order: VettingOrder };
 
 export interface OrderTradeLineInfo {
   id: string;
@@ -283,6 +311,7 @@ export interface OrderTradeLineInfo {
   startDate: string | null;
   expectedEndDate: string | null;
   requestedHeadcount: number;
+  openCount?: number;
 }
 
 export function useVettingData(orderId: string | undefined): {
@@ -303,6 +332,10 @@ export function useVettingData(orderId: string | undefined): {
         apiFetch<BackendCandidate[]>(`/recruiting/order/${orderId}/candidates`),
       ]);
 
+      const resolverTradeMap = new Map(
+        (backendOrder.staffing?.trades ?? []).map(st => [st.tradeId, st]),
+      );
+
       setTradeLines(
         (backendOrder.tradeRequirements ?? []).map((tr) => ({
           id: tr.id,
@@ -311,12 +344,18 @@ export function useVettingData(orderId: string | undefined): {
           startDate: tr.startDate,
           expectedEndDate: tr.expectedEndDate,
           requestedHeadcount: tr.requestedHeadcount,
+          openCount: resolverTradeMap.get(tr.tradeId)?.open,
         })),
       );
 
       const buckets = buildBuckets(backendCandidates);
       const dispatchedBucket = buckets.find((b) => b.id === 'DISPATCHED');
       const trades = buildTrades(backendOrder.tradeRequirements ?? [], dispatchedBucket?.candidates ?? []);
+
+      const staffing: StaffingResolution = backendOrder.staffing ?? {
+        summary: { requested: 0, dispatched: 0, adjustments: 0, open: 0, hasOpenings: false, fullyStaffed: true },
+        trades: [],
+      };
 
       const startDates = (backendOrder.tradeRequirements ?? [])
         .map((tr) => tr.startDate)
@@ -325,7 +364,7 @@ export function useVettingData(orderId: string | undefined): {
         .map((tr) => tr.expectedEndDate)
         .filter(Boolean) as string[];
 
-      const order: Order = {
+      const order: VettingOrder = {
         id: backendOrder.id,
         projectName: backendOrder.title ?? 'Untitled Order',
         customerName: backendOrder.customer?.name ?? 'Unknown Customer',
@@ -335,6 +374,7 @@ export function useVettingData(orderId: string | undefined): {
         requiresCustomerPreApproval: false,
         trades,
         buckets,
+        staffing,
       };
 
       setState({ status: 'ready', order });

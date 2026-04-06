@@ -9,7 +9,6 @@ import {
   Candidate,
   Trade,
   getBucketTradeBreakdown,
-  getOpenSlots,
   CustomerApprovalStatusType,
   CertSignalItem,
   ComplianceSignalItem,
@@ -562,10 +561,8 @@ export default function VettingPage() {
     }
   };
 
-  // Calculate totals
-  const totalCandidates = order.buckets.reduce((sum, b) => sum + b.candidates.length, 0);
-  const dispatchedCount = order.buckets.find(b => b.id === 'DISPATCHED')?.candidates.length || 0;
-  const totalRequired = order.trades.reduce((sum, t) => sum + t.totalRequired, 0);
+  const staffing = order.staffing;
+  const resolverOpenByTradeId = new Map(staffing.trades.map(t => [t.tradeId, t.open]));
 
   // Mock discovery counts
   const jarvisMatchCount = 3;
@@ -602,42 +599,61 @@ export default function VettingPage() {
           >
             + Add Candidate
           </button>
-          <div className="trade-chips">
-            {order.trades.map(trade => {
-              const open = getOpenSlots(trade);
-              const code = trade.name.split(' ').map(w => w[0]).join('').toUpperCase();
-              return (
-                <span key={trade.id} className="trade-chip">
-                  <span className="chip-code">{code}</span>
-                  <span className="chip-counts">{open}/{trade.totalRequired}</span>
-                </span>
-              );
-            })}
-          </div>
         </div>
       </header>
 
       {/* Zone 1: Discovery Strip (Compressed) */}
-      <section className="discovery-strip">
-        <div className="discovery-item jarvis-discovery">
-          <div className="discovery-icon">🤖</div>
-          <div className="discovery-info">
-            <span className="discovery-label">Jarvis Matches</span>
-            <span className="discovery-count">{jarvisMatchCount} candidates</span>
+      {/* Zone 1: Discovery + Staffing Need */}
+      <section className="discovery-staffing-row">
+        <div className="discovery-stack">
+          <div className="discovery-item jarvis-discovery">
+            <div className="discovery-icon">🤖</div>
+            <div className="discovery-info">
+              <span className="discovery-label">Jarvis Matches</span>
+              <span className="discovery-count">{jarvisMatchCount} candidates</span>
+            </div>
+            <button className="discovery-btn" onClick={() => router.push(`/orders/${orderId}/vetting/jarvis-matches`)}>
+              View Matches
+            </button>
           </div>
-          <button className="discovery-btn" onClick={() => router.push(`/orders/${orderId}/vetting/jarvis-matches`)}>
-            View Matches
-          </button>
+          <div className="discovery-item manual-discovery">
+            <div className="discovery-icon">🔍</div>
+            <div className="discovery-info">
+              <span className="discovery-label">Recruiting Search</span>
+              <span className="discovery-count">{manualSearchCount} results</span>
+            </div>
+            <button className="discovery-btn" onClick={() => router.push(`/orders/${orderId}/vetting/manual-search`)}>
+              Search Employees
+            </button>
+          </div>
         </div>
-        <div className="discovery-item manual-discovery">
-          <div className="discovery-icon">🔍</div>
-          <div className="discovery-info">
-            <span className="discovery-label">Recruiting Search</span>
-            <span className="discovery-count">{manualSearchCount} results</span>
+        <div className="staffing-need-card">
+          <div className="staffing-need-header">
+            <span className="staffing-need-title">Staffing Need</span>
+            {staffing.summary.fullyStaffed
+              ? <span className="staffing-badge staffing-badge--full">Fully Staffed</span>
+              : <span className="staffing-badge staffing-badge--open">{staffing.summary.open} open</span>
+            }
           </div>
-          <button className="discovery-btn" onClick={() => router.push(`/orders/${orderId}/vetting/manual-search`)}>
-            Search Employees
-          </button>
+          <div className="staffing-need-trades">
+            {staffing.trades.map(tr => (
+              <div key={tr.tradeId} className="staffing-trade-row">
+                <span className="staffing-trade-name">{tr.tradeName}</span>
+                <span className="staffing-trade-nums">
+                  <span className="staffing-dispatched">{tr.dispatched}</span>
+                  <span className="staffing-separator">/</span>
+                  <span className="staffing-requested">{tr.requested}</span>
+                  {tr.open > 0 && <span className="staffing-open-tag">{tr.open} open</span>}
+                  {tr.fullyStaffed && <span className="staffing-full-tag">full</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+          {staffing.summary.adjustments > 0 && (
+            <div className="staffing-adjustments">
+              {staffing.summary.adjustments} demand adjustment{staffing.summary.adjustments !== 1 ? 's' : ''}
+            </div>
+          )}
         </div>
       </section>
 
@@ -647,9 +663,6 @@ export default function VettingPage() {
         <section className="pipeline-section">
           <div className="pipeline-header">
             <h2 className="section-title">Vetting Pipeline</h2>
-            <p className="section-desc">
-              {totalCandidates} candidates in pipeline • {dispatchedCount} dispatched / {totalRequired} required
-            </p>
           </div>
 
           {moveError && (
@@ -734,6 +747,7 @@ export default function VettingPage() {
                   key={bucket.id}
                   bucket={bucket}
                   trades={order.trades}
+                  resolverOpenByTradeId={resolverOpenByTradeId}
                   laneName={LANE_NAMES[bucket.id]?.name || bucket.name}
                   laneDescription={LANE_NAMES[bucket.id]?.description || bucket.description}
                   isLast={index === pipelineBuckets.length - 1}
@@ -768,6 +782,7 @@ export default function VettingPage() {
                 <LaneColumn
                   bucket={closedBucket}
                   trades={order.trades}
+                  resolverOpenByTradeId={resolverOpenByTradeId}
                   laneName={LANE_NAMES['CLOSED'].name}
                   laneDescription={LANE_NAMES['CLOSED'].description}
                   isLast
@@ -817,40 +832,6 @@ export default function VettingPage() {
         />
       </section>
 
-      {/* Trade Requirements Summary Table */}
-      <section className="trade-summary-section">
-        <h2 className="section-title">Trade Requirements Summary</h2>
-        <table className="trade-summary-table">
-          <thead>
-            <tr>
-              <th>Trade</th>
-              <th>Total Required</th>
-              <th>Dispatched</th>
-              <th>Open</th>
-            </tr>
-          </thead>
-          <tbody>
-            {order.trades.map(trade => {
-              const open = getOpenSlots(trade);
-              return (
-                <tr key={trade.id}>
-                  <td className="trade-name-cell">{trade.name}</td>
-                  <td className="count-cell">{trade.totalRequired}</td>
-                  <td className="count-cell dispatched">{trade.dispatched}</td>
-                  <td className="count-cell open">{open}</td>
-                </tr>
-              );
-            })}
-            <tr className="totals-row">
-              <td className="trade-name-cell"><strong>Total</strong></td>
-              <td className="count-cell"><strong>{totalRequired}</strong></td>
-              <td className="count-cell dispatched"><strong>{dispatchedCount}</strong></td>
-              <td className="count-cell open"><strong>{totalRequired - dispatchedCount}</strong></td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
       {/* Add Candidate Modal (Direct Add — Path 4) */}
       {showAddCandidateModal && (
         <AddCandidateModal
@@ -862,6 +843,7 @@ export default function VettingPage() {
             startDate: tl.startDate,
             expectedEndDate: tl.expectedEndDate,
             requestedHeadcount: tl.requestedHeadcount,
+            openCount: tl.openCount,
           }))}
           entrySource="DIRECT_ADD"
           onClose={() => setShowAddCandidateModal(false)}
@@ -964,75 +946,45 @@ export default function VettingPage() {
 
         .header-right {
           display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 10px;
-        }
-
-        .trade-chips {
-          display: flex;
-          gap: 6px;
-          flex-wrap: wrap;
-        }
-
-        .trade-chip {
-          display: flex;
           align-items: center;
-          gap: 4px;
-          padding: 4px 8px;
-          background: #eff6ff;
-          border: 1px solid #bfdbfe;
-          border-radius: 4px;
-          font-size: 11px;
         }
 
-        .chip-code {
-          font-weight: 700;
-          color: #1d4ed8;
-        }
-
-        .chip-counts {
-          color: #374151;
-          font-family: 'SF Mono', monospace;
-        }
-
-        /* Discovery Strip */
-        .discovery-strip {
+        /* Discovery + Staffing Row */
+        .discovery-staffing-row {
           display: flex;
-          gap: 12px;
-          padding: 12px 16px;
-          background: #ffffff;
-          border-radius: 8px;
-          border: 1px solid #e5e7eb;
+          gap: 16px;
           margin-bottom: 16px;
+          align-items: stretch;
+          max-width: 680px;
+        }
+
+        .discovery-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          flex: 1 1 0;
+          min-width: 0;
+          max-width: 380px;
         }
 
         .discovery-item {
           display: flex;
           align-items: center;
-          gap: 12px;
-          padding: 8px 12px;
+          gap: 10px;
+          padding: 6px 10px;
           background: #f8fafc;
           border-radius: 6px;
-          flex: 1;
+          border: 1px solid #e5e7eb;
         }
 
-        .jarvis-discovery {
-          border-left: 3px solid #2563eb;
-        }
+        .jarvis-discovery { border-left: 3px solid #2563eb; }
+        .manual-discovery { border-left: 3px solid #16a34a; }
 
-        .manual-discovery {
-          border-left: 3px solid #16a34a;
-        }
-
-        .discovery-icon {
-          font-size: 20px;
-        }
+        .discovery-icon { font-size: 18px; }
 
         .discovery-info {
           display: flex;
           flex-direction: column;
-          flex: 1;
         }
 
         .discovery-label {
@@ -1047,7 +999,7 @@ export default function VettingPage() {
         }
 
         .discovery-btn {
-          padding: 6px 12px;
+          padding: 5px 10px;
           background: #ffffff;
           border: 1px solid #e5e7eb;
           border-radius: 6px;
@@ -1055,12 +1007,120 @@ export default function VettingPage() {
           font-size: 11px;
           font-weight: 600;
           cursor: pointer;
+          white-space: nowrap;
           transition: background 0.12s ease, border-color 0.12s ease;
         }
 
         .discovery-btn:hover {
           background: #f1f5f9;
           border-color: #d1d5db;
+        }
+
+        /* Staffing Need Card */
+        .staffing-need-card {
+          width: 250px;
+          flex-shrink: 0;
+          padding: 10px 12px;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .staffing-need-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .staffing-need-title {
+          font-size: 12px;
+          font-weight: 700;
+          color: #111827;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+        }
+
+        .staffing-badge {
+          font-size: 10px;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 10px;
+        }
+
+        .staffing-badge--open {
+          background: #fef3c7;
+          color: #92400e;
+          border: 1px solid #fcd34d;
+        }
+
+        .staffing-badge--full {
+          background: #dcfce7;
+          color: #166534;
+          border: 1px solid #86efac;
+        }
+
+        .staffing-need-trades {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .staffing-trade-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 3px 0;
+        }
+
+        .staffing-trade-name {
+          font-size: 12px;
+          font-weight: 600;
+          color: #374151;
+        }
+
+        .staffing-trade-nums {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 12px;
+          font-family: 'SF Mono', monospace;
+          color: #6b7280;
+        }
+
+        .staffing-dispatched { color: #374151; font-weight: 600; }
+        .staffing-separator { color: #d1d5db; }
+        .staffing-requested { color: #6b7280; }
+
+        .staffing-open-tag {
+          font-size: 10px;
+          font-weight: 600;
+          padding: 1px 5px;
+          border-radius: 3px;
+          background: #fff7ed;
+          color: #c2410c;
+          border: 1px solid #fed7aa;
+          font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        .staffing-full-tag {
+          font-size: 10px;
+          font-weight: 600;
+          padding: 1px 5px;
+          border-radius: 3px;
+          background: #f0fdf4;
+          color: #166534;
+          border: 1px solid #bbf7d0;
+          font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        .staffing-adjustments {
+          font-size: 10px;
+          color: #9ca3af;
+          padding-top: 4px;
+          border-top: 1px solid #f3f4f6;
         }
 
         /* Main Content */
@@ -1075,12 +1135,6 @@ export default function VettingPage() {
           font-size: 15px;
           font-weight: 700;
           color: #111827;
-          margin: 0 0 4px 0;
-        }
-
-        .section-desc {
-          font-size: 12px;
-          color: #6b7280;
           margin: 0;
         }
 
@@ -1097,53 +1151,6 @@ export default function VettingPage() {
           padding-bottom: 8px;
         }
 
-        /* Trade Summary Section */
-        .trade-summary-section {
-          background: #ffffff;
-          border: 1px solid #e5e7eb;
-          border-radius: 10px;
-          padding: 16px;
-        }
-
-        .trade-summary-table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-
-        .trade-summary-table th,
-        .trade-summary-table td {
-          padding: 10px 14px;
-          text-align: left;
-          border-bottom: 1px solid #f1f5f9;
-        }
-
-        .trade-summary-table th {
-          font-size: 10px;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          color: #374151;
-          background: #f1f5f9;
-        }
-
-        .trade-name-cell {
-          font-size: 13px;
-          color: #111827;
-          font-weight: 500;
-        }
-
-        .count-cell {
-          font-size: 13px;
-          font-family: 'SF Mono', monospace;
-          color: #374151;
-          text-align: center;
-        }
-
-        .count-cell.dispatched { color: #16a34a; }
-        .count-cell.open { color: #2563eb; }
-
-        .totals-row { background: #f8fafc; }
-        .totals-row td { border-bottom: none; }
 
         .add-candidate-header-btn {
           padding: 7px 14px;
@@ -1311,10 +1318,10 @@ export default function VettingPage() {
   );
 }
 
-// Lane Column Component (replaces BucketColumn)
 function LaneColumn({
   bucket,
   trades,
+  resolverOpenByTradeId,
   laneName,
   laneDescription,
   isLast,
@@ -1335,6 +1342,7 @@ function LaneColumn({
 }: {
   bucket: Bucket;
   trades: Trade[];
+  resolverOpenByTradeId: Map<string, number>;
   laneName: string;
   laneDescription: string;
   isLast?: boolean;
@@ -1353,7 +1361,10 @@ function LaneColumn({
   bulkDispatchLoading?: boolean;
   onOpenDispatchModal?: () => void;
 }) {
-  const tradeBreakdown = getBucketTradeBreakdown(bucket, trades);
+  const tradeBreakdown = getBucketTradeBreakdown(bucket, trades).map(tb => ({
+    ...tb,
+    openSlots: resolverOpenByTradeId.get(tb.trade.id) ?? 0,
+  }));
   const isDispatchedBucket = bucket.id === 'DISPATCHED';
   const isPreDispatchBucket = bucket.id === 'PRE_DISPATCH';
   const showSemantics = bucket.id === 'OPTED_IN' || bucket.id === 'AWAITING_CANDIDATE_ACTION';
