@@ -202,9 +202,11 @@ export default function VettingPage() {
     if (!orderId) return;
     setSendingPacket(true);
     try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('jp_accessToken') : null;
       const res = await fetch(`/api/recruiting/send-approval-packet/${orderId}`, {
         method: 'POST',
         credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
       if (!res.ok) {
@@ -4136,6 +4138,7 @@ function BulkDispatchModal({
     document.body,
   );
 }
+
 
 
 

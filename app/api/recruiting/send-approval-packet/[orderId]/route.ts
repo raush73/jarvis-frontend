@@ -8,18 +8,22 @@ export async function POST(
 ) {
   const { orderId } = await params;
 
-  const headers = new Headers();
-  const authHeader = req.headers.get("authorization");
+  const auth = req.headers.get("authorization");
   const cookieHeader = req.headers.get("cookie");
 
-  if (authHeader) headers.set("authorization", authHeader);
-  if (cookieHeader) headers.set("cookie", cookieHeader);
+  const forwardHeaders: Record<string, string> = {
+    Authorization: auth || "",
+    "Content-Type": "application/json",
+  };
+  if (cookieHeader) {
+    forwardHeaders.Cookie = cookieHeader;
+  }
 
   const res = await fetch(
     `${BACKEND_BASE_URL}/recruiting/send-approval-packet/${orderId}`,
     {
       method: "POST",
-      headers,
+      headers: forwardHeaders,
       cache: "no-store",
     }
   );
