@@ -1,180 +1,120 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
-// Types
-type UserRole = "Salesperson" | "Recruiter" | "Dispatcher" | "Accounting" | "Admin";
-type UserStatus = "Active" | "Inactive";
+type BackendUser = {
+  id: string;
+  email: string;
+  fullName: string | null;
+  isActive: boolean;
+  createdAt: string;
+  roles: { userId: string; roleId: string; assignedAt: string; role: { id: string; name: string } }[];
+};
 
-type InternalUser = {
+type BackendRole = {
+  id: string;
+  name: string;
+  description?: string | null;
+};
+
+type StaffMember = {
   id: string;
   name: string;
   email: string;
-  phone: string;
-  roles: UserRole[];
-  status: UserStatus;
-  lastLogin: string;
+  isActive: boolean;
+  roles: string[];
   createdAt: string;
-  updatedAt: string;
-  notes: string;
 };
 
-// Deterministic mock data
-const MOCK_USERS: InternalUser[] = [
-  {
-    id: "USR-001",
-    name: "Steve Mitchell",
-    email: "steve.mitchell@mw4h.com",
-    phone: "(555) 234-5678",
-    roles: ["Salesperson", "Admin"],
-    status: "Active",
-    lastLogin: "2026-02-03 09:15 AM",
-    createdAt: "2024-03-15",
-    updatedAt: "2026-01-28",
-    notes: "Senior sales lead. Override commission rate.",
-  },
-  {
-    id: "USR-002",
-    name: "Angela Torres",
-    email: "angela.torres@mw4h.com",
-    phone: "(555) 345-6789",
-    roles: ["Recruiter"],
-    status: "Active",
-    lastLogin: "2026-02-03 08:42 AM",
-    createdAt: "2024-06-01",
-    updatedAt: "2026-02-01",
-    notes: "",
-  },
-  {
-    id: "USR-003",
-    name: "Marcus Chen",
-    email: "marcus.chen@mw4h.com",
-    phone: "(555) 456-7890",
-    roles: ["Dispatcher"],
-    status: "Active",
-    lastLogin: "2026-02-02 04:30 PM",
-    createdAt: "2024-08-20",
-    updatedAt: "2026-01-15",
-    notes: "Night shift coordinator.",
-  },
-  {
-    id: "USR-004",
-    name: "Rachel Kim",
-    email: "rachel.kim@mw4h.com",
-    phone: "(555) 567-8901",
-    roles: ["Accounting"],
-    status: "Active",
-    lastLogin: "2026-02-03 07:55 AM",
-    createdAt: "2024-04-10",
-    updatedAt: "2026-02-02",
-    notes: "Handles invoicing and payroll.",
-  },
-  {
-    id: "USR-005",
-    name: "David Park",
-    email: "david.park@mw4h.com",
-    phone: "(555) 678-9012",
-    roles: ["Salesperson"],
-    status: "Active",
-    lastLogin: "2026-02-01 11:20 AM",
-    createdAt: "2025-01-05",
-    updatedAt: "2026-01-20",
-    notes: "",
-  },
-  {
-    id: "USR-006",
-    name: "Jennifer Walsh",
-    email: "jennifer.walsh@mw4h.com",
-    phone: "(555) 789-0123",
-    roles: ["Recruiter", "Dispatcher"],
-    status: "Active",
-    lastLogin: "2026-02-03 10:05 AM",
-    createdAt: "2024-09-12",
-    updatedAt: "2026-01-30",
-    notes: "Cross-trained for dispatch backup.",
-  },
-  {
-    id: "USR-007",
-    name: "Brian Foster",
-    email: "brian.foster@mw4h.com",
-    phone: "(555) 890-1234",
-    roles: ["Admin"],
-    status: "Active",
-    lastLogin: "2026-02-03 09:00 AM",
-    createdAt: "2024-01-01",
-    updatedAt: "2026-02-03",
-    notes: "System administrator.",
-  },
-  {
-    id: "USR-008",
-    name: "Lisa Hernandez",
-    email: "lisa.hernandez@mw4h.com",
-    phone: "(555) 901-2345",
-    roles: ["Salesperson"],
-    status: "Inactive",
-    lastLogin: "2025-11-15 03:45 PM",
-    createdAt: "2024-05-22",
-    updatedAt: "2025-12-01",
-    notes: "On leave.",
-  },
-  {
-    id: "USR-009",
-    name: "Kevin Nguyen",
-    email: "kevin.nguyen@mw4h.com",
-    phone: "(555) 012-3456",
-    roles: ["Accounting", "Admin"],
-    status: "Active",
-    lastLogin: "2026-02-02 02:10 PM",
-    createdAt: "2024-07-08",
-    updatedAt: "2026-01-25",
-    notes: "Finance lead with admin access.",
-  },
-  {
-    id: "USR-010",
-    name: "Michelle Adams",
-    email: "michelle.adams@mw4h.com",
-    phone: "(555) 123-4567",
-    roles: ["Dispatcher"],
-    status: "Inactive",
-    lastLogin: "2025-10-20 09:30 AM",
-    createdAt: "2024-02-14",
-    updatedAt: "2025-11-01",
-    notes: "Former employee.",
-  },
-];
+const NON_STAFF_ROLES = ["customer", "worker"];
 
-const ROLE_OPTIONS: UserRole[] = ["Salesperson", "Recruiter", "Dispatcher", "Accounting", "Admin"];
+function mapBackendUser(u: BackendUser): StaffMember {
+  const roleNames = (u.roles ?? []).map((r) => r.role?.name ?? "unknown");
+  return {
+    id: u.id,
+    name: u.fullName || u.email,
+    email: u.email,
+    isActive: u.isActive ?? true,
+    roles: roleNames,
+    createdAt: u.createdAt,
+  };
+}
 
-export default function AdminUsersPage() {
-  // Filter state
+function getToken(): string | null {
+  return typeof window !== "undefined"
+    ? localStorage.getItem("jp_accessToken")
+    : null;
+}
+
+function formatRoleName(raw: string): string {
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+}
+
+export default function AdminStaffPage() {
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [roles, setRoles] = useState<BackendRole[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [roleFilter, setRoleFilter] = useState<string>("All");
-  const [statusFilter, setStatusFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Detail drawer state
-  const [selectedUser, setSelectedUser] = useState<InternalUser | null>(null);
+  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  // Add user modal state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  // Filter logic
-  const filteredUsers = MOCK_USERS.filter((user) => {
-    // Role filter
-    if (roleFilter !== "All" && !user.roles.includes(roleFilter as UserRole)) {
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    try {
+      const [usersRes, rolesRes] = await Promise.all([
+        fetch("/api/users", { headers, cache: "no-store" }),
+        fetch("/api/roles", { headers, cache: "no-store" }),
+      ]);
+
+      if (!usersRes.ok) {
+        throw new Error(`Failed to load staff (${usersRes.status})`);
+      }
+
+      const usersData: BackendUser[] = await usersRes.json();
+      setStaff(usersData.map(mapBackendUser));
+
+      if (rolesRes.ok) {
+        const rolesData: BackendRole[] = await rolesRes.json();
+        setRoles(rolesData);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load staff data");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const roleOptions = (
+    roles.length > 0
+      ? roles.map((r) => r.name)
+      : [...new Set(staff.flatMap((s) => s.roles))]
+  ).filter((r) => !NON_STAFF_ROLES.includes(r.toLowerCase()));
+
+  const filteredStaff = staff.filter((member) => {
+    if (roleFilter !== "All" && !member.roles.includes(roleFilter)) {
       return false;
     }
-    // Status filter
-    if (statusFilter !== "All" && user.status !== statusFilter) {
-      return false;
-    }
-    // Search filter (name or email)
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       if (
-        !user.name.toLowerCase().includes(query) &&
-        !user.email.toLowerCase().includes(query)
+        !member.name.toLowerCase().includes(query) &&
+        !member.email.toLowerCase().includes(query)
       ) {
         return false;
       }
@@ -182,42 +122,35 @@ export default function AdminUsersPage() {
     return true;
   });
 
-  // Role badge color
-  const getRoleBadgeStyle = (role: UserRole) => {
-    switch (role) {
-      case "Admin":
+  const getRoleBadgeStyle = (role: string) => {
+    const normalized = role.toLowerCase();
+    switch (normalized) {
+      case "admin":
         return { bg: "rgba(239, 68, 68, 0.12)", color: "#ef4444", border: "rgba(239, 68, 68, 0.25)" };
-      case "Salesperson":
+      case "sales":
+      case "salesperson":
         return { bg: "rgba(59, 130, 246, 0.12)", color: "#3b82f6", border: "rgba(59, 130, 246, 0.25)" };
-      case "Recruiter":
+      case "recruiter":
+      case "recruiting":
         return { bg: "rgba(139, 92, 246, 0.12)", color: "#8b5cf6", border: "rgba(139, 92, 246, 0.25)" };
-      case "Dispatcher":
+      case "dispatcher":
+      case "dispatch":
         return { bg: "rgba(245, 158, 11, 0.12)", color: "#f59e0b", border: "rgba(245, 158, 11, 0.25)" };
-      case "Accounting":
+      case "accounting":
         return { bg: "rgba(34, 197, 94, 0.12)", color: "#22c55e", border: "rgba(34, 197, 94, 0.25)" };
       default:
         return { bg: "rgba(148, 163, 184, 0.12)", color: "#94a3b8", border: "rgba(148, 163, 184, 0.25)" };
     }
   };
 
-  // Status badge style
-  const getStatusStyle = (status: UserStatus) => {
-    if (status === "Active") {
-      return { bg: "rgba(34, 197, 94, 0.12)", color: "#22c55e", border: "rgba(34, 197, 94, 0.25)" };
-    }
-    return { bg: "rgba(107, 114, 128, 0.12)", color: "#6b7280", border: "rgba(107, 114, 128, 0.25)" };
-  };
-
-  // Open detail drawer
-  const handleViewUser = (user: InternalUser) => {
-    setSelectedUser(user);
+  const handleViewStaff = (member: StaffMember) => {
+    setSelectedStaff(member);
     setIsDrawerOpen(true);
   };
 
-  // Close drawer
   const handleCloseDrawer = () => {
     setIsDrawerOpen(false);
-    setTimeout(() => setSelectedUser(null), 200);
+    setTimeout(() => setSelectedStaff(null), 200);
   };
 
   return (
@@ -228,17 +161,25 @@ export default function AdminUsersPage() {
           <Link href="/admin" className="back-link">
             ← Back to Admin
           </Link>
-          <h1>Users</h1>
+          <h1>Staff</h1>
           <p className="subtitle">
-            Manage internal staff users and role assignments
+            Manage internal staff and role assignments
           </p>
         </div>
         <div className="header-actions">
           <button className="btn-add" onClick={() => setIsAddModalOpen(true)}>
-            + Add User
+            + Add Staff
           </button>
         </div>
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="error-banner">
+          {error}
+          <button className="retry-btn" onClick={fetchData}>Retry</button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="filters-section">
@@ -250,24 +191,11 @@ export default function AdminUsersPage() {
             onChange={(e) => setRoleFilter(e.target.value)}
           >
             <option value="All">All Roles</option>
-            {ROLE_OPTIONS.map((role) => (
+            {roleOptions.map((role) => (
               <option key={role} value={role}>
-                {role}
+                {formatRoleName(role)}
               </option>
             ))}
-          </select>
-        </div>
-
-        <div className="filter-group">
-          <label htmlFor="statusFilter">Status</label>
-          <select
-            id="statusFilter"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="All">All Statuses</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
           </select>
         </div>
 
@@ -283,11 +211,11 @@ export default function AdminUsersPage() {
         </div>
 
         <div className="filter-results">
-          {filteredUsers.length} user{filteredUsers.length !== 1 ? "s" : ""}
+          {loading ? "Loading..." : `${filteredStaff.length} staff member${filteredStaff.length !== 1 ? "s" : ""}`}
         </div>
       </div>
 
-      {/* Users Table */}
+      {/* Staff Table */}
       <div className="table-section">
         <div className="table-wrap">
           <table className="users-table">
@@ -297,18 +225,25 @@ export default function AdminUsersPage() {
                 <th>Email</th>
                 <th>Role(s)</th>
                 <th>Status</th>
-                <th>Last Login</th>
+                <th>Created</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredUsers.map((user) => (
-                <tr key={user.id}>
-                  <td className="cell-name">{user.name}</td>
-                  <td className="cell-email">{user.email}</td>
+              {loading && (
+                <tr>
+                  <td colSpan={6} className="empty-row">
+                    Loading staff...
+                  </td>
+                </tr>
+              )}
+              {!loading && filteredStaff.map((member) => (
+                <tr key={member.id}>
+                  <td className="cell-name">{member.name}</td>
+                  <td className="cell-email">{member.email}</td>
                   <td className="cell-roles">
                     <div className="roles-wrap">
-                      {user.roles.map((role) => {
+                      {member.roles.map((role) => {
                         const style = getRoleBadgeStyle(role);
                         return (
                           <span
@@ -320,45 +255,43 @@ export default function AdminUsersPage() {
                               borderColor: style.border,
                             }}
                           >
-                            {role}
+                            {formatRoleName(role)}
                           </span>
                         );
                       })}
+                      {member.roles.length === 0 && (
+                        <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>No roles</span>
+                      )}
                     </div>
                   </td>
                   <td className="cell-status">
                     <span
                       className="status-badge"
-                      style={{
-                        backgroundColor: getStatusStyle(user.status).bg,
-                        color: getStatusStyle(user.status).color,
-                        borderColor: getStatusStyle(user.status).border,
-                      }}
+                      style={member.isActive
+                        ? { backgroundColor: "rgba(34, 197, 94, 0.12)", color: "#22c55e", borderColor: "rgba(34, 197, 94, 0.25)" }
+                        : { backgroundColor: "rgba(239, 68, 68, 0.12)", color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.25)" }
+                      }
                     >
-                      {user.status}
+                      {member.isActive ? "Active" : "Inactive"}
                     </span>
                   </td>
-                  <td className="cell-login">{user.lastLogin}</td>
+                  <td className="cell-login">
+                    {new Date(member.createdAt).toLocaleDateString()}
+                  </td>
                   <td className="cell-actions">
                     <button
                       className="action-btn"
-                      onClick={() => handleViewUser(user)}
+                      onClick={() => handleViewStaff(member)}
                     >
                       View
-                    </button>
-                    <button
-                      className="action-btn"
-                      onClick={() => handleViewUser(user)}
-                    >
-                      Edit
                     </button>
                   </td>
                 </tr>
               ))}
-              {filteredUsers.length === 0 && (
+              {!loading && filteredStaff.length === 0 && (
                 <tr>
                   <td colSpan={6} className="empty-row">
-                    No users match your filters
+                    No staff members match your filters
                   </td>
                 </tr>
               )}
@@ -367,12 +300,12 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      {/* Detail/Edit Drawer */}
-      {isDrawerOpen && selectedUser && (
+      {/* Staff Profile Drawer */}
+      {isDrawerOpen && selectedStaff && (
         <div className="drawer-overlay" onClick={handleCloseDrawer}>
           <div className="drawer" onClick={(e) => e.stopPropagation()}>
             <div className="drawer-header">
-              <h2>User Profile</h2>
+              <h2>Staff Profile</h2>
               <button className="drawer-close" onClick={handleCloseDrawer}>
                 ×
               </button>
@@ -382,23 +315,33 @@ export default function AdminUsersPage() {
               <div className="profile-section">
                 <div className="profile-field">
                   <label>Name</label>
-                  <div className="field-value">{selectedUser.name}</div>
+                  <div className="field-value">{selectedStaff.name}</div>
                 </div>
 
                 <div className="profile-field">
                   <label>Email</label>
-                  <div className="field-value">{selectedUser.email}</div>
+                  <div className="field-value">{selectedStaff.email}</div>
                 </div>
 
                 <div className="profile-field">
-                  <label>Phone</label>
-                  <div className="field-value">{selectedUser.phone}</div>
+                  <label>Status</label>
+                  <div className="field-value">
+                    <span
+                      className="status-badge"
+                      style={selectedStaff.isActive
+                        ? { backgroundColor: "rgba(34, 197, 94, 0.12)", color: "#22c55e", borderColor: "rgba(34, 197, 94, 0.25)" }
+                        : { backgroundColor: "rgba(239, 68, 68, 0.12)", color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.25)" }
+                      }
+                    >
+                      {selectedStaff.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="profile-field">
                   <label>Roles</label>
                   <div className="field-value roles-value">
-                    {selectedUser.roles.map((role) => {
+                    {selectedStaff.roles.map((role) => {
                       const style = getRoleBadgeStyle(role);
                       return (
                         <span
@@ -410,33 +353,13 @@ export default function AdminUsersPage() {
                             borderColor: style.border,
                           }}
                         >
-                          {role}
+                          {formatRoleName(role)}
                         </span>
                       );
                     })}
-                  </div>
-                </div>
-
-                <div className="profile-field">
-                  <label>Status</label>
-                  <div className="field-value">
-                    <span
-                      className="status-badge"
-                      style={{
-                        backgroundColor: getStatusStyle(selectedUser.status).bg,
-                        color: getStatusStyle(selectedUser.status).color,
-                        borderColor: getStatusStyle(selectedUser.status).border,
-                      }}
-                    >
-                      {selectedUser.status}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="profile-field">
-                  <label>Notes</label>
-                  <div className="field-value notes-value">
-                    {selectedUser.notes || "—"}
+                    {selectedStaff.roles.length === 0 && (
+                      <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 13 }}>No roles assigned</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -446,15 +369,15 @@ export default function AdminUsersPage() {
                 <div className="audit-grid">
                   <div className="audit-item">
                     <span className="audit-label">Created</span>
-                    <span className="audit-value">{selectedUser.createdAt}</span>
+                    <span className="audit-value">
+                      {new Date(selectedStaff.createdAt).toLocaleDateString()}
+                    </span>
                   </div>
                   <div className="audit-item">
-                    <span className="audit-label">Last Login</span>
-                    <span className="audit-value">{selectedUser.lastLogin}</span>
-                  </div>
-                  <div className="audit-item">
-                    <span className="audit-label">Updated</span>
-                    <span className="audit-value">{selectedUser.updatedAt}</span>
+                    <span className="audit-label">Staff ID</span>
+                    <span className="audit-value" style={{ fontSize: 10, wordBreak: "break-all" }}>
+                      {selectedStaff.id}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -462,19 +385,19 @@ export default function AdminUsersPage() {
 
             <div className="drawer-footer">
               <button className="btn-edit" onClick={() => {}}>
-                Edit User
+                Edit Staff
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add User Modal (UI shell only) */}
+      {/* Add Staff Modal (UI shell) */}
       {isAddModalOpen && (
         <div className="modal-overlay" onClick={() => setIsAddModalOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Add User</h2>
+              <h2>Add Staff</h2>
               <button className="modal-close" onClick={() => setIsAddModalOpen(false)}>
                 ×
               </button>
@@ -499,21 +422,16 @@ export default function AdminUsersPage() {
               <div className="form-field">
                 <label>Roles</label>
                 <div className="checkbox-group">
-                  {ROLE_OPTIONS.map((role) => (
+                  {(roles.length > 0
+                    ? roles.map((r) => r.name).filter((r) => !NON_STAFF_ROLES.includes(r.toLowerCase()))
+                    : roleOptions
+                  ).map((role) => (
                     <label key={role} className="checkbox-label">
                       <input type="checkbox" />
-                      <span>{role}</span>
+                      <span>{formatRoleName(role)}</span>
                     </label>
                   ))}
                 </div>
-              </div>
-
-              <div className="form-field">
-                <label>Status</label>
-                <select defaultValue="Active">
-                  <option value="Active">Active</option>
-                  <option value="Inactive">Inactive</option>
-                </select>
               </div>
 
               <div className="form-field">
@@ -527,7 +445,7 @@ export default function AdminUsersPage() {
                 Cancel
               </button>
               <button className="btn-save" onClick={() => setIsAddModalOpen(false)}>
-                Save User
+                Save Staff
               </button>
             </div>
           </div>
@@ -594,6 +512,36 @@ export default function AdminUsersPage() {
 
         .btn-add:hover {
           background: #2563eb;
+        }
+
+        /* Error */
+        .error-banner {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 16px;
+          margin-bottom: 16px;
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid rgba(239, 68, 68, 0.25);
+          border-radius: 8px;
+          color: #ef4444;
+          font-size: 13px;
+        }
+
+        .retry-btn {
+          margin-left: auto;
+          padding: 4px 12px;
+          font-size: 12px;
+          font-weight: 500;
+          color: #fff;
+          background: rgba(239, 68, 68, 0.2);
+          border: 1px solid rgba(239, 68, 68, 0.3);
+          border-radius: 4px;
+          cursor: pointer;
+        }
+
+        .retry-btn:hover {
+          background: rgba(239, 68, 68, 0.3);
         }
 
         /* Filters */
@@ -906,7 +854,7 @@ export default function AdminUsersPage() {
 
         .audit-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(2, 1fr);
           gap: 12px;
         }
 
@@ -1137,4 +1085,3 @@ export default function AdminUsersPage() {
     </div>
   );
 }
-

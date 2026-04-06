@@ -40,7 +40,7 @@ const MODULE_TABS: Record<string, { key: string; label: string }[]> = {
     { key: "statements", label: "Statements" },
   ],
   admin: [
-    { key: "users", label: "Users" },
+    { key: "users", label: "Staff" },
     { key: "settings", label: "Settings" },
   ],
 };
@@ -88,15 +88,24 @@ export default function ModuleTabs() {
     };
   }, [isOrderDetailPage]);
 
-  // Derive active tab from hash, default to first tab
-  const activeTab =
-    hash && tabs.some((t) => t.key === hash) ? hash : tabs[0]?.key || "";
+  const adminSubpage = currentDomain === "admin" && segments.length > 1 ? segments[1] : "";
+
+  const activeTab = (() => {
+    if (currentDomain === "admin" && adminSubpage) {
+      const match = tabs.find((t) => t.key === adminSubpage);
+      if (match) return match.key;
+    }
+    if (hash && tabs.some((t) => t.key === hash)) return hash;
+    return tabs[0]?.key || "";
+  })();
 
   const handleTabClick = (tabKey: string) => {
-    // Orders tabs: set hash directly, no router navigation
     if (currentDomain === "orders") {
-      // "active" clears hash; others set their key
       window.location.hash = tabKey === "active" ? "" : tabKey;
+      return;
+    }
+    if (currentDomain === "admin") {
+      router.push(`/admin/${tabKey}`);
       return;
     }
     router.push(`/${currentDomain}#${tabKey}`);
