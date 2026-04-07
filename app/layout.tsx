@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import GlobalTopNav from "@/components/GlobalTopNav";
 import ModuleTabs from "@/components/ModuleTabs";
+import ModuleGuard from "@/components/ModuleGuard";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,8 +34,10 @@ export default function RootLayout({
         {/* Level 1: Module Tabs */}
         <ModuleTabs />
 
-        {/* Page Content */}
-        <main className="page-content">{children}</main>
+        {/* Page Content — guarded by module access */}
+        <ModuleGuard>
+          <main className="page-content">{children}</main>
+        </ModuleGuard>
       </body>
     </html>
   );

@@ -42,14 +42,28 @@ export default function AdminPage() {
         {/* User Management Card - Active */}
         <Link href="/admin/users" className="admin-card active">
           <div className="card-header">
-            <div className="card-title">User Management</div>
+            <div className="card-title">Staff Management</div>
             <span className="badge active">ACTIVE</span>
           </div>
           <div className="card-desc">
-            Manage system users, roles, and access permissions.
+            Manage internal staff accounts and role assignments.
           </div>
           <div className="card-footer">
-            <span className="link-hint">Open User Management →</span>
+            <span className="link-hint">Open Staff Management →</span>
+          </div>
+        </Link>
+
+        {/* Roles & Permissions Card - Active */}
+        <Link href="/admin/roles" className="admin-card active">
+          <div className="card-header">
+            <div className="card-title">Roles &amp; Permissions</div>
+            <span className="badge active">ACTIVE</span>
+          </div>
+          <div className="card-desc">
+            Configure role permissions and data access scopes. Control what users can do and see.
+          </div>
+          <div className="card-footer">
+            <span className="link-hint">Open Roles &amp; Permissions →</span>
           </div>
         </Link>
 

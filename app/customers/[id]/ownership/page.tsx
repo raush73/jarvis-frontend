@@ -8,8 +8,8 @@ import { apiFetch } from "@/lib/api";
 type CustomerData = {
   id: string;
   name: string;
-  defaultSalespersonId: string | null;
-  defaultSalesperson: { id: string; firstName: string; lastName: string; email: string } | null;
+  registrySalespersonId: string | null;
+  registrySalesperson: { id: string; firstName: string; lastName: string } | null;
 };
 
 type SalespersonRecord = {
@@ -57,7 +57,7 @@ export default function CustomerOwnershipPage() {
         if (!alive) return;
 
         setCustomerName(customer.name ?? "");
-        setSelectedValue(customer.defaultSalespersonId ?? "");
+        setSelectedValue(customer.registrySalespersonId ?? "");
 
         const eligible = (Array.isArray(salespeople) ? salespeople : []).filter(
           (sp) => sp.isActive

@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND = "http://127.0.0.1:3000";
 
-export async function GET(req: NextRequest) {
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
   const auth = req.headers.get("authorization") ?? "";
-  const qs = req.nextUrl.searchParams.toString();
-  const url = `${BACKEND}/roles${qs ? `?${qs}` : ""}`;
 
-  const res = await fetch(url, {
+  const res = await fetch(`${BACKEND}/roles/${id}/scopes`, {
     headers: { ...(auth ? { Authorization: auth } : {}) },
     cache: "no-store",
   });
@@ -19,12 +21,16 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function POST(req: NextRequest) {
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
   const auth = req.headers.get("authorization") ?? "";
   const body = await req.text();
 
-  const res = await fetch(`${BACKEND}/roles`, {
-    method: "POST",
+  const res = await fetch(`${BACKEND}/roles/${id}/scopes`, {
+    method: "PUT",
     headers: {
       "Content-Type": "application/json",
       ...(auth ? { Authorization: auth } : {}),

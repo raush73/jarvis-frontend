@@ -3,6 +3,7 @@
 import { apiFetch, clearAccessToken } from "@/lib/api";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSession } from "@/lib/auth/useSession";
 
 const DOMAINS = [
   { key: "kpi", label: "KPI" },
@@ -26,10 +27,15 @@ type CustomerSearchResult = {
 export default function GlobalTopNav() {
   const router = useRouter();
   const pathname = usePathname();
+  const session = useSession();
 
-  // Derive active domain from the first URL path segment
   const pathSegments = pathname.split("/").filter(Boolean);
   const activeDomain = pathSegments[0] || "";
+
+  const visibleDomains = useMemo(
+    () => DOMAINS.filter((d) => session.canAccessModule(d.key)),
+    [session],
+  );
 
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -124,9 +130,9 @@ export default function GlobalTopNav() {
         />
       </div>
 
-      {/* Domain Navigation */}
+      {/* Domain Navigation — filtered by role access */}
       <div className="nav-domains">
-        {DOMAINS.map((domain) => (
+        {visibleDomains.map((domain) => (
           <button
             key={domain.key}
             className={`nav-domain-item ${
@@ -189,6 +195,14 @@ export default function GlobalTopNav() {
             </div>
           ) : null}
         </div>
+
+        {/* Signed-in identity indicator */}
+        {session.authenticated && (
+          <span className="signed-in-label">
+            Signed in as:{" "}
+            <strong>{session.fullName || session.email || "Unknown User"}</strong>
+          </span>
+        )}
 
         {/* Logout Button */}
         <div style={{ paddingRight: "16px" }}>
@@ -285,6 +299,18 @@ export default function GlobalTopNav() {
           padding: 10px 10px;
           font-size: 12.5px;
           color: rgba(255, 255, 255, 0.6);
+        }
+
+        .signed-in-label {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.5);
+          white-space: nowrap;
+          padding: 0 4px;
+        }
+
+        .signed-in-label strong {
+          color: rgba(255, 255, 255, 0.85);
+          font-weight: 600;
         }
       `}</style>
     </nav>
