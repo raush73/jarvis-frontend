@@ -11,6 +11,12 @@ type CommissionPlanOption = {
   isDefault: boolean;
 };
 
+type LinkedUser = {
+  id: string;
+  email: string;
+  fullName: string | null;
+};
+
 type SalespersonRecord = {
   id: string;
   firstName: string;
@@ -19,10 +25,18 @@ type SalespersonRecord = {
   phone: string | null;
   isActive: boolean;
   userId: string | null;
+  user: LinkedUser | null;
   defaultCommissionPlanId: string | null;
   defaultCommissionPlan: { id: string; name: string } | null;
   createdAt: string;
   updatedAt: string;
+};
+
+type StaffOption = {
+  id: string;
+  email: string;
+  fullName: string | null;
+  isActive: boolean;
 };
 
 export default function SalespersonDetailPage() {
@@ -46,6 +60,14 @@ export default function SalespersonDetailPage() {
   const [defaultCommissionPlanId, setDefaultCommissionPlanId] = useState<string>("");
   const [commissionPlans, setCommissionPlans] = useState<CommissionPlanOption[]>([]);
 
+  const [linkedUser, setLinkedUser] = useState<LinkedUser | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
+  const [linkEditing, setLinkEditing] = useState(false);
+  const [linkSubmitting, setLinkSubmitting] = useState(false);
+  const [linkError, setLinkError] = useState("");
+  const [linkSuccess, setLinkSuccess] = useState("");
+
   const isProtected =
     (firstName.trim() === "House" && lastName.trim() === "Account") ||
     email.trim().toLowerCase() === "mike@mw4h.com";
@@ -56,9 +78,10 @@ export default function SalespersonDetailPage() {
       setLoading(true);
       setError("");
       try {
-        const [data, plans] = await Promise.all([
+        const [data, plans, staff] = await Promise.all([
           apiFetch<SalespersonRecord>(`/salespeople/${salespersonId}`),
           apiFetch<CommissionPlanOption[]>("/commissions/plans"),
+          apiFetch<StaffOption[]>("/users"),
         ]);
         if (!alive) return;
         setFirstName(data.firstName ?? "");
@@ -71,6 +94,15 @@ export default function SalespersonDetailPage() {
         setUpdatedAt(data.updatedAt ?? "");
         setDefaultCommissionPlanId(data.defaultCommissionPlanId ?? "");
         setCommissionPlans(plans.filter((p: any) => p.isActive !== false));
+        setLinkedUser(data.user ?? null);
+        setSelectedUserId(data.userId ?? "");
+        setStaffOptions(
+          (Array.isArray(staff) ? staff : [])
+            .filter((u: any) => u.isActive !== false)
+            .sort((a: StaffOption, b: StaffOption) =>
+              (a.fullName ?? a.email).localeCompare(b.fullName ?? b.email)
+            )
+        );
       } catch (e: any) {
         if (!alive) return;
         setError(e?.message ?? "Failed to load salesperson.");
@@ -122,6 +154,66 @@ export default function SalespersonDetailPage() {
       color: "#6b7280",
       border: "rgba(107, 114, 128, 0.25)",
     };
+  };
+
+  const handleLinkSave = async () => {
+    if (linkSubmitting) return;
+    setLinkSubmitting(true);
+    setLinkError("");
+    setLinkSuccess("");
+    try {
+      const newUserId = selectedUserId || null;
+      const result = await apiFetch<SalespersonRecord>(
+        `/salespeople/${salespersonId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ userId: newUserId }),
+        }
+      );
+      setLinkedUser(result.user ?? null);
+      setSelectedUserId(result.userId ?? "");
+      setLinkEditing(false);
+      setLinkSuccess(
+        newUserId ? "Staff member linked successfully." : "Staff member link removed."
+      );
+      setTimeout(() => setLinkSuccess(""), 4000);
+    } catch (e: any) {
+      const msg = e?.message ?? "Failed to update staff link.";
+      setLinkError(msg);
+    } finally {
+      setLinkSubmitting(false);
+    }
+  };
+
+  const handleLinkCancel = () => {
+    setLinkEditing(false);
+    setLinkError("");
+    setSelectedUserId(linkedUser?.id ?? "");
+  };
+
+  const handleRemoveLink = async () => {
+    if (linkSubmitting) return;
+    setLinkSubmitting(true);
+    setLinkError("");
+    setLinkSuccess("");
+    try {
+      const result = await apiFetch<SalespersonRecord>(
+        `/salespeople/${salespersonId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ userId: null }),
+        }
+      );
+      setLinkedUser(result.user ?? null);
+      setSelectedUserId("");
+      setLinkEditing(false);
+      setLinkSuccess("Staff member link removed.");
+      setTimeout(() => setLinkSuccess(""), 4000);
+    } catch (e: any) {
+      setLinkError(e?.message ?? "Failed to remove staff link.");
+    } finally {
+      setLinkSubmitting(false);
+    }
   };
 
   const formatDate = (iso: string) => {
@@ -293,6 +385,103 @@ export default function SalespersonDetailPage() {
         </div>
       </div>
 
+      {/* Linked Staff Member Card */}
+      <div className="card link-card">
+        <div className="card-header">
+          <h2>Linked Staff Member</h2>
+          <span className="link-hint">Auth bridge &mdash; links this salesperson to a login account for OWN-scope access</span>
+        </div>
+        <div className="card-body">
+          {linkError && <div className="link-error">{linkError}</div>}
+          {linkSuccess && <div className="link-success">{linkSuccess}</div>}
+
+          {!linkEditing ? (
+            linkedUser ? (
+              <div className="link-display">
+                <div className="link-info-rows">
+                  <div className="link-info-row">
+                    <span className="info-label">Name</span>
+                    <span className="info-value">{linkedUser.fullName ?? "\u2014"}</span>
+                  </div>
+                  <div className="link-info-row">
+                    <span className="info-label">Email</span>
+                    <span className="info-value">{linkedUser.email}</span>
+                  </div>
+                  <div className="link-info-row">
+                    <span className="info-label">Staff ID</span>
+                    <span className="info-value mono">{linkedUser.id}</span>
+                  </div>
+                </div>
+                <div className="link-actions">
+                  <button
+                    type="button"
+                    className="link-btn link-btn-change"
+                    onClick={() => { setLinkEditing(true); setLinkError(""); setLinkSuccess(""); }}
+                  >
+                    Change
+                  </button>
+                  <button
+                    type="button"
+                    className="link-btn link-btn-remove"
+                    onClick={handleRemoveLink}
+                    disabled={linkSubmitting}
+                  >
+                    {linkSubmitting ? "Removing\u2026" : "Remove Link"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="link-empty">
+                <span className="link-empty-label">No linked staff member</span>
+                <button
+                  type="button"
+                  className="link-btn link-btn-primary"
+                  onClick={() => { setLinkEditing(true); setLinkError(""); setLinkSuccess(""); setSelectedUserId(""); }}
+                >
+                  Link Staff Member
+                </button>
+              </div>
+            )
+          ) : (
+            <div className="link-editor">
+              <div className="info-row">
+                <span className="info-label">Select Staff Member</span>
+                <select
+                  className="edit-select link-select"
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                >
+                  <option value="">-- None (unlinked) --</option>
+                  {staffOptions.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.fullName ?? "(no name)"} &mdash; {u.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="link-editor-actions">
+                <button
+                  type="button"
+                  className="link-btn link-btn-cancel"
+                  onClick={handleLinkCancel}
+                  disabled={linkSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="link-btn link-btn-primary"
+                  onClick={handleLinkSave}
+                  disabled={linkSubmitting}
+                >
+                  {linkSubmitting ? "Saving\u2026" : "Save Link"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Save / Cancel */}
       <div className="form-actions">
         <div />
@@ -424,6 +613,9 @@ export default function SalespersonDetailPage() {
         .card-header {
           padding: 16px 20px;
           border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          display: flex;
+          align-items: center;
+          gap: 12px;
         }
 
         .card-header h2 {
@@ -431,6 +623,7 @@ export default function SalespersonDetailPage() {
           font-weight: 600;
           color: #fff;
           margin: 0;
+          flex-shrink: 0;
         }
 
         .card-body {
@@ -518,6 +711,12 @@ export default function SalespersonDetailPage() {
         .edit-select:focus {
           outline: none;
           border-color: #3b82f6;
+        }
+
+        .edit-select option {
+          background: #1a1d24;
+          color: #fff;
+          padding: 6px 10px;
         }
 
         .status-badge {
@@ -697,6 +896,160 @@ export default function SalespersonDetailPage() {
         .placeholder-note {
           font-size: 12px;
           color: rgba(255, 255, 255, 0.35);
+        }
+
+        /* Linked Staff Member Card */
+        .link-card {
+          margin-bottom: 28px;
+        }
+
+        .link-hint {
+          font-size: 11px;
+          color: rgba(255, 255, 255, 0.35);
+          margin-left: auto;
+          font-weight: 400;
+        }
+
+        .link-error {
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid rgba(239, 68, 68, 0.3);
+          border-radius: 6px;
+          padding: 8px 12px;
+          font-size: 12px;
+          color: #ef4444;
+          margin-bottom: 12px;
+        }
+
+        .link-success {
+          background: rgba(34, 197, 94, 0.1);
+          border: 1px solid rgba(34, 197, 94, 0.3);
+          border-radius: 6px;
+          padding: 8px 12px;
+          font-size: 12px;
+          color: #22c55e;
+          margin-bottom: 12px;
+        }
+
+        .link-display {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 20px;
+        }
+
+        .link-info-rows {
+          flex: 1;
+        }
+
+        .link-info-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 0;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .link-info-row:last-child {
+          border-bottom: none;
+        }
+
+        .link-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          flex-shrink: 0;
+        }
+
+        .link-empty {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 0;
+        }
+
+        .link-empty-label {
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.4);
+          font-style: italic;
+        }
+
+        .link-editor {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .link-select {
+          max-width: 100% !important;
+          min-width: 260px;
+        }
+
+        .link-editor-actions {
+          display: flex;
+          gap: 10px;
+          justify-content: flex-end;
+        }
+
+        .link-btn {
+          display: inline-block;
+          padding: 7px 14px;
+          font-size: 12px;
+          font-weight: 500;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          border: 1px solid;
+          white-space: nowrap;
+        }
+
+        .link-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .link-btn-primary {
+          color: #fff;
+          background: #3b82f6;
+          border-color: #3b82f6;
+        }
+
+        .link-btn-primary:hover:not(:disabled) {
+          background: #2563eb;
+          border-color: #2563eb;
+        }
+
+        .link-btn-change {
+          color: rgba(255, 255, 255, 0.7);
+          background: rgba(255, 255, 255, 0.04);
+          border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .link-btn-change:hover:not(:disabled) {
+          color: #fff;
+          background: rgba(255, 255, 255, 0.08);
+          border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .link-btn-remove {
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.08);
+          border-color: rgba(239, 68, 68, 0.2);
+        }
+
+        .link-btn-remove:hover:not(:disabled) {
+          background: rgba(239, 68, 68, 0.15);
+          border-color: rgba(239, 68, 68, 0.35);
+        }
+
+        .link-btn-cancel {
+          color: rgba(255, 255, 255, 0.7);
+          background: transparent;
+          border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .link-btn-cancel:hover:not(:disabled) {
+          color: #fff;
+          border-color: rgba(255, 255, 255, 0.3);
         }
       `}</style>
     </div>

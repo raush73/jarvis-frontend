@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 /* ------------------------------------------------------------------ */
@@ -102,7 +101,6 @@ function getRoleBadgeStyle(role: string) {
 /* ------------------------------------------------------------------ */
 
 export default function AdminStaffPage() {
-  const router = useRouter();
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [allRoles, setAllRoles] = useState<BackendRole[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,6 +116,10 @@ export default function AdminStaffPage() {
   const [pendingRoleIds, setPendingRoleIds] = useState<string[]>([]);
   const [savingRoles, setSavingRoles] = useState(false);
 
+  // Password reset
+  const [sendingReset, setSendingReset] = useState(false);
+  const [resetMsg, setResetMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   // Add Staff modal
   const [addStaffOpen, setAddStaffOpen] = useState(false);
   const [addFullName, setAddFullName] = useState("");
@@ -125,20 +127,6 @@ export default function AdminStaffPage() {
   const [addPassword, setAddPassword] = useState("");
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
-
-  // Role management modal
-  const [roleModalOpen, setRoleModalOpen] = useState(false);
-  const [roleModalMode, setRoleModalMode] = useState<"create" | "edit">("create");
-  const [roleModalTarget, setRoleModalTarget] = useState<BackendRole | null>(null);
-  const [roleFormName, setRoleFormName] = useState("");
-  const [roleFormDesc, setRoleFormDesc] = useState("");
-  const [roleFormScope, setRoleFormScope] = useState<BackendRole["scope"]>("STAFF");
-  const [roleFormActive, setRoleFormActive] = useState(true);
-  const [roleModalSaving, setRoleModalSaving] = useState(false);
-  const [roleModalError, setRoleModalError] = useState<string | null>(null);
-
-  // Manage Roles panel visibility
-  const [showRolesPanel, setShowRolesPanel] = useState(false);
 
   /* ---------- Derived role lists ---------- */
 
@@ -210,6 +198,7 @@ export default function AdminStaffPage() {
     setSelectedStaff(member);
     setEditingRoles(false);
     setPendingRoleIds(member.roleIds);
+    setResetMsg(null);
     setIsDrawerOpen(true);
   };
   const closeDrawer = () => {
@@ -261,6 +250,30 @@ export default function AdminStaffPage() {
     }
   };
 
+  /* ---------- Admin Send Password Reset ---------- */
+
+  const sendPasswordReset = async () => {
+    if (!selectedStaff) return;
+    setSendingReset(true);
+    setResetMsg(null);
+    try {
+      const res = await fetch("/api/auth/admin-send-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ userId: selectedStaff.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.message || `Failed (${res.status})`);
+      }
+      setResetMsg({ ok: true, text: "Password reset email sent." });
+    } catch (err: unknown) {
+      setResetMsg({ ok: false, text: err instanceof Error ? err.message : "Failed to send reset email" });
+    } finally {
+      setSendingReset(false);
+    }
+  };
+
   /* ---------- Add Staff ---------- */
 
   const openAddStaff = () => {
@@ -301,72 +314,6 @@ export default function AdminStaffPage() {
     addEmail.trim().length > 0 &&
     addPassword.length >= 8;
 
-  /* ---------- Role CRUD modal ---------- */
-
-  const openCreateRole = () => {
-    setRoleModalMode("create");
-    setRoleModalTarget(null);
-    setRoleFormName("");
-    setRoleFormDesc("");
-    setRoleFormScope("STAFF");
-    setRoleFormActive(true);
-    setRoleModalError(null);
-    setRoleModalOpen(true);
-  };
-
-  const openEditRole = (role: BackendRole) => {
-    setRoleModalMode("edit");
-    setRoleModalTarget(role);
-    setRoleFormName(role.name);
-    setRoleFormDesc(role.description ?? "");
-    setRoleFormScope(role.scope);
-    setRoleFormActive(role.isActive);
-    setRoleModalError(null);
-    setRoleModalOpen(true);
-  };
-
-  const saveRole = async () => {
-    setRoleModalSaving(true);
-    setRoleModalError(null);
-    try {
-      if (roleModalMode === "create") {
-        const res = await fetch("/api/roles", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({
-            name: roleFormName.trim(),
-            description: roleFormDesc.trim() || undefined,
-            scope: roleFormScope,
-          }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.message || `Failed (${res.status})`);
-        }
-      } else if (roleModalTarget) {
-        const res = await fetch(`/api/roles/${roleModalTarget.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({
-            name: roleFormName.trim(),
-            description: roleFormDesc.trim() || undefined,
-            isActive: roleFormActive,
-          }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.message || `Failed (${res.status})`);
-        }
-      }
-      setRoleModalOpen(false);
-      await fetchData();
-    } catch (err: unknown) {
-      setRoleModalError(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setRoleModalSaving(false);
-    }
-  };
-
   /* ---------- Refresh selected staff after fetchData ---------- */
   useEffect(() => {
     if (selectedStaff) {
@@ -391,9 +338,6 @@ export default function AdminStaffPage() {
           <p className="subtitle">Manage internal staff accounts and role assignments</p>
         </div>
         <div className="header-actions">
-          <button className="btn-secondary" onClick={() => setShowRolesPanel(!showRolesPanel)}>
-            {showRolesPanel ? "Hide Roles" : "Manage Roles"}
-          </button>
           <button className="btn-primary" onClick={openAddStaff}>
             + Add Staff
           </button>
@@ -404,46 +348,6 @@ export default function AdminStaffPage() {
         <div className="error-banner">
           {error}
           <button className="retry-btn" onClick={() => { setError(null); fetchData(); }}>Retry</button>
-        </div>
-      )}
-
-      {/* ---------- Roles Management Panel ---------- */}
-      {showRolesPanel && (
-        <div className="roles-panel">
-          <div className="roles-panel-header">
-            <h3>Staff &amp; System Roles</h3>
-            <button className="btn-add-sm" onClick={openCreateRole}>+ New Role</button>
-          </div>
-          <table className="roles-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Scope</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {staffRoles.map((role) => (
-                <tr key={role.id}>
-                  <td style={{ fontWeight: 500, color: "#fff" }}>{formatRoleName(role.name)}</td>
-                  <td><span className={`scope-tag scope-${role.scope.toLowerCase()}`}>{role.scope}</span></td>
-                  <td>
-                    <span className={`status-dot ${role.isActive ? "active" : "inactive"}`}>
-                      {role.isActive ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td style={{ display: "flex", gap: 6 }}>
-                    <button className="action-btn-sm" onClick={() => openEditRole(role)}>Edit</button>
-                    <button className="action-btn-sm" onClick={() => router.push(`/admin/roles/${role.id}`)} style={{ color: "#3b82f6" }}>Permissions</button>
-                  </td>
-                </tr>
-              ))}
-              {staffRoles.length === 0 && (
-                <tr><td colSpan={4} style={{ textAlign: "center", color: "rgba(255,255,255,0.4)", padding: 20 }}>No staff roles found</td></tr>
-              )}
-            </tbody>
-          </table>
         </div>
       )}
 
@@ -620,6 +524,23 @@ export default function AdminStaffPage() {
                 </div>
               </div>
 
+              <div className="password-reset-section">
+                <div className="section-label">Account Security</div>
+                {resetMsg && (
+                  <div className={resetMsg.ok ? "reset-success-msg" : "reset-error-msg"}>
+                    {resetMsg.text}
+                  </div>
+                )}
+                <button
+                  className="btn-send-reset"
+                  onClick={sendPasswordReset}
+                  disabled={sendingReset}
+                >
+                  {sendingReset ? "Sending..." : "Send Password Reset Email"}
+                </button>
+                <div className="reset-hint">Sends a time-limited password reset link to the staff member&rsquo;s email address.</div>
+              </div>
+
               <div className="audit-section">
                 <div className="audit-title">Audit Information</div>
                 <div className="audit-grid">
@@ -699,90 +620,6 @@ export default function AdminStaffPage() {
         </div>
       )}
 
-      {/* ---------- Role Create / Edit Modal ---------- */}
-      {roleModalOpen && (
-        <div className="modal-overlay" onClick={() => setRoleModalOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>{roleModalMode === "create" ? "Create Staff Role" : "Edit Role"}</h2>
-              <button className="modal-close" onClick={() => setRoleModalOpen(false)}>&times;</button>
-            </div>
-            <div className="modal-body">
-              {roleModalError && (
-                <div className="modal-error">{roleModalError}</div>
-              )}
-              <div className="form-field">
-                <label>Role Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Safety Manager"
-                  value={roleFormName}
-                  onChange={(e) => setRoleFormName(e.target.value)}
-                  disabled={roleModalMode === "edit" && roleModalTarget?.scope === "SYSTEM"}
-                />
-                {roleModalMode === "edit" && roleModalTarget?.scope === "SYSTEM" && (
-                  <div className="field-hint">System roles cannot be renamed</div>
-                )}
-              </div>
-              <div className="form-field">
-                <label>Description</label>
-                <input
-                  type="text"
-                  placeholder="Optional description"
-                  value={roleFormDesc}
-                  onChange={(e) => setRoleFormDesc(e.target.value)}
-                />
-              </div>
-              {roleModalMode === "create" && (
-                <div className="form-field">
-                  <label>Scope</label>
-                  <select value={roleFormScope} onChange={(e) => setRoleFormScope(e.target.value as BackendRole["scope"])}>
-                    <option value="STAFF">Staff</option>
-                    <option value="CUSTOMER">Customer</option>
-                    <option value="WORKER">Worker</option>
-                    <option value="SYSTEM">System</option>
-                  </select>
-                </div>
-              )}
-              {roleModalMode === "edit" && (
-                <div className="form-field">
-                  <label>Scope</label>
-                  <div className="field-value"><span className={`scope-tag scope-${roleModalTarget?.scope?.toLowerCase()}`}>{roleModalTarget?.scope}</span></div>
-                  <div className="field-hint">Scope cannot be changed after creation</div>
-                </div>
-              )}
-              {roleModalMode === "edit" && (
-                <div className="form-field">
-                  <label>Active</label>
-                  <div className="toggle-row">
-                    <button
-                      className={`toggle-btn ${roleFormActive ? "on" : "off"}`}
-                      onClick={() => setRoleFormActive(!roleFormActive)}
-                      disabled={roleModalTarget?.scope === "SYSTEM"}
-                    >
-                      {roleFormActive ? "Active" : "Inactive"}
-                    </button>
-                    {roleModalTarget?.scope === "SYSTEM" && (
-                      <span className="field-hint" style={{ marginLeft: 8 }}>System roles cannot be deactivated</span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button className="btn-cancel" onClick={() => setRoleModalOpen(false)}>Cancel</button>
-              <button
-                className="btn-save"
-                onClick={saveRole}
-                disabled={roleModalSaving || !roleFormName.trim()}
-              >
-                {roleModalSaving ? "Saving..." : roleModalMode === "create" ? "Create Role" : "Save Changes"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <style jsx>{`
         .users-container { padding: 24px 40px 60px; max-width: 1200px; margin: 0 auto; }
         .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
@@ -793,31 +630,9 @@ export default function AdminStaffPage() {
         .header-actions { padding-top: 28px; display: flex; gap: 10px; }
         .btn-primary { padding: 10px 20px; font-size: 14px; font-weight: 600; color: #fff; background: #3b82f6; border: none; border-radius: 8px; cursor: pointer; transition: all 0.15s ease; }
         .btn-primary:hover { background: #2563eb; }
-        .btn-secondary { padding: 10px 20px; font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; cursor: pointer; transition: all 0.15s ease; }
-        .btn-secondary:hover { color: #fff; background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
         .error-banner { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; color: #ef4444; font-size: 13px; }
         .retry-btn { margin-left: auto; padding: 4px 12px; font-size: 12px; font-weight: 500; color: #fff; background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.3); border-radius: 4px; cursor: pointer; }
         .retry-btn:hover { background: rgba(239,68,68,0.3); }
-
-        /* Roles Management Panel */
-        .roles-panel { margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; }
-        .roles-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-        .roles-panel-header h3 { font-size: 15px; font-weight: 600; color: #fff; margin: 0; }
-        .btn-add-sm { padding: 6px 14px; font-size: 12px; font-weight: 600; color: #fff; background: #3b82f6; border: none; border-radius: 6px; cursor: pointer; transition: background 0.15s ease; }
-        .btn-add-sm:hover { background: #2563eb; }
-        .roles-table { width: 100%; border-collapse: collapse; }
-        .roles-table th { padding: 8px 12px; text-align: left; font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
-        .roles-table td { padding: 8px 12px; font-size: 13px; color: rgba(255,255,255,0.85); border-bottom: 1px solid rgba(255,255,255,0.04); }
-        .scope-tag { display: inline-block; padding: 2px 8px; font-size: 10px; font-weight: 600; border-radius: 4px; border: 1px solid; }
-        .scope-tag.scope-staff { background: rgba(59,130,246,0.12); color: #60a5fa; border-color: rgba(59,130,246,0.2); }
-        .scope-tag.scope-system { background: rgba(239,68,68,0.12); color: #ef4444; border-color: rgba(239,68,68,0.2); }
-        .scope-tag.scope-customer { background: rgba(245,158,11,0.12); color: #f59e0b; border-color: rgba(245,158,11,0.2); }
-        .scope-tag.scope-worker { background: rgba(34,197,94,0.12); color: #22c55e; border-color: rgba(34,197,94,0.2); }
-        .status-dot { font-size: 12px; font-weight: 500; }
-        .status-dot.active { color: #22c55e; }
-        .status-dot.inactive { color: #ef4444; }
-        .action-btn-sm { padding: 4px 10px; font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; cursor: pointer; transition: all 0.15s ease; }
-        .action-btn-sm:hover { color: #fff; background: rgba(255,255,255,0.08); }
 
         /* Filters */
         .filters-section { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; }
@@ -876,6 +691,16 @@ export default function AdminStaffPage() {
         .btn-cancel-sm { padding: 6px 14px; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; }
         .btn-save-sm { padding: 6px 14px; font-size: 12px; font-weight: 600; color: #fff; background: #3b82f6; border: none; border-radius: 6px; cursor: pointer; }
         .btn-save-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+        /* Password reset section */
+        .password-reset-section { margin-bottom: 20px; padding: 16px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; }
+        .section-label { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 12px; }
+        .btn-send-reset { width: 100%; padding: 10px 16px; font-size: 13px; font-weight: 600; color: #f59e0b; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); border-radius: 6px; cursor: pointer; transition: all 0.15s ease; }
+        .btn-send-reset:hover { background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.35); }
+        .btn-send-reset:disabled { opacity: 0.5; cursor: not-allowed; }
+        .reset-hint { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 8px; }
+        .reset-success-msg { padding: 8px 12px; margin-bottom: 10px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); border-radius: 6px; color: #22c55e; font-size: 12px; }
+        .reset-error-msg { padding: 8px 12px; margin-bottom: 10px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; color: #ef4444; font-size: 12px; }
+
         .audit-section { padding: 16px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; }
         .audit-title { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 14px; }
         .audit-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
@@ -902,11 +727,6 @@ export default function AdminStaffPage() {
         .form-field select option { background: #1a1d24; color: #fff; }
         .form-field input:disabled { opacity: 0.5; cursor: not-allowed; }
         .field-hint { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 4px; }
-        .toggle-row { display: flex; align-items: center; }
-        .toggle-btn { padding: 6px 16px; font-size: 13px; font-weight: 600; border: 1px solid; border-radius: 6px; cursor: pointer; transition: all 0.15s ease; }
-        .toggle-btn.on { color: #22c55e; background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.25); }
-        .toggle-btn.off { color: #ef4444; background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.25); }
-        .toggle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .modal-footer { display: flex; justify-content: flex-end; gap: 12px; padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08); }
         .btn-cancel { padding: 10px 20px; font-size: 14px; font-weight: 500; color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer; transition: all 0.15s ease; }
         .btn-cancel:hover { color: #fff; background: rgba(255,255,255,0.1); }

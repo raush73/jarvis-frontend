@@ -1,0 +1,27 @@
+import { NextResponse } from "next/server";
+
+const BACKEND = "http://127.0.0.1:3000";
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+
+    const res = await fetch(`${BACKEND}/auth/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+
+    const text = await res.text();
+    return new NextResponse(text, {
+      status: res.status,
+      headers: {
+        "Content-Type": res.headers.get("content-type") ?? "application/json",
+      },
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Reset-password proxy failed";
+    return NextResponse.json({ ok: false, message }, { status: 500 });
+  }
+}

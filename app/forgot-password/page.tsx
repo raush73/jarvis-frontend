@@ -1,94 +1,91 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-export default function LoginPage() {
-  const router = useRouter();
+export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSignIn = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
 
       const data = await res.json().catch(() => null);
 
-      if (!res.ok || !data?.accessToken) {
-        const msg =
-          data?.message ||
-          (res.status === 401 ? 'Invalid credentials' : 'Sign in failed');
-        throw new Error(msg);
+      if (!res.ok) {
+        throw new Error(data?.message || 'Request failed');
       }
 
-      localStorage.setItem('jp_accessToken', data.accessToken);
-      router.push('/orders');
+      setSubmitted(true);
     } catch (err: any) {
-      setError(err?.message || 'Sign in failed');
+      setError(err?.message || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <div className="login-header">
-          <div className="login-icon">JP</div>
-          <h1>Sign in to Jarvis Prime</h1>
-          <p>Enter your credentials to continue</p>
+    <div className="fp-container">
+      <div className="fp-card">
+        <div className="fp-header">
+          <div className="fp-icon">JP</div>
+          <h1>Reset Your Password</h1>
+          <p>Enter your email address and we&rsquo;ll send you a link to reset your password.</p>
         </div>
 
-        <form onSubmit={handleSignIn} className="login-form">
-          <div className="form-field">
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              autoComplete="email"
-            />
+        {submitted ? (
+          <div className="fp-success">
+            <div className="fp-success-icon">&#10003;</div>
+            <p className="fp-success-text">
+              If that account exists, a password reset link has been sent.
+            </p>
+            <p className="fp-success-hint">Check your email inbox and follow the link to reset your password.</p>
+            <Link href="/login" className="fp-back-link">Back to Sign In</Link>
           </div>
+        ) : (
+          <>
+            <form onSubmit={handleSubmit} className="fp-form">
+              <div className="form-field">
+                <label htmlFor="email">Email</label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  autoComplete="email"
+                  autoFocus
+                  required
+                />
+              </div>
 
-          <div className="form-field">
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="************"
-              autoComplete="current-password"
-            />
-          </div>
+              {error ? <div className="fp-error">{error}</div> : null}
 
-          {error ? <div className="login-error">{error}</div> : null}
+              <button type="submit" className="fp-submit-btn" disabled={loading || !email.trim()}>
+                {loading ? 'Sending...' : 'Send Reset Link'}
+              </button>
+            </form>
 
-          <button type="submit" className="sign-in-btn" disabled={loading}>
-            {loading ? 'Signing In...' : 'Sign In'}
-          </button>
-        </form>
-
-        <div className="login-footer">
-          <Link href="/forgot-password" className="forgot-password-link">Forgot Password?</Link>
-        </div>
+            <div className="fp-footer">
+              <Link href="/login" className="fp-back-link">Back to Sign In</Link>
+            </div>
+          </>
+        )}
       </div>
 
       <style jsx>{`
-        .login-container {
+        .fp-container {
           display: flex;
           align-items: center;
           justify-content: center;
@@ -96,7 +93,7 @@ export default function LoginPage() {
           padding: 40px 20px;
         }
 
-        .login-card {
+        .fp-card {
           width: 100%;
           max-width: 400px;
           background: rgba(255, 255, 255, 0.03);
@@ -105,12 +102,12 @@ export default function LoginPage() {
           padding: 40px;
         }
 
-        .login-header {
+        .fp-header {
           text-align: center;
           margin-bottom: 32px;
         }
 
-        .login-icon {
+        .fp-icon {
           width: 56px;
           height: 56px;
           background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
@@ -124,7 +121,7 @@ export default function LoginPage() {
           margin: 0 auto 20px;
         }
 
-        .login-header h1 {
+        .fp-header h1 {
           font-size: 22px;
           font-weight: 600;
           color: #fff;
@@ -132,13 +129,14 @@ export default function LoginPage() {
           letter-spacing: -0.3px;
         }
 
-        .login-header p {
+        .fp-header p {
           font-size: 14px;
           color: rgba(255, 255, 255, 0.5);
           margin: 0;
+          line-height: 1.5;
         }
 
-        .login-form {
+        .fp-form {
           display: flex;
           flex-direction: column;
           gap: 20px;
@@ -177,7 +175,7 @@ export default function LoginPage() {
           background: rgba(59, 130, 246, 0.08);
         }
 
-        .login-error {
+        .fp-error {
           background: rgba(239, 68, 68, 0.12);
           border: 1px solid rgba(239, 68, 68, 0.25);
           color: rgba(255, 255, 255, 0.9);
@@ -186,7 +184,7 @@ export default function LoginPage() {
           font-size: 13px;
         }
 
-        .sign-in-btn {
+        .fp-submit-btn {
           height: 46px;
           margin-top: 8px;
           background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
@@ -199,34 +197,67 @@ export default function LoginPage() {
           transition: all 0.15s ease;
         }
 
-        .sign-in-btn:hover {
+        .fp-submit-btn:hover {
           transform: translateY(-1px);
           box-shadow: 0 4px 20px rgba(59, 130, 246, 0.4);
         }
 
-        .sign-in-btn:disabled {
+        .fp-submit-btn:disabled {
           opacity: 0.7;
           cursor: not-allowed;
           transform: none;
           box-shadow: none;
         }
 
-        .login-footer {
+        .fp-footer {
           margin-top: 24px;
           padding-top: 20px;
           border-top: 1px solid rgba(255, 255, 255, 0.06);
           text-align: center;
         }
 
-        .forgot-password-link {
+        .fp-back-link {
           font-size: 13px;
           color: #3b82f6;
           text-decoration: none;
           transition: color 0.15s ease;
         }
 
-        .forgot-password-link:hover {
+        .fp-back-link:hover {
           color: #60a5fa;
+        }
+
+        .fp-success {
+          text-align: center;
+          padding: 12px 0;
+        }
+
+        .fp-success-icon {
+          width: 48px;
+          height: 48px;
+          background: rgba(34, 197, 94, 0.12);
+          border: 1px solid rgba(34, 197, 94, 0.25);
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 22px;
+          color: #22c55e;
+          margin: 0 auto 20px;
+        }
+
+        .fp-success-text {
+          font-size: 15px;
+          color: #fff;
+          font-weight: 500;
+          margin: 0 0 8px;
+        }
+
+        .fp-success-hint {
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.5);
+          margin: 0 0 24px;
+          line-height: 1.5;
         }
       `}</style>
     </div>
