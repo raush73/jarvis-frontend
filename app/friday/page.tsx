@@ -9,6 +9,10 @@ export default function FridayPage() {
         <h1>Friday</h1>
         <p className="stub-description">UI shell placeholder (no logic yet)</p>
 
+        <Link href="/friday/intelligence" className="tool-card">
+          Intelligence Queue
+        </Link>
+
         <Link href="/friday/labor-cost-calculator" className="tool-card">
           Labor Cost Calculator
         </Link>
