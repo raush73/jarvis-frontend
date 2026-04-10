@@ -77,6 +77,8 @@ export interface ResolveConflictPayload {
 export interface CompleteCallPayload {
   callNoteText: string;
   nextAction: NextActionType;
+  intelligenceId?: string;
+  noteSource?: 'MANUAL' | 'AI_ASSISTED' | 'AI_GENERATED';
   followUpPayload?: CreateFollowUpPayload;
   reschedulePayload?: {
     followUpId: string;
@@ -96,6 +98,68 @@ export interface ConflictResponse {
   message: string;
   resolutionOptions: ConflictResolution[];
 }
+
+// ─── Phase 7: Call Intelligence & Email Draft types ─────────────────
+
+export interface CallIntelligence {
+  id: string;
+  callEventId: string;
+  aiSummary: string;
+  intentSignals: string[];
+  keyTopics: string[];
+  suggestedNextAction: NextActionType | null;
+  suggestedFollowUp: FollowUpSuggestion | null;
+  suggestedTask: TaskSuggestion | null;
+  confidenceScore: number | null;
+  modelVersion: string;
+  createdAt: string;
+}
+
+export interface FollowUpSuggestion {
+  intentType: FollowUpIntentType;
+  dueAt: string;
+  hasExplicitTime: boolean;
+  context: string;
+  reasoning: string;
+  rescheduleExistingId: string | null;
+}
+
+export interface TaskSuggestion {
+  description: string;
+  dueDate: string | null;
+  reasoning: string;
+}
+
+export interface EmailDraft {
+  id: string;
+  callEventId: string;
+  intelligenceId?: string | null;
+  contactId: string;
+  subject: string;
+  body: string;
+  status: 'DRAFT' | 'APPROVED' | 'DISCARDED';
+  createdAt: string;
+  approvedAt: string | null;
+  contact?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string | null;
+    jobTitle: string | null;
+  };
+}
+
+export interface IntelligenceResponse {
+  ok: boolean;
+  intelligence: CallIntelligence | null;
+  suggestions?: {
+    followUp: FollowUpSuggestion | null;
+    task: TaskSuggestion | null;
+  } | null;
+  isExisting?: boolean;
+}
+
+// ─── Labels & Constants ─────────────────────────────────────────────
 
 export const INTENT_LABELS: Record<FollowUpIntentType, string> = {
   CALLBACK: 'Callback',
