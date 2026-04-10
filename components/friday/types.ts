@@ -159,6 +159,73 @@ export interface IntelligenceResponse {
   isExisting?: boolean;
 }
 
+// ─── Phase 8: Call Execution types ──────────────────────────────────
+
+export type CallExecutionState =
+  | 'NONE'
+  | 'IDLE'
+  | 'READY'
+  | 'IN_CALL'
+  | 'COMPLETING'
+  | 'BLOCKED';
+
+export interface CallTarget {
+  callTargetId: string;
+  customerId: string;
+  customerName: string;
+  contactId: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  bucket: string;
+  bucketReason: string;
+  followUpContext: string | null;
+  followUpDueAt: string | null;
+}
+
+export interface SessionStatus {
+  ok: boolean;
+  sessionId: string;
+  state: CallExecutionState;
+  currentCallEventId: string | null;
+  nextTarget: CallTarget | null;
+  message: string | null;
+}
+
+export interface StartCallResult {
+  ok: boolean;
+  callEventId: string;
+  callTarget: CallTarget;
+  state: 'IN_CALL';
+}
+
+export interface CompleteCallResult {
+  ok: boolean;
+  state: 'READY' | 'BLOCKED';
+  nextTarget: CallTarget | null;
+  reason: string | null;
+}
+
+export interface DismissGateResult {
+  ok: boolean;
+  state: 'BLOCKED';
+  callEventId: string;
+  callTarget: CallTarget | null;
+}
+
+export const BUCKET_LABELS: Record<string, string> = {
+  OVERDUE: 'Overdue',
+  DUE_TODAY: 'Due Today',
+  STALE: 'Stale',
+  NORMAL: 'Normal',
+};
+
+export const BUCKET_COLORS: Record<string, string> = {
+  OVERDUE: '#ef4444',
+  DUE_TODAY: '#f59e0b',
+  STALE: '#8b5cf6',
+  NORMAL: '#3b82f6',
+};
+
 // ─── Labels & Constants ─────────────────────────────────────────────
 
 export const INTENT_LABELS: Record<FollowUpIntentType, string> = {

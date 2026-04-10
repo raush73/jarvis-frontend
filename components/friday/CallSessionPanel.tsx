@@ -1,0 +1,581 @@
+'use client';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { fridayFetch } from './fridayFetch';
+import CallCompletionGate from './CallCompletionGate';
+import * as S from './styles';
+import {
+  type CallExecutionState,
+  type CallTarget,
+  type SessionStatus,
+  type StartCallResult,
+  type CompleteCallResult,
+  type DismissGateResult,
+  type CompanyContact,
+  type FollowUp,
+  type ConflictResponse,
+  BUCKET_LABELS,
+  BUCKET_COLORS,
+} from './types';
+
+type PanelPhase =
+  | 'idle'
+  | 'ready'
+  | 'in_call'
+  | 'completing'
+  | 'blocked'
+  | 'loading';
+
+export default function CallSessionPanel() {
+  const [phase, setPhase] = useState<PanelPhase>('loading');
+  const [sessionId, setSessionId] = useState('');
+  const [callEventId, setCallEventId] = useState<string | null>(null);
+  const [target, setTarget] = useState<CallTarget | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const [contacts, setContacts] = useState<CompanyContact[]>([]);
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const syncState = useCallback(
+    (state: CallExecutionState, evtId: string | null, tgt: CallTarget | null) => {
+      setCallEventId(evtId);
+      setTarget(tgt);
+      switch (state) {
+        case 'READY':
+          setPhase('ready');
+          break;
+        case 'IN_CALL':
+          setPhase('in_call');
+          break;
+        case 'COMPLETING':
+          setPhase('completing');
+          break;
+        case 'BLOCKED':
+          setPhase('blocked');
+          break;
+        default:
+          setPhase('idle');
+      }
+    },
+    [],
+  );
+
+  // On mount, recover session state from the server
+  useEffect(() => {
+    (async () => {
+      const res = await fridayFetch<SessionStatus>('/friday/call-session/status');
+      if (!mountedRef.current) return;
+      if (res.ok) {
+        const d = res.data;
+        if (d.sessionId) {
+          setSessionId(d.sessionId);
+          syncState(d.state, d.currentCallEventId, d.nextTarget);
+        } else {
+          setPhase('idle');
+        }
+      } else {
+        setPhase('idle');
+      }
+    })();
+  }, [syncState]);
+
+  const loadContactsAndFollowUps = useCallback(async (customerId: string) => {
+    const [cRes, fRes] = await Promise.all([
+      fridayFetch<CompanyContact[]>(`/friday/contacts/company/${customerId}`),
+      fridayFetch<FollowUp[]>(`/friday/follow-ups/company/${customerId}?status=OPEN`),
+    ]);
+    if (mountedRef.current) {
+      setContacts(cRes.ok ? cRes.data : []);
+      setFollowUps(fRes.ok ? fRes.data : []);
+    }
+  }, []);
+
+  // ─── Actions ──────────────────────────────────────────────────────
+
+  const handleStartSession = async () => {
+    setBusy(true);
+    setError('');
+    const res = await fridayFetch<SessionStatus>('/friday/call-session/start', {
+      method: 'POST',
+    });
+    setBusy(false);
+    if (!mountedRef.current) return;
+    if (res.ok) {
+      setSessionId(res.data.sessionId);
+      syncState(res.data.state as CallExecutionState, res.data.currentCallEventId, res.data.nextTarget);
+    } else {
+      setError(res.error);
+    }
+  };
+
+  const handleStartCall = async () => {
+    if (!target) return;
+    setBusy(true);
+    setError('');
+    const res = await fridayFetch<StartCallResult>('/friday/call-session/start-call', {
+      method: 'POST',
+      body: JSON.stringify({ callTargetId: target.callTargetId }),
+    });
+    setBusy(false);
+    if (!mountedRef.current) return;
+    if (res.ok) {
+      setCallEventId(res.data.callEventId);
+      setTarget(res.data.callTarget);
+      setPhase('in_call');
+    } else {
+      setError(res.error);
+    }
+  };
+
+  const handleEndCall = async () => {
+    if (!target?.customerId) return;
+    await loadContactsAndFollowUps(target.customerId);
+    setPhase('completing');
+  };
+
+  const handleCompleteCall = async () => {
+    if (!callEventId) return;
+    setBusy(true);
+    setError('');
+    const res = await fridayFetch<CompleteCallResult>('/friday/call-session/complete-call', {
+      method: 'POST',
+      body: JSON.stringify({ callEventId }),
+    });
+    setBusy(false);
+    if (!mountedRef.current) return;
+    if (res.ok) {
+      if (res.data.state === 'BLOCKED') {
+        setPhase('blocked');
+      } else {
+        setTarget(res.data.nextTarget);
+        setCallEventId(null);
+        setPhase(res.data.nextTarget ? 'ready' : 'ready');
+      }
+    } else {
+      setError(res.error);
+    }
+  };
+
+  const handleDismissGate = async () => {
+    setBusy(true);
+    const res = await fridayFetch<DismissGateResult>('/friday/call-session/dismiss-gate', {
+      method: 'POST',
+    });
+    setBusy(false);
+    if (!mountedRef.current) return;
+    if (res.ok) {
+      setCallEventId(res.data.callEventId);
+      setTarget(res.data.callTarget);
+      setPhase('blocked');
+    }
+  };
+
+  const handleReopenGate = async () => {
+    if (!target?.customerId) return;
+    await loadContactsAndFollowUps(target.customerId);
+    setPhase('completing');
+  };
+
+  const handleGateCompleted = () => {
+    handleCompleteCall();
+  };
+
+  const handleGateConflict = (_conflict: ConflictResponse) => {
+    // Conflicts are handled inside the gate itself via the modal
+  };
+
+  // ─── Rendering ────────────────────────────────────────────────────
+
+  if (phase === 'loading') {
+    return (
+      <div style={panelWrap}>
+        <div style={panelCard}>
+          <div style={{ color: S.FC.textMuted, textAlign: 'center', padding: 40 }}>
+            Loading session...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={panelWrap}>
+      {/* Session Header */}
+      <div style={headerBar}>
+        <div style={headerTitle}>Call Session</div>
+        <div style={headerBadge(phase)}>{phaseLabel(phase)}</div>
+      </div>
+
+      {error && (
+        <div style={errorBanner}>{error}</div>
+      )}
+
+      {/* IDLE — No session */}
+      {phase === 'idle' && (
+        <div style={panelCard}>
+          <div style={emptyState}>
+            <div style={emptyIcon}>📞</div>
+            <div style={emptyTitle}>Ready to Start Calling</div>
+            <div style={emptyDesc}>
+              Start a call session to work through your queue. The system will
+              feed you calls in priority order.
+            </div>
+            <button
+              style={S.btnPrimary}
+              onClick={handleStartSession}
+              disabled={busy}
+            >
+              {busy ? 'Starting...' : 'Start Call Session'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* READY — Next call target loaded */}
+      {phase === 'ready' && target && (
+        <div style={panelCard}>
+          <TargetCard target={target} />
+          <div style={{ marginTop: 20, display: 'flex', gap: 8 }}>
+            <button
+              style={{ ...S.btnPrimary, flex: 1, padding: '12px 16px', fontSize: '0.9375rem' }}
+              onClick={handleStartCall}
+              disabled={busy}
+            >
+              {busy ? 'Connecting...' : 'Start Call'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {phase === 'ready' && !target && (
+        <div style={panelCard}>
+          <div style={emptyState}>
+            <div style={emptyIcon}>✅</div>
+            <div style={emptyTitle}>Queue Clear</div>
+            <div style={emptyDesc}>
+              No callable items right now. All targets have been reached or are
+              outside callable hours.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* IN_CALL — Active call */}
+      {phase === 'in_call' && target && (
+        <div style={{ ...panelCard, borderColor: S.FC.accentGreen }}>
+          <div style={activeCallHeader}>
+            <div style={pulseIndicator} />
+            <span style={{ color: S.FC.accentGreen, fontWeight: 700, fontSize: '0.875rem' }}>
+              Call In Progress
+            </span>
+          </div>
+          <TargetCard target={target} />
+          <div style={{ marginTop: 20, display: 'flex', gap: 8 }}>
+            <button
+              style={{ ...S.btnPrimary, flex: 1, padding: '12px 16px', fontSize: '0.9375rem', background: S.FC.accentGreen }}
+              onClick={handleEndCall}
+              disabled={busy}
+            >
+              End Call &amp; Complete
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* COMPLETING — CallCompletionGate overlay */}
+      {phase === 'completing' && callEventId && target && (
+        <CallCompletionGate
+          callEventId={callEventId}
+          customerId={target.customerId}
+          contacts={contacts}
+          existingFollowUps={followUps}
+          onCompleted={handleGateCompleted}
+          onConflict={handleGateConflict}
+          onClose={handleDismissGate}
+        />
+      )}
+
+      {/* BLOCKED — Must complete before continuing */}
+      {phase === 'blocked' && (
+        <div style={{ ...panelCard, borderColor: S.FC.accentRed }}>
+          <div style={blockedHeader}>
+            <div style={{ fontSize: 24 }}>⚠️</div>
+            <div>
+              <div style={{ fontWeight: 700, color: S.FC.accentRed, fontSize: '0.9375rem' }}>
+                Session Blocked
+              </div>
+              <div style={{ color: S.FC.textMuted, fontSize: '0.8125rem', marginTop: 4 }}>
+                You must complete the call note and select a next action before
+                the session can continue.
+              </div>
+            </div>
+          </div>
+          {target && <TargetCard target={target} />}
+          <div style={{ marginTop: 20 }}>
+            <button
+              style={{ ...S.btnPrimary, width: '100%', padding: '12px 16px', fontSize: '0.9375rem', background: S.FC.accentRed }}
+              onClick={handleReopenGate}
+              disabled={busy}
+            >
+              {busy ? 'Loading...' : 'Complete Call Now'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Sub-components ─────────────────────────────────────────────────
+
+function TargetCard({ target }: { target: CallTarget }) {
+  const bucketColor = BUCKET_COLORS[target.bucket] ?? S.FC.accentBlue;
+  const bucketLabel = BUCKET_LABELS[target.bucket] ?? target.bucket;
+
+  return (
+    <div style={targetCardWrap}>
+      <div style={targetRow}>
+        <div style={targetName}>{target.customerName}</div>
+        <div style={bucketBadge(bucketColor)}>{bucketLabel}</div>
+      </div>
+
+      {target.bucketReason && (
+        <div style={targetReason}>{target.bucketReason}</div>
+      )}
+
+      <div style={targetMeta}>
+        {target.contactName && (
+          <div style={metaItem}>
+            <span style={metaLabel}>Contact</span>
+            <span style={metaValue}>{target.contactName}</span>
+          </div>
+        )}
+        {target.contactPhone && (
+          <div style={metaItem}>
+            <span style={metaLabel}>Phone</span>
+            <span style={metaValue}>{target.contactPhone}</span>
+          </div>
+        )}
+        {target.followUpContext && (
+          <div style={metaItem}>
+            <span style={metaLabel}>Follow-up</span>
+            <span style={metaValue}>{target.followUpContext}</span>
+          </div>
+        )}
+        {target.followUpDueAt && (
+          <div style={metaItem}>
+            <span style={metaLabel}>Due</span>
+            <span style={metaValue}>
+              {new Date(target.followUpDueAt).toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────
+
+function phaseLabel(phase: PanelPhase): string {
+  switch (phase) {
+    case 'idle': return 'No Session';
+    case 'ready': return 'Ready';
+    case 'in_call': return 'In Call';
+    case 'completing': return 'Completing';
+    case 'blocked': return 'Blocked';
+    case 'loading': return 'Loading';
+    default: return '';
+  }
+}
+
+// ─── Styles ─────────────────────────────────────────────────────────
+
+import type { CSSProperties } from 'react';
+
+const panelWrap: CSSProperties = {
+  maxWidth: 520,
+  margin: '0 auto',
+};
+
+const panelCard: CSSProperties = {
+  background: S.FC.surface,
+  border: `1px solid ${S.FC.border}`,
+  borderRadius: 12,
+  padding: 24,
+};
+
+const headerBar: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  marginBottom: 20,
+};
+
+const headerTitle: CSSProperties = {
+  fontSize: '1.125rem',
+  fontWeight: 700,
+  color: S.FC.textPrimary,
+};
+
+function headerBadge(phase: PanelPhase): CSSProperties {
+  const colors: Record<PanelPhase, string> = {
+    idle: S.FC.textMuted,
+    ready: S.FC.accentBlue,
+    in_call: S.FC.accentGreen,
+    completing: S.FC.accentAmber,
+    blocked: S.FC.accentRed,
+    loading: S.FC.textMuted,
+  };
+  const bgs: Record<PanelPhase, string> = {
+    idle: 'rgba(255,255,255,0.06)',
+    ready: S.FC.accentBlueDim,
+    in_call: S.FC.accentGreenDim,
+    completing: S.FC.accentAmberDim,
+    blocked: S.FC.accentRedDim,
+    loading: 'rgba(255,255,255,0.06)',
+  };
+  return {
+    fontSize: '0.6875rem',
+    fontWeight: 700,
+    padding: '3px 10px',
+    borderRadius: 4,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    color: colors[phase],
+    background: bgs[phase],
+  };
+}
+
+const errorBanner: CSSProperties = {
+  background: S.FC.accentRedDim,
+  border: `1px solid rgba(239, 68, 68, 0.3)`,
+  borderRadius: 8,
+  padding: '10px 14px',
+  fontSize: '0.8125rem',
+  color: S.FC.accentRed,
+  marginBottom: 16,
+};
+
+const emptyState: CSSProperties = {
+  textAlign: 'center',
+  padding: '24px 0',
+};
+
+const emptyIcon: CSSProperties = {
+  fontSize: 40,
+  marginBottom: 16,
+};
+
+const emptyTitle: CSSProperties = {
+  fontSize: '1.125rem',
+  fontWeight: 700,
+  color: S.FC.textPrimary,
+  marginBottom: 8,
+};
+
+const emptyDesc: CSSProperties = {
+  fontSize: '0.8125rem',
+  color: S.FC.textMuted,
+  maxWidth: 360,
+  margin: '0 auto 24px',
+  lineHeight: 1.5,
+};
+
+const activeCallHeader: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  marginBottom: 16,
+};
+
+const pulseIndicator: CSSProperties = {
+  width: 10,
+  height: 10,
+  borderRadius: '50%',
+  background: S.FC.accentGreen,
+  boxShadow: `0 0 0 3px ${S.FC.accentGreenDim}`,
+};
+
+const blockedHeader: CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 12,
+  marginBottom: 16,
+};
+
+const targetCardWrap: CSSProperties = {
+  background: 'rgba(255, 255, 255, 0.02)',
+  border: `1px solid ${S.FC.border}`,
+  borderRadius: 8,
+  padding: 16,
+};
+
+const targetRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  marginBottom: 8,
+};
+
+const targetName: CSSProperties = {
+  fontSize: '1rem',
+  fontWeight: 700,
+  color: S.FC.textPrimary,
+};
+
+function bucketBadge(color: string): CSSProperties {
+  return {
+    fontSize: '0.6875rem',
+    fontWeight: 700,
+    padding: '2px 8px',
+    borderRadius: 4,
+    color,
+    background: `${color}22`,
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
+  };
+}
+
+const targetReason: CSSProperties = {
+  fontSize: '0.8125rem',
+  color: S.FC.textSecondary,
+  marginBottom: 12,
+  lineHeight: 1.4,
+};
+
+const targetMeta: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: 8,
+};
+
+const metaItem: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+};
+
+const metaLabel: CSSProperties = {
+  fontSize: '0.6875rem',
+  fontWeight: 600,
+  color: S.FC.textMuted,
+  textTransform: 'uppercase',
+  letterSpacing: '0.03em',
+};
+
+const metaValue: CSSProperties = {
+  fontSize: '0.8125rem',
+  color: S.FC.textPrimary,
+};
