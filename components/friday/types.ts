@@ -1,0 +1,141 @@
+export type FollowUpStatus = 'OPEN' | 'COMPLETED' | 'MISSED' | 'CANCELLED';
+
+export type FollowUpIntentType =
+  | 'CALLBACK'
+  | 'QUOTE_FOLLOWUP'
+  | 'MSA_FOLLOWUP'
+  | 'CHECK_IN'
+  | 'DECISION_PENDING'
+  | 'INFORMATION_SENT'
+  | 'GENERAL';
+
+export type NextActionType =
+  | 'create-follow-up'
+  | 'reschedule-existing-follow-up'
+  | 'create-task'
+  | 'mark-closed'
+  | 'do-not-call-again';
+
+export type ConflictResolution =
+  | 'reschedule-existing'
+  | 'update-existing'
+  | 'override';
+
+export interface FollowUp {
+  id: string;
+  customerId: string;
+  contactId?: string | null;
+  callEventId?: string | null;
+  userId: string;
+  intentType: FollowUpIntentType;
+  dueAt: string;
+  hasExplicitTime: boolean;
+  context: string;
+  status: FollowUpStatus;
+  rescheduleCount: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+  missedAt?: string | null;
+  cancelledAt?: string | null;
+  contact?: CompanyContact | null;
+  user?: { id: string; fullName?: string | null; email?: string | null } | null;
+}
+
+export interface CompanyContact {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  title?: string | null;
+}
+
+export interface CreateFollowUpPayload {
+  customerId: string;
+  contactId?: string;
+  callEventId?: string;
+  intentType: FollowUpIntentType;
+  dueAt: string;
+  hasExplicitTime: boolean;
+  context: string;
+}
+
+export interface RescheduleFollowUpPayload {
+  newDueAt: string;
+  hasExplicitTime?: boolean;
+  reason?: string;
+}
+
+export interface ResolveConflictPayload {
+  action: ConflictResolution;
+  newDueAt?: string;
+  hasExplicitTime?: boolean;
+  newContext?: string;
+  overrideReason?: string;
+}
+
+export interface CompleteCallPayload {
+  callNoteText: string;
+  nextAction: NextActionType;
+  followUpPayload?: CreateFollowUpPayload;
+  reschedulePayload?: {
+    followUpId: string;
+    newDueAt: string;
+    hasExplicitTime?: boolean;
+    reason?: string;
+  };
+  taskPayload?: {
+    customerId?: string;
+    description: string;
+    dueDate?: string;
+  };
+}
+
+export interface ConflictResponse {
+  existingFollowUp: FollowUp;
+  message: string;
+  resolutionOptions: ConflictResolution[];
+}
+
+export const INTENT_LABELS: Record<FollowUpIntentType, string> = {
+  CALLBACK: 'Callback',
+  QUOTE_FOLLOWUP: 'Quote Follow-up',
+  MSA_FOLLOWUP: 'MSA Follow-up',
+  CHECK_IN: 'Check-in',
+  DECISION_PENDING: 'Decision Pending',
+  INFORMATION_SENT: 'Information Sent',
+  GENERAL: 'General',
+};
+
+export const STATUS_LABELS: Record<FollowUpStatus, string> = {
+  OPEN: 'Open',
+  COMPLETED: 'Completed',
+  MISSED: 'Missed',
+  CANCELLED: 'Cancelled',
+};
+
+export const NEXT_ACTION_LABELS: Record<NextActionType, string> = {
+  'create-follow-up': 'Create Follow-up',
+  'reschedule-existing-follow-up': 'Reschedule Existing Follow-up',
+  'create-task': 'Create Task',
+  'mark-closed': 'Mark Closed',
+  'do-not-call-again': 'Do Not Call Again',
+};
+
+export const ALL_INTENT_TYPES: FollowUpIntentType[] = [
+  'CALLBACK',
+  'QUOTE_FOLLOWUP',
+  'MSA_FOLLOWUP',
+  'CHECK_IN',
+  'DECISION_PENDING',
+  'INFORMATION_SENT',
+  'GENERAL',
+];
+
+export const ALL_NEXT_ACTIONS: NextActionType[] = [
+  'create-follow-up',
+  'reschedule-existing-follow-up',
+  'create-task',
+  'mark-closed',
+  'do-not-call-again',
+];

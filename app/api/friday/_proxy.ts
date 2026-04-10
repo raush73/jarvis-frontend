@@ -95,3 +95,58 @@ export function proxyPostWithId(backendPathTemplate: string) {
     }
   };
 }
+
+export function proxyPatch(backendPath: string) {
+  return async function PATCH(req: NextRequest) {
+    try {
+      const auth = req.headers.get("authorization") ?? "";
+      const body = await req.text();
+      const res = await fetch(`${UPSTREAM}${backendPath}`, {
+        method: "PATCH",
+        headers: { Authorization: auth, "Content-Type": "application/json" },
+        body,
+        cache: "no-store",
+      });
+      const text = await res.text();
+      return new NextResponse(text, {
+        status: res.status,
+        headers: { "Content-Type": res.headers.get("content-type") ?? "application/json" },
+      });
+    } catch (err: any) {
+      return NextResponse.json(
+        { ok: false, message: err?.message ?? "Proxy PATCH failed" },
+        { status: 502 },
+      );
+    }
+  };
+}
+
+export function proxyPatchWithId(backendPathTemplate: string) {
+  return async function PATCH(
+    req: NextRequest,
+    { params }: { params: Promise<{ id: string }> },
+  ) {
+    try {
+      const { id } = await params;
+      const path = backendPathTemplate.replace("[id]", id);
+      const auth = req.headers.get("authorization") ?? "";
+      const body = await req.text();
+      const res = await fetch(`${UPSTREAM}${path}`, {
+        method: "PATCH",
+        headers: { Authorization: auth, "Content-Type": "application/json" },
+        body,
+        cache: "no-store",
+      });
+      const text = await res.text();
+      return new NextResponse(text, {
+        status: res.status,
+        headers: { "Content-Type": res.headers.get("content-type") ?? "application/json" },
+      });
+    } catch (err: any) {
+      return NextResponse.json(
+        { ok: false, message: err?.message ?? "Proxy PATCH failed" },
+        { status: 502 },
+      );
+    }
+  };
+}

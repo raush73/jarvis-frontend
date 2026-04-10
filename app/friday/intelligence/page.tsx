@@ -4,6 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { apiFetch } from '../../../lib/api';
 import { useSession } from '../../../lib/auth/useSession';
+import { INTENT_LABELS, type FollowUpIntentType } from '../../../components/friday/types';
+import { formatDueAt } from '../../../components/friday/displayHelpers';
+import { FC } from '../../../components/friday/styles';
 
 type Tab = 'queue' | 'company' | 'stale' | 'strategic';
 
@@ -31,7 +34,7 @@ const BUCKET_LABELS: Record<Bucket, string> = {
 };
 
 /* ────────────────────────────────────────────────────────────────
-   Types matching backend contracts
+   Types matching backend Phase 6 contracts
    ──────────────────────────────────────────────────────────────── */
 
 interface FlatQueueEntry {
@@ -39,8 +42,8 @@ interface FlatQueueEntry {
   customerName: string;
   bucket: Bucket;
   representativeFollowUpId: string | null;
-  representativeFollowUpDate: string | null;
-  representativeFollowUpTime: string | null;
+  representativeFollowUpDueAt: string | null;
+  representativeFollowUpHasExplicitTime: boolean;
   topExplanation: string;
   isStrategicTarget: boolean;
   lifecycleStatus: string;
@@ -55,9 +58,9 @@ interface FlatQueueResponse {
 
 interface BucketFollowUp {
   id: string;
-  type: string;
-  scheduledDate: string;
-  scheduledTime: string | null;
+  intentType: string;
+  dueAt: string;
+  hasExplicitTime: boolean;
   context: string | null;
   status: string;
 }
@@ -112,11 +115,11 @@ export default function FridayIntelligencePage() {
 
   return (
     <div style={{ padding: '2rem', maxWidth: 1200, margin: '0 auto' }}>
-      <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '1.5rem' }}>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '1.5rem', color: FC.textPrimary }}>
         Friday Intelligence
       </h1>
 
-      <nav style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid #e5e7eb', marginBottom: '1.5rem' }}>
+      <nav style={{ display: 'flex', gap: '0.25rem', borderBottom: `1px solid ${FC.border}`, marginBottom: '1.5rem' }}>
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -124,10 +127,10 @@ export default function FridayIntelligencePage() {
             style={{
               padding: '0.5rem 1rem',
               border: 'none',
-              borderBottom: activeTab === tab.id ? '2px solid #2563eb' : '2px solid transparent',
+              borderBottom: activeTab === tab.id ? `2px solid ${FC.accentBlue}` : '2px solid transparent',
               background: 'none',
               fontWeight: activeTab === tab.id ? 600 : 400,
-              color: activeTab === tab.id ? '#2563eb' : '#6b7280',
+              color: activeTab === tab.id ? FC.accentBlue : FC.textMuted,
               cursor: 'pointer',
               fontSize: '0.875rem',
             }}
@@ -181,10 +184,10 @@ function FlatQueueSection() {
 
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
         <thead>
-          <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left' }}>
+          <tr style={{ borderBottom: `2px solid ${FC.border}`, textAlign: 'left' }}>
             <th style={thStyle}>Customer</th>
             <th style={thStyle}>Bucket</th>
-            <th style={thStyle}>Follow-up Date</th>
+            <th style={thStyle}>Follow-up Due</th>
             <th style={thStyle}>Reason</th>
             <th style={thStyle}>Lifecycle</th>
             <th style={thStyle}>Health</th>
@@ -192,11 +195,11 @@ function FlatQueueSection() {
         </thead>
         <tbody>
           {data.entries.map((entry) => (
-            <tr key={entry.customerId} style={{ borderBottom: '1px solid #f3f4f6' }}>
+            <tr key={entry.customerId} style={{ borderBottom: `1px solid rgba(255,255,255,0.04)` }}>
               <td style={tdStyle}>
                 <Link
                   href={`/friday/intelligence/${entry.customerId}`}
-                  style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 500 }}
+                  style={{ color: FC.accentBlue, textDecoration: 'none', fontWeight: 500 }}
                 >
                   {entry.customerName}
                 </Link>
@@ -206,20 +209,15 @@ function FlatQueueSection() {
                 <BucketBadge bucket={entry.bucket} />
               </td>
               <td style={tdStyle}>
-                {entry.representativeFollowUpDate
-                  ? formatDateStr(entry.representativeFollowUpDate)
-                  : '—'}
-                {entry.representativeFollowUpTime && (
-                  <span style={{ color: '#6b7280', marginLeft: 4 }}>
-                    {formatTimeStr(entry.representativeFollowUpTime)}
-                  </span>
-                )}
+                {entry.representativeFollowUpDueAt
+                  ? formatDueAt(entry.representativeFollowUpDueAt, entry.representativeFollowUpHasExplicitTime)
+                  : <span style={{ color: FC.textFaint }}>—</span>}
               </td>
               <td style={{ ...tdStyle, maxWidth: 280, whiteSpace: 'normal' }}>
                 {entry.topExplanation}
               </td>
               <td style={tdStyle}>
-                <span style={{ fontSize: '0.75rem', textTransform: 'capitalize' }}>
+                <span style={{ fontSize: '0.75rem', textTransform: 'capitalize', color: FC.textSecondary }}>
                   {entry.lifecycleStatus.toLowerCase()}
                 </span>
               </td>
@@ -266,9 +264,9 @@ function CompanyFirstSection() {
         if (section.count === 0) return null;
         return (
           <div key={section.bucket} style={{ marginBottom: '2rem' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: FC.textPrimary }}>
               <BucketBadge bucket={section.bucket} />
-              <span style={{ color: '#6b7280', fontWeight: 400, fontSize: '0.8125rem' }}>
+              <span style={{ color: FC.textMuted, fontWeight: 400, fontSize: '0.8125rem' }}>
                 ({section.count})
               </span>
             </h3>
@@ -289,20 +287,20 @@ function CompanyCard({ company }: { company: CompanyQueueGroup }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem 1rem' }}>
+    <div style={{ border: `1px solid ${FC.border}`, borderRadius: 8, padding: '0.75rem 1rem', background: FC.surface }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <Link
             href={`/friday/intelligence/${company.customerId}`}
-            style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' }}
+            style={{ color: FC.accentBlue, textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' }}
           >
             {company.customerName}
           </Link>
           {company.isStrategicTarget && <StrategicBadge />}
-          <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: '#374151' }}>
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: FC.textSecondary }}>
             {company.explanationSummary}
           </p>
-          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem', fontSize: '0.75rem', color: '#6b7280' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem', fontSize: '0.75rem', color: FC.textMuted }}>
             <span>Lifecycle: {company.lifecycleStatus.toLowerCase()}</span>
             <span>Health: <HealthBadge status={company.healthStatus} /></span>
             {company.daysOverdue !== null && <span>{company.daysOverdue}d overdue</span>}
@@ -311,13 +309,8 @@ function CompanyCard({ company }: { company: CompanyQueueGroup }) {
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
           {company.representativeFollowUp && (
-            <div style={{ fontSize: '0.75rem', color: '#374151' }}>
-              {formatDateStr(company.representativeFollowUp.scheduledDate)}
-              {company.representativeFollowUp.scheduledTime && (
-                <span style={{ marginLeft: 4, color: '#6b7280' }}>
-                  {formatTimeStr(company.representativeFollowUp.scheduledTime)}
-                </span>
-              )}
+            <div style={{ fontSize: '0.75rem', color: FC.textSecondary }}>
+              {formatDueAt(company.representativeFollowUp.dueAt, company.representativeFollowUp.hasExplicitTime)}
             </div>
           )}
           {company.followUps.length > 1 && (
@@ -332,23 +325,27 @@ function CompanyCard({ company }: { company: CompanyQueueGroup }) {
       </div>
 
       {expanded && company.followUps.length > 0 && (
-        <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #f3f4f6' }}>
+        <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: `1px solid ${FC.border}` }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
             <thead>
-              <tr style={{ textAlign: 'left', color: '#6b7280' }}>
-                <th style={{ padding: '0.25rem 0.5rem' }}>Type</th>
-                <th style={{ padding: '0.25rem 0.5rem' }}>Date</th>
-                <th style={{ padding: '0.25rem 0.5rem' }}>Time</th>
+              <tr style={{ textAlign: 'left', color: FC.textMuted }}>
+                <th style={{ padding: '0.25rem 0.5rem' }}>Intent</th>
+                <th style={{ padding: '0.25rem 0.5rem' }}>Due</th>
+                <th style={{ padding: '0.25rem 0.5rem' }}>Status</th>
                 <th style={{ padding: '0.25rem 0.5rem' }}>Context</th>
               </tr>
             </thead>
             <tbody>
               {company.followUps.map((fu) => (
-                <tr key={fu.id} style={{ borderBottom: '1px solid #f9fafb' }}>
-                  <td style={{ padding: '0.25rem 0.5rem' }}>{fu.type}</td>
-                  <td style={{ padding: '0.25rem 0.5rem' }}>{formatDateStr(fu.scheduledDate)}</td>
-                  <td style={{ padding: '0.25rem 0.5rem' }}>{fu.scheduledTime ? formatTimeStr(fu.scheduledTime) : '—'}</td>
-                  <td style={{ padding: '0.25rem 0.5rem', color: '#6b7280' }}>{fu.context ?? '—'}</td>
+                <tr key={fu.id} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
+                  <td style={{ padding: '0.25rem 0.5rem', color: FC.textSecondary }}>
+                    {INTENT_LABELS[fu.intentType as FollowUpIntentType] ?? fu.intentType}
+                  </td>
+                  <td style={{ padding: '0.25rem 0.5rem', color: FC.textSecondary }}>
+                    {formatDueAt(fu.dueAt, fu.hasExplicitTime)}
+                  </td>
+                  <td style={{ padding: '0.25rem 0.5rem', color: FC.textSecondary }}>{fu.status}</td>
+                  <td style={{ padding: '0.25rem 0.5rem', color: FC.textMuted }}>{fu.context ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -387,15 +384,15 @@ function StaleSection() {
 
   return (
     <section>
-      <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '1rem' }}>
-        Companies with pending follow-ups and no meaningful activity beyond the configured threshold.
+      <p style={{ fontSize: '0.8125rem', color: FC.textMuted, marginBottom: '1rem' }}>
+        Companies with open follow-ups and no meaningful activity beyond the configured threshold.
       </p>
 
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
         <thead>
-          <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left' }}>
+          <tr style={{ borderBottom: `2px solid ${FC.border}`, textAlign: 'left' }}>
             <th style={thStyle}>Customer</th>
-            <th style={thStyle}>Follow-up Date</th>
+            <th style={thStyle}>Follow-up Due</th>
             <th style={thStyle}>Reason</th>
             <th style={thStyle}>Lifecycle</th>
             <th style={thStyle}>Health</th>
@@ -403,24 +400,26 @@ function StaleSection() {
         </thead>
         <tbody>
           {data.entries.map((entry) => (
-            <tr key={entry.customerId} style={{ borderBottom: '1px solid #f3f4f6' }}>
+            <tr key={entry.customerId} style={{ borderBottom: `1px solid rgba(255,255,255,0.04)` }}>
               <td style={tdStyle}>
                 <Link
                   href={`/friday/intelligence/${entry.customerId}`}
-                  style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 500 }}
+                  style={{ color: FC.accentBlue, textDecoration: 'none', fontWeight: 500 }}
                 >
                   {entry.customerName}
                 </Link>
                 {entry.isStrategicTarget && <StrategicBadge />}
               </td>
               <td style={tdStyle}>
-                {entry.representativeFollowUpDate ? formatDateStr(entry.representativeFollowUpDate) : '—'}
+                {entry.representativeFollowUpDueAt
+                  ? formatDueAt(entry.representativeFollowUpDueAt, entry.representativeFollowUpHasExplicitTime)
+                  : <span style={{ color: FC.textFaint }}>—</span>}
               </td>
               <td style={{ ...tdStyle, maxWidth: 300, whiteSpace: 'normal' }}>
                 {entry.topExplanation}
               </td>
               <td style={tdStyle}>
-                <span style={{ fontSize: '0.75rem', textTransform: 'capitalize' }}>
+                <span style={{ fontSize: '0.75rem', textTransform: 'capitalize', color: FC.textSecondary }}>
                   {entry.lifecycleStatus.toLowerCase()}
                 </span>
               </td>
@@ -517,8 +516,8 @@ function StrategicTargetsSection() {
       )}
 
       {showAddForm && (
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '1rem', marginBottom: '1.25rem' }}>
-          <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.75rem' }}>
+        <div style={{ border: `1px solid ${FC.border}`, borderRadius: 8, padding: '1rem', marginBottom: '1.25rem', background: FC.surface }}>
+          <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.75rem', color: FC.textPrimary }}>
             Mark Customer as Strategic Target
           </h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
@@ -562,7 +561,7 @@ function StrategicTargetsSection() {
       {data && data.items.length > 0 && (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
           <thead>
-            <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left' }}>
+            <tr style={{ borderBottom: `2px solid ${FC.border}`, textAlign: 'left' }}>
               <th style={thStyle}>Customer</th>
               <th style={thStyle}>Bucket</th>
               <th style={thStyle}>Bucket Reason</th>
@@ -574,11 +573,11 @@ function StrategicTargetsSection() {
           </thead>
           <tbody>
             {data.items.map((t) => (
-              <tr key={t.customerId} style={{ borderBottom: '1px solid #f3f4f6' }}>
+              <tr key={t.customerId} style={{ borderBottom: `1px solid rgba(255,255,255,0.04)` }}>
                 <td style={tdStyle}>
                   <Link
                     href={`/friday/intelligence/${t.customerId}`}
-                    style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 500 }}
+                    style={{ color: FC.accentBlue, textDecoration: 'none', fontWeight: 500 }}
                   >
                     {t.customerName}
                   </Link>
@@ -586,11 +585,11 @@ function StrategicTargetsSection() {
                 <td style={tdStyle}><BucketBadge bucket={t.bucket} /></td>
                 <td style={{ ...tdStyle, maxWidth: 240, whiteSpace: 'normal' }}>{t.bucketReason}</td>
                 <td style={tdStyle}>
-                  <span style={{ fontSize: '0.75rem', textTransform: 'capitalize' }}>
+                  <span style={{ fontSize: '0.75rem', textTransform: 'capitalize', color: FC.textSecondary }}>
                     {t.lifecycleStatus.toLowerCase()}
                   </span>
                 </td>
-                <td style={{ ...tdStyle, color: '#374151' }}>{t.strategicTargetReason ?? '—'}</td>
+                <td style={{ ...tdStyle, color: FC.textSecondary }}>{t.strategicTargetReason ?? '—'}</td>
                 <td style={tdStyle}>
                   {t.strategicTargetSetAt ? new Date(t.strategicTargetSetAt).toLocaleDateString() : '—'}
                 </td>
@@ -599,7 +598,7 @@ function StrategicTargetsSection() {
                     <button
                       onClick={() => handleRemove(t.customerId)}
                       disabled={removeLoading === t.customerId}
-                      style={{ ...actionBtnStyle, color: '#dc2626', borderColor: '#fca5a5' }}
+                      style={{ ...actionBtnStyle, color: FC.accentRed, borderColor: 'rgba(239,68,68,0.3)' }}
                     >
                       {removeLoading === t.customerId ? 'Removing...' : 'Remove'}
                     </button>
@@ -648,7 +647,7 @@ function BucketCountBadge({ bucket, count }: { bucket: Bucket; count: number }) 
       background: `${BUCKET_COLORS[bucket]}0a`,
     }}>
       <span style={{ fontSize: '1.125rem', fontWeight: 700, color: BUCKET_COLORS[bucket] }}>{count}</span>
-      <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>{BUCKET_LABELS[bucket]}</span>
+      <span style={{ fontSize: '0.75rem', color: FC.textMuted }}>{BUCKET_LABELS[bucket]}</span>
     </div>
   );
 }
@@ -672,38 +671,26 @@ function StrategicBadge() {
 }
 
 function HealthBadge({ status }: { status: string | null }) {
-  if (!status) return <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>—</span>;
+  if (!status) return <span style={{ fontSize: '0.75rem', color: FC.textFaint }}>—</span>;
   const colors: Record<string, string> = {
-    HEALTHY: '#16a34a',
-    AT_RISK: '#d97706',
-    STALE: '#dc2626',
+    HEALTHY: FC.accentGreen,
+    AT_RISK: FC.accentAmber,
+    STALE: FC.accentRed,
   };
   return (
-    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: colors[status] ?? '#6b7280', textTransform: 'capitalize' }}>
+    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: colors[status] ?? FC.textMuted, textTransform: 'capitalize' }}>
       {status.toLowerCase().replace('_', ' ')}
     </span>
   );
 }
 
-function formatDateStr(iso: string): string {
-  return new Date(iso).toLocaleDateString();
-}
-
-function formatTimeStr(iso: string): string {
-  const d = new Date(iso);
-  const h = d.getHours();
-  const m = d.getMinutes();
-  const amPm = h >= 12 ? 'PM' : 'AM';
-  const hour12 = h % 12 || 12;
-  return `${hour12}:${String(m).padStart(2, '0')} ${amPm}`;
-}
-
 const actionBtnStyle: React.CSSProperties = {
   padding: '0.25rem 0.5rem',
   fontSize: '0.75rem',
-  border: '1px solid #d1d5db',
+  border: `1px solid ${FC.borderStrong}`,
   borderRadius: 4,
-  background: '#fff',
+  background: 'transparent',
+  color: FC.textSecondary,
   cursor: 'pointer',
 };
 
@@ -712,7 +699,7 @@ const primaryBtnStyle: React.CSSProperties = {
   fontSize: '0.8125rem',
   border: 'none',
   borderRadius: 4,
-  background: '#2563eb',
+  background: FC.accentBlue,
   color: '#fff',
   cursor: 'pointer',
   fontWeight: 600,
@@ -722,28 +709,41 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '0.375rem 0.5rem',
   fontSize: '0.8125rem',
-  border: '1px solid #d1d5db',
+  border: `1px solid ${FC.borderStrong}`,
   borderRadius: 4,
+  background: 'rgba(255,255,255,0.06)',
+  color: FC.textPrimary,
 };
 
 const labelStyle: React.CSSProperties = {
   display: 'block',
   fontSize: '0.75rem',
   fontWeight: 600,
-  color: '#374151',
+  color: FC.textSecondary,
   marginBottom: '0.25rem',
 };
 
 const errorStyle: React.CSSProperties = {
-  color: '#dc2626',
+  color: FC.accentRed,
   fontSize: '0.8125rem',
   marginBottom: '0.5rem',
 };
 
 const mutedText: React.CSSProperties = {
-  color: '#6b7280',
+  color: FC.textMuted,
   fontSize: '0.875rem',
 };
 
-const thStyle: React.CSSProperties = { padding: '0.5rem' };
-const tdStyle: React.CSSProperties = { padding: '0.5rem' };
+const thStyle: React.CSSProperties = {
+  padding: '0.5rem',
+  fontSize: '0.6875rem',
+  fontWeight: 600,
+  color: FC.textMuted,
+  textTransform: 'uppercase',
+  letterSpacing: '0.03em',
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: '0.5rem',
+  color: FC.textSecondary,
+};
