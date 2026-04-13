@@ -2,16 +2,27 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../../../lib/api';
+import { useSession } from '../../../lib/auth/useSession';
+import ControlStatesTable from '../../../components/friday/ControlStatesTable';
+import EnforcementConfigEditor from '../../../components/friday/EnforcementConfigEditor';
+import PauseGraceOverridePanel from '../../../components/friday/PauseGraceOverridePanel';
+import HolidayCalendar from '../../../components/friday/HolidayCalendar';
 
 type Tab =
-  | 'system-rules'
+  | 'control-states'
+  | 'enforcement-config'
+  | 'pause-grace-overrides'
+  | 'holiday-calendar'
   | 'absence-continuity'
   | 'rescue-queue'
   | 'sales-admin-actions'
   | 'audit-log';
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'system-rules', label: 'System Rules' },
+  { id: 'control-states', label: 'Control States' },
+  { id: 'enforcement-config', label: 'Enforcement Config' },
+  { id: 'pause-grace-overrides', label: 'Pause / Grace / Overrides' },
+  { id: 'holiday-calendar', label: 'Holiday Calendar' },
   { id: 'absence-continuity', label: 'Absence & Continuity' },
   { id: 'rescue-queue', label: 'Rescue Queue' },
   { id: 'sales-admin-actions', label: 'Sales Admin Actions' },
@@ -19,7 +30,9 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export default function FridayControlPanelPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('system-rules');
+  const [activeTab, setActiveTab] = useState<Tab>('control-states');
+  const session = useSession();
+  const isAdmin = session.isAdmin;
 
   return (
     <div style={{ padding: '2rem', maxWidth: 1200, margin: '0 auto' }}>
@@ -27,7 +40,7 @@ export default function FridayControlPanelPage() {
         Friday Control Panel
       </h1>
 
-      <nav style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid #e5e7eb', marginBottom: '1.5rem' }}>
+      <nav style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid #e5e7eb', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -48,7 +61,10 @@ export default function FridayControlPanelPage() {
         ))}
       </nav>
 
-      {activeTab === 'system-rules' && <SystemRulesSection />}
+      {activeTab === 'control-states' && <ControlStatesTable />}
+      {activeTab === 'enforcement-config' && <EnforcementConfigEditor isAdmin={isAdmin} />}
+      {activeTab === 'pause-grace-overrides' && <PauseGraceOverridePanel />}
+      {activeTab === 'holiday-calendar' && <HolidayCalendar isAdmin={isAdmin} />}
       {activeTab === 'absence-continuity' && <AbsenceContinuitySection />}
       {activeTab === 'rescue-queue' && <RescueQueueSection />}
       {activeTab === 'sales-admin-actions' && <SalesAdminActionsSection />}
@@ -869,28 +885,68 @@ function AuditLogSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const data = await apiFetch<{ items: any[] }>('/friday/control-panel/admin-actions?limit=50');
-        setLogs(data.items);
-      } catch (err: any) {
-        setError(err?.message ?? 'Failed to load audit log');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  const [entityTypeFilter, setEntityTypeFilter] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [entityIdFilter, setEntityIdFilter] = useState('');
+
+  const loadLogs = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set('limit', '100');
+      if (entityTypeFilter) params.set('entityType', entityTypeFilter);
+      if (startDate) params.set('startDate', new Date(startDate).toISOString());
+      if (endDate) params.set('endDate', new Date(endDate + 'T23:59:59').toISOString());
+      if (entityIdFilter) params.set('entityId', entityIdFilter);
+      const data = await apiFetch<{ items: any[] }>(`/friday/control-panel/admin-actions?${params.toString()}`);
+      setLogs(data.items);
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to load audit log');
+    } finally {
+      setLoading(false);
+    }
+  }, [entityTypeFilter, startDate, endDate, entityIdFilter]);
+
+  useEffect(() => { loadLogs(); }, [loadLogs]);
+
+  const ENTITY_TYPES = [
+    '', 'CONFIG', 'FOLLOW_UP', 'ABSENCE', 'COVERAGE', 'RESCUE_QUEUE',
+    'CONTROL_STATE', 'GRACE_EXTENSION', 'OVERRIDE_APPROVAL', 'HOLIDAY',
+  ];
 
   return (
     <section>
       <h2 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '1rem' }}>
         Audit Log
       </h2>
+
+      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div>
+          <label style={labelStyle}>Entity Type</label>
+          <select value={entityTypeFilter} onChange={(e) => setEntityTypeFilter(e.target.value)} style={{ ...selectStyle, width: 'auto', padding: '0.25rem 0.5rem', fontSize: '0.8125rem' }}>
+            {ENTITY_TYPES.map((t) => <option key={t} value={t} style={optionStyle}>{t || 'All'}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Start Date</label>
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '0.25rem 0.5rem', fontSize: '0.8125rem' }} />
+        </div>
+        <div>
+          <label style={labelStyle}>End Date</label>
+          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '0.25rem 0.5rem', fontSize: '0.8125rem' }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Entity ID (optional)</label>
+          <input value={entityIdFilter} onChange={(e) => setEntityIdFilter(e.target.value)} placeholder="cuid..." style={{ ...inputStyle, width: 180, padding: '0.25rem 0.5rem', fontSize: '0.8125rem' }} />
+        </div>
+      </div>
+
       {loading && <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>Loading...</p>}
       {error && <p style={errorStyle}>{error}</p>}
       {!loading && logs && logs.length === 0 && (
-        <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>No audit log entries yet.</p>
+        <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>No audit log entries found.</p>
       )}
       {!loading && logs && logs.length > 0 && (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
