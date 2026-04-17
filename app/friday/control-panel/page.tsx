@@ -7,6 +7,7 @@ import ControlStatesTable from '../../../components/friday/ControlStatesTable';
 import EnforcementConfigEditor from '../../../components/friday/EnforcementConfigEditor';
 import PauseGraceOverridePanel from '../../../components/friday/PauseGraceOverridePanel';
 import HolidayCalendar from '../../../components/friday/HolidayCalendar';
+import ZoomInfoIngestionPanel from '../../../components/friday/ZoomInfoIngestionPanel';
 
 type Tab =
   | 'control-states'
@@ -16,7 +17,8 @@ type Tab =
   | 'absence-continuity'
   | 'rescue-queue'
   | 'sales-admin-actions'
-  | 'audit-log';
+  | 'audit-log'
+  | 'lead-ingestion';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'control-states', label: 'Control States' },
@@ -27,6 +29,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'rescue-queue', label: 'Rescue Queue' },
   { id: 'sales-admin-actions', label: 'Sales Admin Actions' },
   { id: 'audit-log', label: 'Audit Log' },
+  { id: 'lead-ingestion', label: 'Lead Ingestion' },
 ];
 
 export default function FridayControlPanelPage() {
@@ -69,6 +72,7 @@ export default function FridayControlPanelPage() {
       {activeTab === 'rescue-queue' && <RescueQueueSection />}
       {activeTab === 'sales-admin-actions' && <SalesAdminActionsSection />}
       {activeTab === 'audit-log' && <AuditLogSection />}
+      {activeTab === 'lead-ingestion' && <ZoomInfoIngestionPanel />}
     </div>
   );
 }
