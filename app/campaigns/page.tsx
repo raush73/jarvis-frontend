@@ -30,6 +30,7 @@ interface CampaignDetail {
   refillThreshold: number;
   refillAmount: number;
   notes: string | null;
+  defaultOwnerId: string | null;
 }
 
 interface MemberRow {
@@ -37,9 +38,16 @@ interface MemberRow {
   customerId: string;
   status: string;
   stagedAt: string;
+  readyForPromotionAt: string | null;
   promotedAt: string | null;
+  promotedById: string | null;
+  promotionMethod: string | null;
+  assignmentMethod: string | null;
+  assignedOwnerId: string | null;
   rejectedAt: string | null;
   rejectionReason: string | null;
+  revertedAt: string | null;
+  revertedById: string | null;
   customer: {
     id: string;
     name: string;
@@ -47,6 +55,8 @@ interface MemberRow {
     primaryIndustry: string | null;
     employeeRange: string | null;
     domain: string | null;
+    phone: string | null;
+    fridayOwnerId: string | null;
   };
 }
 
@@ -72,6 +82,7 @@ export default function CampaignsPage() {
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({});
+  const [manualOwnerIds, setManualOwnerIds] = useState<Record<string, string>>({});
 
   // Create form
   const [formName, setFormName] = useState('');
@@ -247,8 +258,26 @@ export default function CampaignsPage() {
     }
   };
 
-  const handlePromote = async (campaignId: string, customerId: string) => {
-    await runAction(campaignId, 'promote', { customerId });
+  const handlePromote = async (
+    campaignId: string,
+    customerId: string,
+    assignMode: 'none' | 'campaign_default' | 'manual',
+    manualOwnerId?: string,
+  ) => {
+    await runAction(campaignId, 'promote', {
+      customerId,
+      assignMode,
+      ...(manualOwnerId ? { manualOwnerId } : {}),
+    });
+    setManualOwnerIds((prev) => { const next = { ...prev }; delete next[customerId]; return next; });
+  };
+
+  const handleRevert = async (campaignId: string, customerId: string) => {
+    await runAction(campaignId, 'revert', { customerId });
+  };
+
+  const handleAutoPromote = async (campaignId: string) => {
+    await runAction(campaignId, 'auto-promote');
   };
 
   const handleReject = async (campaignId: string, customerId: string) => {
@@ -493,13 +522,35 @@ export default function CampaignsPage() {
                         {detailData.targetSicCodes.length > 0 && <div><strong style={{ color: '#ffffff' }}>SIC:</strong> {detailData.targetSicCodes.join(', ')}</div>}
                         {detailData.targetEmployeeRange && <div><strong style={{ color: '#ffffff' }}>Employees:</strong> {detailData.targetEmployeeRange}</div>}
                         <div><strong style={{ color: '#ffffff' }}>Refill:</strong> {detailData.refillThreshold} threshold / {detailData.refillAmount} amount</div>
+                        <div>
+                          <strong style={{ color: '#ffffff' }}>Default Owner:</strong>{' '}
+                          {detailData.defaultOwnerId
+                            ? <span style={{ color: '#93c5fd' }}>Assigned <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>(ID: {detailData.defaultOwnerId})</span></span>
+                            : <span style={{ color: '#6b7280' }}>None</span>}
+                        </div>
                       </div>
                     )}
 
+                    {/* Auto-Promote action */}
+                    <div style={{ padding: '0.5rem 1rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <button
+                        onClick={() => handleAutoPromote(c.id)}
+                        disabled={!!actionLoading}
+                        style={actionLoading === `${c.id}-auto-promote`
+                          ? { ...primaryBtnStyle, fontSize: '0.75rem', opacity: 0.5 }
+                          : { ...primaryBtnStyle, fontSize: '0.75rem' }}
+                      >
+                        {actionLoading === `${c.id}-auto-promote` ? 'Running...' : 'Auto-Promote All Eligible'}
+                      </button>
+                      <span style={{ fontSize: '0.6875rem', color: '#d1d5db' }}>
+                        Evaluates STAGED, promotes eligible{detailData?.defaultOwnerId ? ' (assigns to campaign default owner)' : ' (unassigned)'}
+                      </span>
+                    </div>
+
                     {/* Filter tabs */}
                     <div style={{ padding: '0 1rem', display: 'flex', gap: '0.25rem', borderBottom: '1px solid #374151' }}>
-                      {(['STAGED', 'PROMOTED', 'REJECTED', ''] as const).map((f) => {
-                        const label = f || 'ALL';
+                      {(['STAGED', 'READY_FOR_PROMOTION', 'PROMOTED', 'REJECTED', ''] as const).map((f) => {
+                        const label = f === 'READY_FOR_PROMOTION' ? 'READY' : f || 'ALL';
                         const isActive = memberFilter === f;
                         return (
                           <button
@@ -540,8 +591,11 @@ export default function CampaignsPage() {
                               <SortTh label="Industry" sortKey="industry" current={sortKey} dir={sortDir} onClick={toggleSort} />
                               <SortTh label="Employees" sortKey="employees" current={sortKey} dir={sortDir} onClick={toggleSort} />
                               <SortTh label="Domain" sortKey="domain" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                              <th style={thStyle}>Phone</th>
                               <th style={thStyle}>Status</th>
-                              {memberFilter === 'STAGED' && <th style={thStyle}>Actions</th>}
+                              {(memberFilter === 'STAGED' || memberFilter === 'READY_FOR_PROMOTION' || memberFilter === 'REJECTED') && (
+                                <th style={thStyle}>Actions</th>
+                              )}
                             </tr>
                           </thead>
                           <tbody>
@@ -556,22 +610,54 @@ export default function CampaignsPage() {
                                     ? <span style={{ color: '#93c5fd', fontSize: '0.75rem' }}>{m.customer.domain}</span>
                                     : '—'}
                                 </td>
+                                <td style={tdStyle}>
+                                  {m.customer.phone
+                                    ? <span style={{ fontSize: '0.75rem' }}>{m.customer.phone}</span>
+                                    : <span style={{ color: '#6b7280', fontSize: '0.75rem' }}>none</span>}
+                                </td>
                                 <td style={tdStyle}><MemberStatusBadge status={m.status} /></td>
-                                {memberFilter === 'STAGED' && (
+                                {(memberFilter === 'STAGED' || memberFilter === 'READY_FOR_PROMOTION') && (
                                   <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                                     <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
                                       <button
-                                        onClick={() => handlePromote(c.id, m.customerId)}
+                                        onClick={() => handlePromote(c.id, m.customerId, 'none')}
                                         disabled={!!actionLoading}
                                         style={{ ...actionBtnStyle, color: '#4ade80', borderColor: '#166534' }}
                                       >
                                         Promote
                                       </button>
+                                      {detailData?.defaultOwnerId && (
+                                        <button
+                                          onClick={() => handlePromote(c.id, m.customerId, 'campaign_default')}
+                                          disabled={!!actionLoading}
+                                          style={{ ...actionBtnStyle, color: '#93c5fd', borderColor: '#1e3a5f' }}
+                                        >
+                                          → Owner
+                                        </button>
+                                      )}
+                                      <input
+                                        value={manualOwnerIds[m.customerId] ?? ''}
+                                        onChange={(e) => setManualOwnerIds((prev) => ({ ...prev, [m.customerId]: e.target.value }))}
+                                        placeholder="Manual Rep User ID"
+                                        title="Enter the User ID of the rep to assign ownership"
+                                        style={{ ...inputStyle, width: 120, padding: '0.125rem 0.25rem', fontSize: '0.6875rem' }}
+                                      />
+                                      <button
+                                        onClick={() => {
+                                          const ownerId = manualOwnerIds[m.customerId];
+                                          if (ownerId) handlePromote(c.id, m.customerId, 'manual', ownerId);
+                                        }}
+                                        disabled={!!actionLoading || !manualOwnerIds[m.customerId]}
+                                        style={{ ...actionBtnStyle, color: '#c4b5fd', borderColor: '#4c1d95', opacity: manualOwnerIds[m.customerId] ? 1 : 0.4 }}
+                                      >
+                                        Assign Rep
+                                      </button>
+                                      <span style={{ borderLeft: '1px solid #374151', height: 16, margin: '0 0.125rem' }} />
                                       <input
                                         value={rejectReasons[m.customerId] ?? ''}
                                         onChange={(e) => setRejectReasons((prev) => ({ ...prev, [m.customerId]: e.target.value }))}
                                         placeholder="Reason..."
-                                        style={{ ...inputStyle, width: 100, padding: '0.125rem 0.25rem', fontSize: '0.6875rem' }}
+                                        style={{ ...inputStyle, width: 90, padding: '0.125rem 0.25rem', fontSize: '0.6875rem' }}
                                       />
                                       <button
                                         onClick={() => handleReject(c.id, m.customerId)}
@@ -581,6 +667,17 @@ export default function CampaignsPage() {
                                         Reject
                                       </button>
                                     </div>
+                                  </td>
+                                )}
+                                {memberFilter === 'REJECTED' && (
+                                  <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                                    <button
+                                      onClick={() => handleRevert(c.id, m.customerId)}
+                                      disabled={!!actionLoading}
+                                      style={{ ...actionBtnStyle, color: '#fbbf24', borderColor: '#92400e' }}
+                                    >
+                                      Revert to Staged
+                                    </button>
                                   </td>
                                 )}
                               </tr>
@@ -623,15 +720,17 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function MemberStatusBadge({ status }: { status: string }) {
+  const display = status === 'READY_FOR_PROMOTION' ? 'READY' : status;
   const colors: Record<string, string> = {
     STAGED: '#fbbf24',
+    READY_FOR_PROMOTION: '#38bdf8',
     PROMOTED: '#4ade80',
     REJECTED: '#f87171',
     REMOVED: '#9ca3af',
   };
   return (
     <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: colors[status] ?? '#d1d5db' }}>
-      {status}
+      {display}
     </span>
   );
 }
@@ -657,8 +756,16 @@ function SortTh({ label, sortKey, current, dir, onClick }: {
 
 function formatResult(action: string, result: any): string {
   if (result?.success === true) {
-    const label = action === 'promote' ? 'Promoted' : action === 'reject' ? 'Rejected' : 'Done';
-    return label;
+    if (action === 'promote') {
+      const owner = result.assignedOwnerId ? ` (assigned to ${result.assignedOwnerId})` : ' (unassigned)';
+      return `Promoted${owner}`;
+    }
+    if (action === 'reject') return 'Rejected';
+    if (action === 'revert') return 'Reverted to Staged';
+    return 'Done';
+  }
+  if (result?.evaluated !== undefined) {
+    return `Auto-promote: ${result.readied ?? 0} readied, ${result.promoted ?? 0} promoted, ${result.skipped ?? 0} skipped`;
   }
   if (result?.executed === false) return `Refill skipped — inventory sufficient (${result.totalActive}/${result.refillThreshold})`;
   if (result?.executed === true) return `Refilled — ${result.summary?.campaignMembersCreated ?? 0} new members staged`;
