@@ -767,10 +767,14 @@ function formatResult(action: string, result: any): string {
   if (result?.evaluated !== undefined) {
     return `Auto-promote: ${result.readied ?? 0} readied, ${result.promoted ?? 0} promoted, ${result.skipped ?? 0} skipped`;
   }
-  if (result?.executed === false) return `Refill skipped — inventory sufficient (${result.totalActive}/${result.refillThreshold})`;
-  if (result?.executed === true) return `Refilled — ${result.summary?.campaignMembersCreated ?? 0} new members staged`;
-  if (result?.campaignMembersCreated !== undefined) {
-    return `${result.recordsFound ?? 0} found, ${result.recordsCreated ?? 0} created, ${result.campaignMembersCreated} members staged`;
+  if (result?.executed === false) return `Refill skipped — inventory sufficient (${result.totalActiveForRefill}/${result.refillThreshold})`;
+  if (result?.executed === true) return `Refilled — ${result.summary?.created ?? 0} new members staged`;
+  if (result?.pulled !== undefined) {
+    const parts = [`${result.pulled} pulled`, `${result.created ?? 0} staged`];
+    if (result.skippedDuplicates) parts.push(`${result.skippedDuplicates} dup`);
+    if (result.skippedDoNotCall) parts.push(`${result.skippedDoNotCall} DNC`);
+    if (result.skippedExistingCustomers) parts.push(`${result.skippedExistingCustomers} existing`);
+    return parts.join(', ');
   }
   return JSON.stringify(result);
 }
