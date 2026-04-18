@@ -6,16 +6,25 @@ import {
   type FollowUp,
   type FollowUpIntentType,
   type NextActionType,
+  type CallOutcome,
+  type RecycleReason,
+  type ConflictResolutionAction,
   type CompanyContact,
   type CompleteCallPayload,
   type ConflictResponse,
   type CallIntelligence,
   type IntelligenceResponse,
+  type CallCompletionContext,
   type EmailDraft,
   INTENT_LABELS,
-  NEXT_ACTION_LABELS,
+  OUTCOME_LABELS,
+  CTA_LABELS,
+  RECYCLE_REASON_LABELS,
+  RECYCLE_REASON_BD,
+  ALL_OUTCOMES,
+  ALL_CTAS,
+  ALL_RECYCLE_REASONS,
   ALL_INTENT_TYPES,
-  ALL_NEXT_ACTIONS,
 } from './types';
 import * as S from './styles';
 import { formatDueAt } from './displayHelpers';
@@ -47,7 +56,12 @@ export default function CallCompletionGate({
   const [aiError, setAiError] = useState('');
   const [originalAiSummary, setOriginalAiSummary] = useState('');
 
+  // Context data
+  const [context, setContext] = useState<CallCompletionContext | null>(null);
+  const [contextLoading, setContextLoading] = useState(true);
+
   // Core form state
+  const [callOutcome, setCallOutcome] = useState<CallOutcome | ''>('');
   const [callNoteText, setCallNoteText] = useState('');
   const [nextAction, setNextAction] = useState<NextActionType | ''>('');
   const [error, setError] = useState('');
@@ -60,15 +74,15 @@ export default function CallCompletionGate({
   const [fuDueTime, setFuDueTime] = useState('');
   const [fuContext, setFuContext] = useState('');
 
-  // Reschedule sub-form
-  const [rescheduleFollowUpId, setRescheduleFollowUpId] = useState('');
-  const [rescheduleDate, setRescheduleDate] = useState('');
-  const [rescheduleTime, setRescheduleTime] = useState('');
-  const [rescheduleReason, setRescheduleReason] = useState('');
+  // Conflict resolution
+  const [conflictAction, setConflictAction] = useState<ConflictResolutionAction | ''>('');
+  const [conflictNewDueDate, setConflictNewDueDate] = useState('');
+  const [conflictNewDueTime, setConflictNewDueTime] = useState('');
+  const [conflictNewContext, setConflictNewContext] = useState('');
+  const [conflictOverrideReason, setConflictOverrideReason] = useState('');
 
-  // Task sub-form
-  const [taskDescription, setTaskDescription] = useState('');
-  const [taskDueDate, setTaskDueDate] = useState('');
+  // Recycle sub-form
+  const [recycleReason, setRecycleReason] = useState<RecycleReason | ''>('');
 
   // Email draft state
   const [emailDraft, setEmailDraft] = useState<EmailDraft | null>(null);
@@ -80,6 +94,25 @@ export default function CallCompletionGate({
   const [emailStatus, setEmailStatus] = useState<'idle' | 'approving' | 'approved' | 'discarded'>('idle');
 
   const openFollowUps = existingFollowUps.filter((fu) => fu.status === 'OPEN');
+  const hasConflict = nextAction === 'follow-up' && openFollowUps.length > 0;
+
+  // Load context data
+  useEffect(() => {
+    (async () => {
+      setContextLoading(true);
+      const res = await fridayFetch<CallCompletionContext>(
+        `/friday/calls/${callEventId}/context`,
+      );
+      setContextLoading(false);
+      if (res.ok) setContext(res.data);
+    })();
+  }, [callEventId]);
+
+  const MEANINGFUL_OUTCOMES: Set<string> = new Set([
+    'SPOKE_NO_OPPORTUNITY',
+    'OPPORTUNITY_IDENTIFIED',
+    'FOLLOW_UP_REQUIRED',
+  ]);
 
   const loadIntelligence = useCallback(async () => {
     setAiLoading(true);
@@ -96,10 +129,6 @@ export default function CallCompletionGate({
       setOriginalAiSummary(intel.aiSummary);
       setCallNoteText(intel.aiSummary);
 
-      if (intel.suggestedNextAction) {
-        setNextAction(intel.suggestedNextAction);
-      }
-
       const fuSuggestion = intel.suggestedFollowUp ?? result.data.suggestions?.followUp;
       if (fuSuggestion && !fuSuggestion.rescheduleExistingId) {
         setFuIntentType(fuSuggestion.intentType as FollowUpIntentType);
@@ -112,33 +141,18 @@ export default function CallCompletionGate({
         }
         setFuContext(fuSuggestion.context ?? '');
       }
-      if (fuSuggestion?.rescheduleExistingId) {
-        setRescheduleFollowUpId(fuSuggestion.rescheduleExistingId);
-        if (fuSuggestion.dueAt) {
-          const d = new Date(fuSuggestion.dueAt);
-          setRescheduleDate(d.toISOString().split('T')[0]);
-          if (fuSuggestion.hasExplicitTime) {
-            setRescheduleTime(d.toTimeString().slice(0, 5));
-          }
-        }
-        setRescheduleReason(fuSuggestion.reasoning ?? '');
-      }
-
-      const taskSuggestion = intel.suggestedTask ?? result.data.suggestions?.task;
-      if (taskSuggestion) {
-        setTaskDescription(taskSuggestion.description ?? '');
-        if (taskSuggestion.dueDate) {
-          setTaskDueDate(new Date(taskSuggestion.dueDate).toISOString().split('T')[0]);
-        }
-      }
     } else {
       setAiError(result.ok ? '' : (result.error || ''));
     }
   }, [callEventId]);
 
   useEffect(() => {
-    loadIntelligence();
-  }, [loadIntelligence]);
+    if (MEANINGFUL_OUTCOMES.has(callOutcome)) {
+      loadIntelligence();
+    } else {
+      setAiLoading(false);
+    }
+  }, [callOutcome, loadIntelligence]);
 
   function deriveNoteSource(): NoteSourceType {
     if (!intelligence) return 'MANUAL';
@@ -156,20 +170,26 @@ export default function CallCompletionGate({
 
   const canSubmit =
     callNoteText.trim().length > 0 &&
+    callOutcome !== '' &&
     nextAction !== '' &&
     validateSubForm();
 
   function validateSubForm(): boolean {
-    if (nextAction === 'create-follow-up') {
+    if (nextAction === 'follow-up') {
+      if (hasConflict) {
+        if (!conflictAction) return false;
+        if (conflictAction === 'override') return !!conflictOverrideReason.trim() && !!fuDueDate && !!fuContext.trim();
+        if (conflictAction === 'reschedule-existing') return !!conflictNewDueDate;
+        if (conflictAction === 'mark-complete') return true;
+        if (conflictAction === 'update-existing') return true;
+        return false;
+      }
       return !!fuDueDate && !!fuContext.trim();
     }
-    if (nextAction === 'reschedule-existing-follow-up') {
-      return !!rescheduleFollowUpId && !!rescheduleDate;
+    if (nextAction === 'recycle-lead') {
+      return recycleReason !== '';
     }
-    if (nextAction === 'create-task') {
-      return !!taskDescription.trim();
-    }
-    return nextAction === 'mark-closed' || nextAction === 'do-not-call-again';
+    return nextAction === 'do-not-call';
   }
 
   async function handleGenerateEmail() {
@@ -221,53 +241,66 @@ export default function CallCompletionGate({
 
   async function handleSubmit() {
     setError('');
+    if (!callOutcome) { setError('Call outcome is required'); return; }
     if (!callNoteText.trim()) { setError('Call note is required'); return; }
     if (!nextAction) { setError('Next action is required'); return; }
 
     const payload: CompleteCallPayload = {
+      callOutcome: callOutcome as CallOutcome,
       callNoteText: callNoteText.trim(),
       nextAction,
       intelligenceId: intelligence?.id,
       noteSource: deriveNoteSource(),
     };
 
-    if (nextAction === 'create-follow-up') {
-      if (!fuDueDate) { setError('Due date is required for follow-up'); return; }
-      if (!fuContext.trim()) { setError('Context is required for follow-up'); return; }
-      const dueAt = fuDueTime
-        ? new Date(`${fuDueDate}T${fuDueTime}`).toISOString()
-        : new Date(`${fuDueDate}T09:00:00`).toISOString();
-      payload.followUpPayload = {
-        customerId,
-        contactId: fuContactId || undefined,
-        intentType: fuIntentType,
-        dueAt,
-        hasExplicitTime: !!fuDueTime,
-        context: fuContext.trim(),
-      };
+    if (nextAction === 'follow-up') {
+      if (hasConflict && conflictAction) {
+        const existingFu = openFollowUps[0];
+        payload.conflictResolution = {
+          action: conflictAction as ConflictResolutionAction,
+          existingFollowUpId: existingFu.id,
+          overrideReason: conflictAction === 'override' ? conflictOverrideReason : undefined,
+          newDueAt: conflictAction === 'reschedule-existing' && conflictNewDueDate
+            ? (conflictNewDueTime
+              ? new Date(`${conflictNewDueDate}T${conflictNewDueTime}`).toISOString()
+              : new Date(`${conflictNewDueDate}T09:00:00`).toISOString())
+            : undefined,
+          hasExplicitTime: conflictAction === 'reschedule-existing' ? !!conflictNewDueTime : undefined,
+          newContext: conflictAction === 'update-existing' ? conflictNewContext || undefined : undefined,
+        };
+        if (conflictAction === 'override') {
+          if (!fuDueDate) { setError('Due date is required for follow-up'); return; }
+          const dueAt = fuDueTime
+            ? new Date(`${fuDueDate}T${fuDueTime}`).toISOString()
+            : new Date(`${fuDueDate}T09:00:00`).toISOString();
+          payload.followUpPayload = {
+            customerId,
+            contactId: fuContactId || undefined,
+            intentType: fuIntentType,
+            dueAt,
+            hasExplicitTime: !!fuDueTime,
+            context: fuContext.trim(),
+          };
+        }
+      } else {
+        if (!fuDueDate) { setError('Due date is required for follow-up'); return; }
+        if (!fuContext.trim()) { setError('Context is required for follow-up'); return; }
+        const dueAt = fuDueTime
+          ? new Date(`${fuDueDate}T${fuDueTime}`).toISOString()
+          : new Date(`${fuDueDate}T09:00:00`).toISOString();
+        payload.followUpPayload = {
+          customerId,
+          contactId: fuContactId || undefined,
+          intentType: fuIntentType,
+          dueAt,
+          hasExplicitTime: !!fuDueTime,
+          context: fuContext.trim(),
+        };
+      }
     }
 
-    if (nextAction === 'reschedule-existing-follow-up') {
-      if (!rescheduleFollowUpId) { setError('Select a follow-up to reschedule'); return; }
-      if (!rescheduleDate) { setError('New due date is required'); return; }
-      const dueAt = rescheduleTime
-        ? new Date(`${rescheduleDate}T${rescheduleTime}`).toISOString()
-        : new Date(`${rescheduleDate}T09:00:00`).toISOString();
-      payload.reschedulePayload = {
-        followUpId: rescheduleFollowUpId,
-        newDueAt: dueAt,
-        hasExplicitTime: !!rescheduleTime,
-        reason: rescheduleReason || undefined,
-      };
-    }
-
-    if (nextAction === 'create-task') {
-      if (!taskDescription.trim()) { setError('Task description is required'); return; }
-      payload.taskPayload = {
-        customerId,
-        description: taskDescription.trim(),
-        dueDate: taskDueDate ? new Date(`${taskDueDate}T09:00:00`).toISOString() : undefined,
-      };
+    if (nextAction === 'recycle-lead' && recycleReason) {
+      payload.recyclePayload = { reason: recycleReason as RecycleReason };
     }
 
     setSubmitting(true);
@@ -291,16 +324,90 @@ export default function CallCompletionGate({
   }
 
   const conf = confidenceLabel(intelligence?.confidenceScore ?? null);
-  const suggestedAction = intelligence?.suggestedNextAction;
   const emailContacts = contacts.filter((c) => c.email);
 
   return (
     <div style={S.overlay} onClick={onClose}>
-      <div style={{ ...S.modal, maxWidth: 660 }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...S.modal, maxWidth: 700 }} onClick={(e) => e.stopPropagation()}>
         <h2 style={S.modalTitle}>Complete Call</h2>
         <p style={{ color: S.FC.textMuted, fontSize: '0.8125rem', marginBottom: 20 }}>
-          Every call must be completed with a note and next action.
+          Select an outcome and next action to complete this call.
         </p>
+
+        {/* ─── Context Display Section ─── */}
+        {!contextLoading && context && (
+          <div style={{ ...S.card, marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: S.FC.textSecondary }}>
+                Company Context
+              </span>
+              {context.attemptCount > 0 && (
+                <span style={{
+                  fontSize: '0.625rem', fontWeight: 700, color: S.FC.accentBlue,
+                  padding: '2px 6px', borderRadius: 3, background: S.FC.accentBlueDim,
+                }}>
+                  Call #{context.attemptCount + 1}
+                </span>
+              )}
+            </div>
+
+            {/* Call History */}
+            {context.callHistory.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: '0.6875rem', fontWeight: 600, color: S.FC.textMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                  Call History
+                </div>
+                <div style={{ maxHeight: 130, overflowY: 'auto', fontSize: '0.75rem', color: S.FC.textSecondary }}>
+                  {context.callHistory.map((c, i) => (
+                    <div key={i} style={{
+                      padding: '4px 0',
+                      borderBottom: i < context.callHistory.length - 1 ? `1px solid ${S.FC.border}` : 'none',
+                      fontWeight: i === 0 ? 600 : 400,
+                      color: i === 0 ? S.FC.textPrimary : S.FC.textSecondary,
+                    }}>
+                      Last called by {c.repName} on {new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {c.outcome ? ` — ${c.outcome.replace(/_/g, ' ')}` : ''}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Note History */}
+            {context.noteHistory.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: '0.6875rem', fontWeight: 600, color: S.FC.textMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                  Recent Notes
+                </div>
+                <div style={{ maxHeight: 150, overflowY: 'auto', fontSize: '0.75rem', color: S.FC.textSecondary }}>
+                  {context.noteHistory.map((n, i) => (
+                    <div key={i} style={{
+                      padding: '4px 0',
+                      borderBottom: i < context.noteHistory.length - 1 ? `1px solid ${S.FC.border}` : 'none',
+                    }}>
+                      <span style={{ color: S.FC.textMuted, fontSize: '0.625rem' }}>
+                        {n.author} — {new Date(n.date).toLocaleDateString()}
+                      </span>
+                      <div style={{ marginTop: 2 }}>{n.text.length > 200 ? n.text.slice(0, 200) + '...' : n.text}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Active Follow-up */}
+            {context.activeFollowUp && (
+              <div style={{
+                padding: '6px 10px', borderRadius: 6,
+                background: S.FC.accentBlueDim, border: `1px solid rgba(59, 130, 246, 0.2)`,
+                fontSize: '0.75rem', color: S.FC.accentBlue,
+              }}>
+                Active: {context.activeFollowUp.intentType.replace(/_/g, ' ')} due {new Date(context.activeFollowUp.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                {context.activeFollowUp.context ? ` — ${context.activeFollowUp.context.slice(0, 80)}` : ''}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* AI Intelligence Banner */}
         {aiLoading && (
@@ -329,70 +436,20 @@ export default function CallCompletionGate({
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 {conf.text && (
                   <span style={{
-                    fontSize: '0.625rem',
-                    fontWeight: 700,
-                    color: conf.color,
-                    padding: '2px 6px',
-                    borderRadius: 3,
-                    background: `${conf.color}22`,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
+                    fontSize: '0.625rem', fontWeight: 700, color: conf.color,
+                    padding: '2px 6px', borderRadius: 3, background: `${conf.color}22`,
+                    textTransform: 'uppercase', letterSpacing: '0.04em',
                   }}>
                     {conf.text}
                   </span>
                 )}
-                <span style={{ fontSize: '0.625rem', color: S.FC.textFaint }}>
-                  {intelligence.modelVersion}
-                </span>
               </div>
             </div>
-
-            {intelligence.intentSignals.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-                {intelligence.intentSignals.map((signal) => (
-                  <span key={signal} style={{
-                    fontSize: '0.625rem',
-                    padding: '2px 6px',
-                    borderRadius: 3,
-                    background: S.FC.accentBlueDim,
-                    color: S.FC.accentBlue,
-                    fontWeight: 600,
-                  }}>
-                    {signal.replace(/_/g, ' ')}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {intelligence.keyTopics.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-                {intelligence.keyTopics.map((topic) => (
-                  <span key={topic} style={{
-                    fontSize: '0.625rem',
-                    padding: '2px 6px',
-                    borderRadius: 3,
-                    background: S.FC.surface,
-                    color: S.FC.textMuted,
-                  }}>
-                    {topic.replace(/_/g, ' ')}
-                  </span>
-                ))}
-              </div>
-            )}
-
             <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-              <button
-                onClick={() => setCallNoteText(originalAiSummary)}
-                style={{ ...S.btnSmall, color: S.FC.accentPurple, borderColor: 'rgba(139, 92, 246, 0.3)' }}
-              >
+              <button onClick={() => setCallNoteText(originalAiSummary)} style={{ ...S.btnSmall, color: S.FC.accentPurple, borderColor: 'rgba(139, 92, 246, 0.3)' }}>
                 Reset to AI
               </button>
-              <button
-                onClick={() => setCallNoteText('')}
-                style={S.btnSmall}
-              >
-                Clear
-              </button>
+              <button onClick={() => setCallNoteText('')} style={S.btnSmall}>Clear</button>
             </div>
           </div>
         )}
@@ -420,73 +477,79 @@ export default function CallCompletionGate({
             value={callNoteText}
             onChange={(e) => setCallNoteText(e.target.value)}
             placeholder={aiLoading ? 'Waiting for AI summary...' : 'Summarize what was discussed...'}
-            style={{ ...S.textarea, minHeight: 100 }}
+            style={{ ...S.textarea, minHeight: 80 }}
           />
         </div>
 
-        {/* Next Action Selection */}
+        {/* ─── Step 1: Outcome Selection ─── */}
         <div style={S.fieldGroup}>
-          <label style={S.label}>Next action *</label>
+          <label style={{ ...S.label, fontSize: '0.8125rem', fontWeight: 700, color: S.FC.textPrimary }}>
+            Step 1 — Call Outcome *
+          </label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {ALL_NEXT_ACTIONS.map((na) => {
-              const isSuggested = suggestedAction === na;
-              const isSelected = nextAction === na;
+            {ALL_OUTCOMES.map((oc) => {
+              const isSelected = callOutcome === oc;
               return (
-                <label
-                  key={na}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '7px 12px',
-                    borderRadius: 6,
-                    border: `1px solid ${isSelected ? S.FC.accentBlue : isSuggested ? 'rgba(139, 92, 246, 0.4)' : S.FC.border}`,
-                    background: isSelected ? S.FC.accentBlueDim : isSuggested ? 'rgba(139, 92, 246, 0.08)' : 'transparent',
-                    cursor: 'pointer',
-                    fontSize: '0.8125rem',
-                    color: S.FC.textSecondary,
-                  }}
-                >
+                <label key={oc} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '7px 12px', borderRadius: 6,
+                  border: `1px solid ${isSelected ? S.FC.accentBlue : S.FC.border}`,
+                  background: isSelected ? S.FC.accentBlueDim : 'transparent',
+                  cursor: 'pointer', fontSize: '0.8125rem', color: S.FC.textSecondary,
+                }}>
                   <input
-                    type="radio"
-                    name="next-action"
-                    value={na}
+                    type="radio" name="call-outcome" value={oc}
                     checked={isSelected}
-                    onChange={() => setNextAction(na)}
+                    onChange={() => setCallOutcome(oc)}
                     style={{ accentColor: S.FC.accentBlue }}
                   />
-                  {NEXT_ACTION_LABELS[na]}
-                  {isSuggested && (
-                    <span style={{
-                      fontSize: '0.5625rem',
-                      fontWeight: 700,
-                      color: S.FC.accentPurple,
-                      marginLeft: 'auto',
-                      padding: '1px 5px',
-                      borderRadius: 3,
-                      background: 'rgba(139, 92, 246, 0.15)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.04em',
-                    }}>
-                      suggested
-                    </span>
-                  )}
+                  {OUTCOME_LABELS[oc]}
                 </label>
               );
             })}
           </div>
         </div>
 
-        {/* Conditional Sub-forms */}
-        {nextAction === 'create-follow-up' && (
+        {/* ─── Step 2: CTA Selection ─── */}
+        <div style={{
+          ...S.fieldGroup,
+          opacity: callOutcome ? 1 : 0.4,
+          pointerEvents: callOutcome ? 'auto' : 'none',
+        }}>
+          <label style={{ ...S.label, fontSize: '0.8125rem', fontWeight: 700, color: S.FC.textPrimary }}>
+            Step 2 — Next Action *
+          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {ALL_CTAS.map((cta) => {
+              const isSelected = nextAction === cta;
+              return (
+                <label key={cta} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '7px 12px', borderRadius: 6,
+                  border: `1px solid ${isSelected ? S.FC.accentBlue : S.FC.border}`,
+                  background: isSelected ? S.FC.accentBlueDim : 'transparent',
+                  cursor: callOutcome ? 'pointer' : 'not-allowed',
+                  fontSize: '0.8125rem', color: S.FC.textSecondary,
+                }}>
+                  <input
+                    type="radio" name="next-action" value={cta}
+                    checked={isSelected}
+                    onChange={() => { setNextAction(cta); setConflictAction(''); }}
+                    disabled={!callOutcome}
+                    style={{ accentColor: S.FC.accentBlue }}
+                  />
+                  {CTA_LABELS[cta]}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ─── Follow-Up CTA Sub-form ─── */}
+        {nextAction === 'follow-up' && !hasConflict && (
           <div style={{ ...S.card, marginTop: 4 }}>
             <h4 style={{ fontSize: '0.8125rem', fontWeight: 600, color: S.FC.textPrimary, marginBottom: 12 }}>
               Follow-up Details
-              {intelligence?.suggestedFollowUp && !intelligence.suggestedFollowUp.rescheduleExistingId && (
-                <span style={{ color: S.FC.accentPurple, fontWeight: 400, fontSize: '0.6875rem', marginLeft: 8 }}>
-                  (pre-filled from AI)
-                </span>
-              )}
             </h4>
             <div style={S.fieldGroup}>
               <label style={S.label}>Contact</label>
@@ -515,7 +578,6 @@ export default function CallCompletionGate({
               <div>
                 <label style={S.label}>Time (optional)</label>
                 <input type="time" value={fuDueTime} onChange={(e) => setFuDueTime(e.target.value)} style={S.input} />
-                <p style={S.helpText}>{fuDueTime ? 'Specific time follow-up' : 'Any time that day'}</p>
               </div>
             </div>
             <div style={S.fieldGroup}>
@@ -530,51 +592,95 @@ export default function CallCompletionGate({
           </div>
         )}
 
-        {nextAction === 'reschedule-existing-follow-up' && (
-          <div style={{ ...S.card, marginTop: 4 }}>
-            <h4 style={{ fontSize: '0.8125rem', fontWeight: 600, color: S.FC.textPrimary, marginBottom: 12 }}>
-              Reschedule Existing Follow-up
+        {/* ─── Follow-Up CTA with Conflict Resolution ─── */}
+        {nextAction === 'follow-up' && hasConflict && (
+          <div style={{ ...S.card, marginTop: 4, borderLeft: `3px solid ${S.FC.accentAmber}` }}>
+            <h4 style={{ fontSize: '0.8125rem', fontWeight: 600, color: S.FC.accentAmber, marginBottom: 8 }}>
+              Existing Follow-up Detected
             </h4>
-            {openFollowUps.length === 0 ? (
-              <p style={{ color: S.FC.accentAmber, fontSize: '0.8125rem' }}>
-                No open follow-ups to reschedule. Select a different next action.
-              </p>
-            ) : (
+            <p style={{ fontSize: '0.75rem', color: S.FC.textSecondary, marginBottom: 12 }}>
+              {openFollowUps[0].intentType.replace(/_/g, ' ')} — due {formatDueAt(openFollowUps[0].dueAt, openFollowUps[0].hasExplicitTime)}
+              {openFollowUps[0].context ? `: ${openFollowUps[0].context.slice(0, 80)}` : ''}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+              {([
+                ['update-existing', 'Update existing follow-up'],
+                ['reschedule-existing', 'Reschedule existing follow-up'],
+                ['mark-complete', 'Mark existing as complete (no new follow-up)'],
+                ['override', 'Override — cancel existing, create new (requires reason)'],
+              ] as [ConflictResolutionAction, string][]).map(([action, label]) => (
+                <label key={action} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '6px 10px', borderRadius: 5,
+                  border: `1px solid ${conflictAction === action ? S.FC.accentAmber : S.FC.border}`,
+                  background: conflictAction === action ? S.FC.accentAmberDim : 'transparent',
+                  cursor: 'pointer', fontSize: '0.75rem', color: S.FC.textSecondary,
+                }}>
+                  <input
+                    type="radio" name="conflict-action" value={action}
+                    checked={conflictAction === action}
+                    onChange={() => setConflictAction(action)}
+                    style={{ accentColor: S.FC.accentAmber }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+
+            {conflictAction === 'reschedule-existing' && (
+              <div style={S.fieldRow}>
+                <div>
+                  <label style={S.label}>New due date *</label>
+                  <input type="date" value={conflictNewDueDate} onChange={(e) => setConflictNewDueDate(e.target.value)} style={S.input} />
+                </div>
+                <div>
+                  <label style={S.label}>Time (optional)</label>
+                  <input type="time" value={conflictNewDueTime} onChange={(e) => setConflictNewDueTime(e.target.value)} style={S.input} />
+                </div>
+              </div>
+            )}
+
+            {conflictAction === 'update-existing' && (
+              <div style={S.fieldGroup}>
+                <label style={S.label}>Updated context (optional)</label>
+                <textarea
+                  value={conflictNewContext}
+                  onChange={(e) => setConflictNewContext(e.target.value)}
+                  placeholder="Update the context..."
+                  style={S.textarea}
+                />
+              </div>
+            )}
+
+            {conflictAction === 'override' && (
               <>
                 <div style={S.fieldGroup}>
-                  <label style={S.label}>Select follow-up *</label>
-                  <select
-                    value={rescheduleFollowUpId}
-                    onChange={(e) => setRescheduleFollowUpId(e.target.value)}
-                    style={S.select}
-                  >
-                    <option value="">Select...</option>
-                    {openFollowUps.map((fu) => (
-                      <option key={fu.id} value={fu.id}>
-                        {INTENT_LABELS[fu.intentType]} — due {formatDueAt(fu.dueAt, fu.hasExplicitTime)}
-                        {fu.contact ? ` (${fu.contact.name})` : ''}
-                      </option>
-                    ))}
-                  </select>
+                  <label style={S.label}>Override reason *</label>
+                  <input
+                    type="text"
+                    value={conflictOverrideReason}
+                    onChange={(e) => setConflictOverrideReason(e.target.value)}
+                    placeholder="Why are you overriding the existing follow-up?"
+                    style={S.input}
+                  />
                 </div>
                 <div style={S.fieldRow}>
                   <div>
                     <label style={S.label}>New due date *</label>
-                    <input type="date" value={rescheduleDate} onChange={(e) => setRescheduleDate(e.target.value)} style={S.input} />
+                    <input type="date" value={fuDueDate} onChange={(e) => setFuDueDate(e.target.value)} style={S.input} />
                   </div>
                   <div>
                     <label style={S.label}>Time (optional)</label>
-                    <input type="time" value={rescheduleTime} onChange={(e) => setRescheduleTime(e.target.value)} style={S.input} />
+                    <input type="time" value={fuDueTime} onChange={(e) => setFuDueTime(e.target.value)} style={S.input} />
                   </div>
                 </div>
                 <div style={S.fieldGroup}>
-                  <label style={S.label}>Reason</label>
-                  <input
-                    type="text"
-                    value={rescheduleReason}
-                    onChange={(e) => setRescheduleReason(e.target.value)}
-                    placeholder="Why rescheduling?"
-                    style={S.input}
+                  <label style={S.label}>Context *</label>
+                  <textarea
+                    value={fuContext}
+                    onChange={(e) => setFuContext(e.target.value)}
+                    placeholder="What should be discussed?"
+                    style={S.textarea}
                   />
                 </div>
               </>
@@ -582,41 +688,38 @@ export default function CallCompletionGate({
           </div>
         )}
 
-        {nextAction === 'create-task' && (
+        {/* ─── Recycle Lead CTA Sub-form ─── */}
+        {nextAction === 'recycle-lead' && (
           <div style={{ ...S.card, marginTop: 4 }}>
             <h4 style={{ fontSize: '0.8125rem', fontWeight: 600, color: S.FC.textPrimary, marginBottom: 12 }}>
-              Task Details
-              {intelligence?.suggestedTask && (
-                <span style={{ color: S.FC.accentPurple, fontWeight: 400, fontSize: '0.6875rem', marginLeft: 8 }}>
-                  (pre-filled from AI)
-                </span>
-              )}
+              Recycle Lead
             </h4>
             <div style={S.fieldGroup}>
-              <label style={S.label}>Description *</label>
-              <textarea
-                value={taskDescription}
-                onChange={(e) => setTaskDescription(e.target.value)}
-                placeholder="What needs to be done?"
-                style={S.textarea}
-              />
+              <label style={S.label}>Reason *</label>
+              <select
+                value={recycleReason}
+                onChange={(e) => setRecycleReason(e.target.value as RecycleReason)}
+                style={S.select}
+              >
+                <option value="">Select reason...</option>
+                {ALL_RECYCLE_REASONS.map((r) => (
+                  <option key={r} value={r}>{RECYCLE_REASON_LABELS[r]}</option>
+                ))}
+              </select>
             </div>
-            <div style={S.fieldGroup}>
-              <label style={S.label}>Due date (optional)</label>
-              <input type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} style={S.input} />
-            </div>
+            {recycleReason && (
+              <div style={{
+                padding: '8px 12px', borderRadius: 6,
+                background: S.FC.accentBlueDim, fontSize: '0.75rem', color: S.FC.accentBlue,
+              }}>
+                Will be callable again in {RECYCLE_REASON_BD[recycleReason as RecycleReason]} business day{RECYCLE_REASON_BD[recycleReason as RecycleReason] !== 1 ? 's' : ''}
+              </div>
+            )}
           </div>
         )}
 
-        {nextAction === 'mark-closed' && (
-          <div style={{ ...S.card, marginTop: 4, borderLeft: `3px solid ${S.FC.textMuted}` }}>
-            <p style={{ color: S.FC.textSecondary, fontSize: '0.8125rem' }}>
-              This will mark the account as closed. Ensure your call note captures the reason.
-            </p>
-          </div>
-        )}
-
-        {nextAction === 'do-not-call-again' && (
+        {/* ─── Do Not Call CTA Sub-form ─── */}
+        {nextAction === 'do-not-call' && (
           <div style={{ ...S.card, marginTop: 4, borderLeft: `3px solid ${S.FC.accentRed}` }}>
             <p style={{ color: S.FC.accentRed, fontSize: '0.8125rem' }}>
               This marks the contact/company as do-not-call. Ensure your call note captures the reason.
@@ -624,19 +727,14 @@ export default function CallCompletionGate({
           </div>
         )}
 
-        {/* Email Draft Panel (optional, collapsible) */}
+        {/* Email Draft Panel */}
         {intelligence && emailContacts.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <button
               onClick={() => setEmailExpanded(!emailExpanded)}
               style={{
-                ...S.btnSmall,
-                width: '100%',
-                textAlign: 'left',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '8px 12px',
+                ...S.btnSmall, width: '100%', textAlign: 'left',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px',
               }}
             >
               <span>Email Follow-up (optional)</span>
@@ -655,7 +753,6 @@ export default function CallCompletionGate({
                     Email draft discarded.
                   </p>
                 )}
-
                 {emailStatus !== 'approved' && emailStatus !== 'discarded' && !emailDraft && (
                   <>
                     <div style={S.fieldGroup}>
@@ -673,9 +770,7 @@ export default function CallCompletionGate({
                       onClick={handleGenerateEmail}
                       disabled={!emailContactId || emailLoading}
                       style={{
-                        ...S.btnSmall,
-                        color: S.FC.accentPurple,
-                        borderColor: 'rgba(139, 92, 246, 0.3)',
+                        ...S.btnSmall, color: S.FC.accentPurple, borderColor: 'rgba(139, 92, 246, 0.3)',
                         opacity: !emailContactId || emailLoading ? 0.5 : 1,
                       }}
                     >
@@ -683,43 +778,25 @@ export default function CallCompletionGate({
                     </button>
                   </>
                 )}
-
                 {emailDraft && emailStatus !== 'approved' && (
                   <>
                     <div style={S.fieldGroup}>
                       <label style={S.label}>Subject</label>
-                      <input
-                        type="text"
-                        value={emailSubject}
-                        onChange={(e) => setEmailSubject(e.target.value)}
-                        style={S.input}
-                      />
+                      <input type="text" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} style={S.input} />
                     </div>
                     <div style={S.fieldGroup}>
                       <label style={S.label}>Body</label>
-                      <textarea
-                        value={emailBody}
-                        onChange={(e) => setEmailBody(e.target.value)}
-                        style={{ ...S.textarea, minHeight: 120 }}
-                      />
+                      <textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} style={{ ...S.textarea, minHeight: 120 }} />
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
                         onClick={handleApproveEmail}
                         disabled={emailStatus === 'approving'}
-                        style={{
-                          ...S.btnSmall,
-                          color: S.FC.accentGreen,
-                          borderColor: 'rgba(34, 197, 94, 0.3)',
-                          opacity: emailStatus === 'approving' ? 0.5 : 1,
-                        }}
+                        style={{ ...S.btnSmall, color: S.FC.accentGreen, borderColor: 'rgba(34, 197, 94, 0.3)', opacity: emailStatus === 'approving' ? 0.5 : 1 }}
                       >
                         {emailStatus === 'approving' ? 'Approving...' : 'Approve & Queue'}
                       </button>
-                      <button
-                        onClick={handleDiscardEmail}
-                        style={{ ...S.btnSmall, color: S.FC.accentRed, borderColor: 'rgba(239, 68, 68, 0.3)' }}
-                      >
+                      <button onClick={handleDiscardEmail} style={{ ...S.btnSmall, color: S.FC.accentRed, borderColor: 'rgba(239, 68, 68, 0.3)' }}>
                         Discard
                       </button>
                     </div>
@@ -737,10 +814,7 @@ export default function CallCompletionGate({
           <button
             onClick={handleSubmit}
             disabled={submitting || !canSubmit}
-            style={{
-              ...S.btnPrimary,
-              opacity: submitting || !canSubmit ? 0.5 : 1,
-            }}
+            style={{ ...S.btnPrimary, opacity: submitting || !canSubmit ? 0.5 : 1 }}
           >
             {submitting ? 'Completing...' : 'Complete Call'}
           </button>

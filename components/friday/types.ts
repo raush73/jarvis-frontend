@@ -9,16 +9,32 @@ export type FollowUpIntentType =
   | 'INFORMATION_SENT'
   | 'GENERAL';
 
+// New 3-CTA model (locked design)
 export type NextActionType =
-  | 'create-follow-up'
-  | 'reschedule-existing-follow-up'
-  | 'create-task'
-  | 'mark-closed'
-  | 'do-not-call-again';
+  | 'follow-up'
+  | 'recycle-lead'
+  | 'do-not-call';
 
-export type ConflictResolution =
+// Outcome (required, Step 1 of modal)
+export type CallOutcome =
+  | 'NO_ANSWER'
+  | 'LEFT_VOICEMAIL'
+  | 'SPOKE_NO_OPPORTUNITY'
+  | 'OPPORTUNITY_IDENTIFIED'
+  | 'FOLLOW_UP_REQUIRED'
+  | 'CLOSED_NO_INTEREST';
+
+// Recycle reasons with BD mapping
+export type RecycleReason =
+  | 'NO_CONTACT'
+  | 'COULD_NOT_REACH_DM'
+  | 'NO_TRACTION'
+  | 'BETTER_SUITED_OTHER_REP';
+
+export type ConflictResolutionAction =
   | 'reschedule-existing'
   | 'update-existing'
+  | 'mark-complete'
   | 'override';
 
 export interface FollowUp {
@@ -67,7 +83,8 @@ export interface RescheduleFollowUpPayload {
 }
 
 export interface ResolveConflictPayload {
-  action: ConflictResolution;
+  action: ConflictResolutionAction;
+  existingFollowUpId: string;
   newDueAt?: string;
   hasExplicitTime?: boolean;
   newContext?: string;
@@ -75,6 +92,7 @@ export interface ResolveConflictPayload {
 }
 
 export interface CompleteCallPayload {
+  callOutcome: CallOutcome;
   callNoteText: string;
   nextAction: NextActionType;
   intelligenceId?: string;
@@ -86,17 +104,29 @@ export interface CompleteCallPayload {
     hasExplicitTime?: boolean;
     reason?: string;
   };
-  taskPayload?: {
-    customerId?: string;
-    description: string;
-    dueDate?: string;
+  recyclePayload?: {
+    reason: RecycleReason;
   };
+  conflictResolution?: ResolveConflictPayload;
 }
 
 export interface ConflictResponse {
   existingFollowUp: FollowUp;
   message: string;
-  resolutionOptions: ConflictResolution[];
+  resolutionOptions: ConflictResolutionAction[];
+}
+
+// Context endpoint response
+export interface CallCompletionContext {
+  noteHistory: Array<{ text: string; author: string; date: string; source: string }>;
+  callHistory: Array<{ date: string; repName: string; outcome: string | null }>;
+  activeFollowUp: {
+    id: string;
+    intentType: FollowUpIntentType;
+    dueAt: string;
+    context: string;
+  } | null;
+  attemptCount: number;
 }
 
 // ─── Phase 7: Call Intelligence & Email Draft types ─────────────────
@@ -245,13 +275,56 @@ export const STATUS_LABELS: Record<FollowUpStatus, string> = {
   CANCELLED: 'Cancelled',
 };
 
-export const NEXT_ACTION_LABELS: Record<NextActionType, string> = {
-  'create-follow-up': 'Create Follow-up',
-  'reschedule-existing-follow-up': 'Reschedule Existing Follow-up',
-  'create-task': 'Create Task',
-  'mark-closed': 'Mark Closed',
-  'do-not-call-again': 'Do Not Call Again',
+export const OUTCOME_LABELS: Record<CallOutcome, string> = {
+  NO_ANSWER: 'No Answer',
+  LEFT_VOICEMAIL: 'Left Voicemail',
+  SPOKE_NO_OPPORTUNITY: 'Spoke — No Opportunity',
+  OPPORTUNITY_IDENTIFIED: 'Opportunity Identified',
+  FOLLOW_UP_REQUIRED: 'Follow-Up Required',
+  CLOSED_NO_INTEREST: 'Closed — No Interest',
 };
+
+export const CTA_LABELS: Record<NextActionType, string> = {
+  'follow-up': 'Follow-Up / Claim',
+  'recycle-lead': 'Recycle Lead',
+  'do-not-call': 'Do Not Call',
+};
+
+export const RECYCLE_REASON_LABELS: Record<RecycleReason, string> = {
+  NO_CONTACT: 'No contact (1 business day)',
+  COULD_NOT_REACH_DM: 'Could not reach decision maker (3 business days)',
+  NO_TRACTION: 'No traction (10 business days)',
+  BETTER_SUITED_OTHER_REP: 'Better suited for another rep (10 business days)',
+};
+
+export const RECYCLE_REASON_BD: Record<RecycleReason, number> = {
+  NO_CONTACT: 1,
+  COULD_NOT_REACH_DM: 3,
+  NO_TRACTION: 10,
+  BETTER_SUITED_OTHER_REP: 10,
+};
+
+export const ALL_OUTCOMES: CallOutcome[] = [
+  'NO_ANSWER',
+  'LEFT_VOICEMAIL',
+  'SPOKE_NO_OPPORTUNITY',
+  'OPPORTUNITY_IDENTIFIED',
+  'FOLLOW_UP_REQUIRED',
+  'CLOSED_NO_INTEREST',
+];
+
+export const ALL_CTAS: NextActionType[] = [
+  'follow-up',
+  'recycle-lead',
+  'do-not-call',
+];
+
+export const ALL_RECYCLE_REASONS: RecycleReason[] = [
+  'NO_CONTACT',
+  'COULD_NOT_REACH_DM',
+  'NO_TRACTION',
+  'BETTER_SUITED_OTHER_REP',
+];
 
 export const ALL_INTENT_TYPES: FollowUpIntentType[] = [
   'CALLBACK',
@@ -263,10 +336,7 @@ export const ALL_INTENT_TYPES: FollowUpIntentType[] = [
   'GENERAL',
 ];
 
-export const ALL_NEXT_ACTIONS: NextActionType[] = [
-  'create-follow-up',
-  'reschedule-existing-follow-up',
-  'create-task',
-  'mark-closed',
-  'do-not-call-again',
-];
+// Kept for backward compat in any code that still references these
+export const NEXT_ACTION_LABELS = CTA_LABELS;
+export const ALL_NEXT_ACTIONS = ALL_CTAS;
+export type ConflictResolution = ConflictResolutionAction;

@@ -45,7 +45,7 @@ export default function CallSessionPanel() {
 
   const syncState = useCallback(
     (state: CallExecutionState, evtId: string | null, tgt: CallTarget | null) => {
-      setCallEventId(evtId);
+      setCallEventId((prev) => evtId ?? prev);
       setTarget(tgt);
       switch (state) {
         case 'READY':
@@ -188,7 +188,14 @@ export default function CallSessionPanel() {
   };
 
   const handleGateConflict = (_conflict: ConflictResponse) => {
-    // Conflicts are handled inside the gate itself via the modal
+    // Conflicts are handled inline inside CallCompletionGate.
+    // If a 409 round-trip occurs as fallback, re-open the gate so the rep
+    // can use the inline conflict resolution UI. Never dead-end.
+    if (target?.customerId) {
+      loadContactsAndFollowUps(target.customerId).then(() => {
+        if (mountedRef.current) setPhase('completing');
+      });
+    }
   };
 
   // ─── Rendering ────────────────────────────────────────────────────
