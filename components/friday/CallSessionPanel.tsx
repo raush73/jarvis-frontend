@@ -26,7 +26,11 @@ type PanelPhase =
   | 'blocked'
   | 'loading';
 
-export default function CallSessionPanel() {
+interface CallSessionPanelProps {
+  onTargetChange?: (target: CallTarget | null) => void;
+}
+
+export default function CallSessionPanel({ onTargetChange }: CallSessionPanelProps) {
   const [phase, setPhase] = useState<PanelPhase>('loading');
   const [sessionId, setSessionId] = useState('');
   const [callEventId, setCallEventId] = useState<string | null>(null);
@@ -42,6 +46,10 @@ export default function CallSessionPanel() {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  useEffect(() => {
+    onTargetChange?.(target);
+  }, [target, onTargetChange]);
 
   const syncState = useCallback(
     (state: CallExecutionState, evtId: string | null, tgt: CallTarget | null) => {

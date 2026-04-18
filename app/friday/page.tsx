@@ -1,13 +1,29 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import Link from "next/link";
 import CallSessionPanel from "../../components/friday/CallSessionPanel";
+import CallHistoryPanel from "../../components/friday/CallHistoryPanel";
+import type { CallTarget } from "../../components/friday/types";
 
 export default function FridayPage() {
+  const [activeTarget, setActiveTarget] = useState<CallTarget | null>(null);
+
+  const handleTargetChange = useCallback((target: CallTarget | null) => {
+    setActiveTarget(target);
+  }, []);
+
   return (
     <div className="friday-page">
-      <div className="friday-main">
-        <CallSessionPanel />
+      <div className="friday-session">
+        <CallSessionPanel onTargetChange={handleTargetChange} />
+      </div>
+
+      <div className="friday-history">
+        <CallHistoryPanel
+          customerId={activeTarget?.customerId ?? null}
+          companyName={activeTarget?.customerName ?? null}
+        />
       </div>
 
       <div className="friday-sidebar">
@@ -28,16 +44,20 @@ export default function FridayPage() {
       <style jsx>{`
         .friday-page {
           display: grid;
-          grid-template-columns: 1fr 240px;
-          gap: 32px;
+          grid-template-columns: 340px 1fr 220px;
+          gap: 28px;
           padding: 40px;
-          max-width: 960px;
+          max-width: 1200px;
           margin: 0 auto;
           min-height: calc(100vh - 80px);
           align-items: start;
         }
 
-        .friday-main {
+        .friday-session {
+          min-width: 0;
+        }
+
+        .friday-history {
           min-width: 0;
         }
 
@@ -79,7 +99,7 @@ export default function FridayPage() {
           color: #a78bfa;
         }
 
-        @media (max-width: 768px) {
+        @media (max-width: 900px) {
           .friday-page {
             grid-template-columns: 1fr;
             padding: 24px 16px;

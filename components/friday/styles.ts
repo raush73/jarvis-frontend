@@ -92,6 +92,7 @@ export const input: CSSProperties = {
 
 export const select: CSSProperties = {
   ...input,
+  colorScheme: 'dark',
   appearance: 'none' as const,
   backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%23999' fill='none' stroke-width='1.5'/%3E%3C/svg%3E")`,
   backgroundRepeat: 'no-repeat',

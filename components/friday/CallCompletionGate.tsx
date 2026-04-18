@@ -554,9 +554,9 @@ export default function CallCompletionGate({
             <div style={S.fieldGroup}>
               <label style={S.label}>Contact</label>
               <select value={fuContactId} onChange={(e) => setFuContactId(e.target.value)} style={S.select}>
-                <option value="">Company-level (no contact)</option>
+                <option value="" style={{ background: '#1a1d24', color: '#fff' }}>Company-level (no contact)</option>
                 {contacts.map((c) => (
-                  <option key={c.id} value={c.id}>
+                  <option key={c.id} value={c.id} style={{ background: '#1a1d24', color: '#fff' }}>
                     {c.name}{c.title ? ` — ${c.title}` : ''}
                   </option>
                 ))}
@@ -566,7 +566,7 @@ export default function CallCompletionGate({
               <label style={S.label}>Intent</label>
               <select value={fuIntentType} onChange={(e) => setFuIntentType(e.target.value as FollowUpIntentType)} style={S.select}>
                 {ALL_INTENT_TYPES.map((t) => (
-                  <option key={t} value={t}>{INTENT_LABELS[t]}</option>
+                  <option key={t} value={t} style={{ background: '#1a1d24', color: '#fff' }}>{INTENT_LABELS[t]}</option>
                 ))}
               </select>
             </div>
@@ -701,9 +701,9 @@ export default function CallCompletionGate({
                 onChange={(e) => setRecycleReason(e.target.value as RecycleReason)}
                 style={S.select}
               >
-                <option value="">Select reason...</option>
+                <option value="" style={{ background: '#1a1d24', color: '#fff' }}>Select reason...</option>
                 {ALL_RECYCLE_REASONS.map((r) => (
-                  <option key={r} value={r}>{RECYCLE_REASON_LABELS[r]}</option>
+                  <option key={r} value={r} style={{ background: '#1a1d24', color: '#fff' }}>{RECYCLE_REASON_LABELS[r]}</option>
                 ))}
               </select>
             </div>
@@ -758,9 +758,9 @@ export default function CallCompletionGate({
                     <div style={S.fieldGroup}>
                       <label style={S.label}>Recipient</label>
                       <select value={emailContactId} onChange={(e) => setEmailContactId(e.target.value)} style={S.select}>
-                        <option value="">Select contact...</option>
+                        <option value="" style={{ background: '#1a1d24', color: '#fff' }}>Select contact...</option>
                         {emailContacts.map((c) => (
-                          <option key={c.id} value={c.id}>
+                          <option key={c.id} value={c.id} style={{ background: '#1a1d24', color: '#fff' }}>
                             {c.name}{c.email ? ` (${c.email})` : ''}
                           </option>
                         ))}

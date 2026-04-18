@@ -189,6 +189,21 @@ export interface IntelligenceResponse {
   isExisting?: boolean;
 }
 
+// ─── Company Call History (main page panel) ─────────────────────────
+
+export interface CompanyCallHistoryEntry {
+  id: string;
+  startedAt: string;
+  outcome: string | null;
+  repName: string;
+}
+
+export interface CompanyCallHistoryResponse {
+  ok: boolean;
+  customerId: string;
+  history: CompanyCallHistoryEntry[];
+}
+
 // ─── Phase 8: Call Execution types ──────────────────────────────────
 
 export type CallExecutionState =
