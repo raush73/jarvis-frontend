@@ -31,6 +31,7 @@ const MODULE_ACCESS: Record<string, string[]> = {
   accounting:   ["admin", "accounting"],
   kpi:          ["admin", "accounting", "sales"],
   friday:       ["admin", "sales", "recruiting"],
+  campaigns:    ["admin"],
   orders:       ["admin", "sales", "recruiting", "accounting"],
   customers:    ["admin", "sales", "recruiting", "accounting"],
   employees:    ["admin", "recruiting"],

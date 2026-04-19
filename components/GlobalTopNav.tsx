@@ -8,6 +8,7 @@ import { useSession } from "@/lib/auth/useSession";
 const DOMAINS = [
   { key: "kpi", label: "KPI" },
   { key: "friday", label: "Friday" },
+  { key: "campaigns", label: "Campaigns" },
   { key: "orders", label: "Orders" },
   { key: "customers", label: "Customers" },
   { key: "employees", label: "Employees" },
