@@ -447,7 +447,7 @@ export default function CustomersPage() {
                   <div className="cell-sub">{customer.websiteUrl}</div>
                 ) : null}
               </td>
-              <td>{customer.locationCity && customer.locationState ? `${customer.locationCity}, ${customer.locationState}` : "\u2014"}</td>
+              <td>{customer.locationCity && customer.locationState ? `${customer.locationCity}, ${customer.locationState}` : customer.locationCity ?? customer.locationState ?? "\u2014"}</td>
               <td>{customer.mainPhone ?? "\u2014"}</td>
               <td>
                 {customer.registrySalesperson
