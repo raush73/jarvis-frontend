@@ -35,6 +35,7 @@ export default function CallSessionPanel({ onTargetChange }: CallSessionPanelPro
   const [sessionId, setSessionId] = useState('');
   const [callEventId, setCallEventId] = useState<string | null>(null);
   const [target, setTarget] = useState<CallTarget | null>(null);
+  const [emptyReason, setEmptyReason] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -84,6 +85,7 @@ export default function CallSessionPanel({ onTargetChange }: CallSessionPanelPro
         const d = res.data;
         if (d.sessionId) {
           setSessionId(d.sessionId);
+          setEmptyReason(d.nextTarget ? null : d.message);
           syncState(d.state, d.currentCallEventId, d.nextTarget);
         } else {
           setPhase('idle');
@@ -117,6 +119,7 @@ export default function CallSessionPanel({ onTargetChange }: CallSessionPanelPro
     if (!mountedRef.current) return;
     if (res.ok) {
       setSessionId(res.data.sessionId);
+      setEmptyReason(res.data.nextTarget ? null : res.data.message);
       syncState(res.data.state as CallExecutionState, res.data.currentCallEventId, res.data.nextTarget);
     } else {
       setError(res.error);
@@ -163,8 +166,9 @@ export default function CallSessionPanel({ onTargetChange }: CallSessionPanelPro
         setPhase('blocked');
       } else {
         setTarget(res.data.nextTarget);
+        setEmptyReason(res.data.nextTarget ? null : res.data.reason);
         setCallEventId(null);
-        setPhase(res.data.nextTarget ? 'ready' : 'ready');
+        setPhase('ready');
       }
     } else {
       setError(res.error);
@@ -275,8 +279,9 @@ export default function CallSessionPanel({ onTargetChange }: CallSessionPanelPro
             <div style={emptyIcon}>✅</div>
             <div style={emptyTitle}>Queue Clear</div>
             <div style={emptyDesc}>
-              No callable items right now. All targets have been reached or are
-              outside callable hours.
+              {emptyReason === 'outside_callable_hours'
+                ? 'All calls are outside business hours right now.'
+                : 'No calls available right now.'}
             </div>
           </div>
         </div>
