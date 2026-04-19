@@ -10,6 +10,7 @@ import {
   type SessionStatus,
   type StartCallResult,
   type CompleteCallResult,
+  type DeferResult,
   type DismissGateResult,
   type CompanyContact,
   type FollowUp,
@@ -41,6 +42,9 @@ export default function CallSessionPanel({ onTargetChange }: CallSessionPanelPro
 
   const [contacts, setContacts] = useState<CompanyContact[]>([]);
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [showCustomDefer, setShowCustomDefer] = useState(false);
+  const [customDeferValue, setCustomDeferValue] = useState('');
+  const [deferConflict, setDeferConflict] = useState<DeferResult['conflict'] | null>(null);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -140,6 +144,95 @@ export default function CallSessionPanel({ onTargetChange }: CallSessionPanelPro
       setCallEventId(res.data.callEventId);
       setTarget(res.data.callTarget);
       setPhase('in_call');
+    } else {
+      setError(res.error);
+    }
+  };
+
+  const handleDefer = async (deferUntil: Date) => {
+    if (!target) return;
+    setBusy(true);
+    setError('');
+    setDeferConflict(null);
+    const res = await fridayFetch<DeferResult>('/friday/call-session/defer', {
+      method: 'POST',
+      body: JSON.stringify({
+        callTargetId: target.callTargetId,
+        deferUntil: deferUntil.toISOString(),
+      }),
+    });
+    setBusy(false);
+    if (!mountedRef.current) return;
+
+    if (res.ok && res.data.deferred) {
+      setShowCustomDefer(false);
+      setCustomDeferValue('');
+      setTarget(res.data.nextTarget);
+      setEmptyReason(res.data.nextTarget ? null : res.data.reason);
+      setPhase('ready');
+      return;
+    }
+
+    if (res.ok && !res.data.deferred && res.data.conflict) {
+      setDeferConflict(res.data.conflict);
+      return;
+    }
+
+    if (!res.ok && res.status === 409 && res.data?.conflict) {
+      setDeferConflict(res.data);
+      return;
+    }
+
+    setError(res.ok ? 'Defer failed' : res.error);
+  };
+
+  const handleDeferPreset = (hours: number) => {
+    const dt = new Date();
+    dt.setHours(dt.getHours() + hours);
+    handleDefer(dt);
+  };
+
+  const handleCustomDeferSubmit = () => {
+    if (!customDeferValue) return;
+    const dt = new Date(customDeferValue);
+    if (isNaN(dt.getTime()) || dt <= new Date()) {
+      setError('Please select a future time.');
+      return;
+    }
+    handleDefer(dt);
+  };
+
+  const handleDeferConflictResolve = async (action: string) => {
+    if (!deferConflict || !target) return;
+    const existingId = deferConflict.existingFollowUp?.id as string;
+    if (!existingId) return;
+
+    setBusy(true);
+    setError('');
+
+    const deferUntil = customDeferValue
+      ? new Date(customDeferValue)
+      : new Date(Date.now() + 3600000);
+
+    const res = await fridayFetch<Record<string, unknown>>(
+      `/friday/follow-ups/${existingId}/resolve-conflict`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          action,
+          existingFollowUpId: existingId,
+          newDueAt: deferUntil.toISOString(),
+          hasExplicitTime: true,
+          newContext: 'Deferred from call session',
+        }),
+      },
+    );
+    setBusy(false);
+    if (!mountedRef.current) return;
+
+    if (res.ok) {
+      setDeferConflict(null);
+      handleDefer(deferUntil);
     } else {
       setError(res.error);
     }
@@ -269,6 +362,63 @@ export default function CallSessionPanel({ onTargetChange }: CallSessionPanelPro
             >
               {busy ? 'Connecting...' : 'Start Call'}
             </button>
+          </div>
+
+          {/* Defer controls */}
+          <div style={deferSection}>
+            <div style={deferLabel}>Defer this call</div>
+            <div style={deferRow}>
+              <button style={deferBtn} onClick={() => handleDeferPreset(1)} disabled={busy}>1h</button>
+              <button style={deferBtn} onClick={() => handleDeferPreset(2)} disabled={busy}>2h</button>
+              <button style={deferBtn} onClick={() => handleDeferPreset(3)} disabled={busy}>3h</button>
+              <button
+                style={{ ...deferBtn, ...(showCustomDefer ? deferBtnActive : {}) }}
+                onClick={() => { setShowCustomDefer(!showCustomDefer); setDeferConflict(null); }}
+                disabled={busy}
+              >
+                Custom
+              </button>
+            </div>
+
+            {showCustomDefer && (
+              <div style={customDeferWrap}>
+                <input
+                  type="datetime-local"
+                  value={customDeferValue}
+                  onChange={(e) => setCustomDeferValue(e.target.value)}
+                  min={toLocalInputMin()}
+                  step={300}
+                  style={customDeferInput}
+                />
+                <button
+                  style={{ ...S.btnPrimary, padding: '8px 16px', fontSize: '0.8125rem' }}
+                  onClick={handleCustomDeferSubmit}
+                  disabled={busy || !customDeferValue}
+                >
+                  Defer
+                </button>
+              </div>
+            )}
+
+            {deferConflict && (
+              <div style={conflictBanner}>
+                <div style={{ fontSize: '0.8125rem', color: S.FC.accentAmber, marginBottom: 8 }}>
+                  {deferConflict.message}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {deferConflict.resolutionOptions.map((opt) => (
+                    <button
+                      key={opt}
+                      style={conflictBtn}
+                      onClick={() => handleDeferConflictResolve(opt)}
+                      disabled={busy}
+                    >
+                      {conflictOptionLabel(opt)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -407,6 +557,24 @@ function TargetCard({ target }: { target: CallTarget }) {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
+
+function toLocalInputMin(): string {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() + 5);
+  d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function conflictOptionLabel(opt: string): string {
+  switch (opt) {
+    case 'reschedule-existing': return 'Reschedule';
+    case 'update-existing': return 'Update';
+    case 'override': return 'Override';
+    case 'mark-complete': return 'Mark Complete';
+    default: return opt;
+  }
+}
 
 function phaseLabel(phase: PanelPhase): string {
   switch (phase) {
@@ -598,4 +766,78 @@ const metaLabel: CSSProperties = {
 const metaValue: CSSProperties = {
   fontSize: '0.8125rem',
   color: S.FC.textPrimary,
+};
+
+const deferSection: CSSProperties = {
+  marginTop: 16,
+  paddingTop: 16,
+  borderTop: `1px solid ${S.FC.border}`,
+};
+
+const deferLabel: CSSProperties = {
+  fontSize: '0.6875rem',
+  fontWeight: 600,
+  color: S.FC.textMuted,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  marginBottom: 8,
+};
+
+const deferRow: CSSProperties = {
+  display: 'flex',
+  gap: 6,
+};
+
+const deferBtn: CSSProperties = {
+  flex: 1,
+  padding: '8px 0',
+  fontSize: '0.8125rem',
+  fontWeight: 600,
+  border: `1px solid ${S.FC.border}`,
+  borderRadius: 6,
+  background: 'transparent',
+  color: S.FC.textSecondary,
+  cursor: 'pointer',
+};
+
+const deferBtnActive: CSSProperties = {
+  borderColor: S.FC.accentBlue,
+  color: S.FC.accentBlue,
+};
+
+const customDeferWrap: CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  marginTop: 8,
+  alignItems: 'center',
+};
+
+const customDeferInput: CSSProperties = {
+  flex: 1,
+  padding: '8px 10px',
+  fontSize: '0.8125rem',
+  border: `1px solid ${S.FC.border}`,
+  borderRadius: 6,
+  background: S.FC.surface,
+  color: S.FC.textPrimary,
+  colorScheme: 'dark',
+};
+
+const conflictBanner: CSSProperties = {
+  marginTop: 10,
+  padding: 12,
+  background: S.FC.accentAmberDim,
+  border: `1px solid rgba(245, 158, 11, 0.3)`,
+  borderRadius: 8,
+};
+
+const conflictBtn: CSSProperties = {
+  padding: '6px 12px',
+  fontSize: '0.75rem',
+  fontWeight: 600,
+  border: `1px solid rgba(245, 158, 11, 0.4)`,
+  borderRadius: 4,
+  background: 'transparent',
+  color: S.FC.accentAmber,
+  cursor: 'pointer',
 };

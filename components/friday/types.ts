@@ -250,6 +250,18 @@ export interface CompleteCallResult {
   reason: string | null;
 }
 
+export interface DeferResult {
+  ok: boolean;
+  deferred: boolean;
+  conflict?: {
+    existingFollowUp: Record<string, unknown>;
+    resolutionOptions: string[];
+    message: string;
+  };
+  nextTarget: CallTarget | null;
+  reason: string | null;
+}
+
 export interface DismissGateResult {
   ok: boolean;
   state: 'BLOCKED';
