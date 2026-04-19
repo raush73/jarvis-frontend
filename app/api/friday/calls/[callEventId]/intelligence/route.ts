@@ -10,7 +10,7 @@ export async function POST(
     const { callEventId } = await params;
     const auth = req.headers.get("authorization") ?? "";
     const res = await fetch(
-      `${UPSTREAM}/api/friday/calls/${callEventId}/intelligence`,
+      `${UPSTREAM}/friday/calls/${callEventId}/intelligence`,
       {
         method: "POST",
         headers: { Authorization: auth, "Content-Type": "application/json" },
@@ -39,7 +39,7 @@ export async function GET(
     const { callEventId } = await params;
     const auth = req.headers.get("authorization") ?? "";
     const res = await fetch(
-      `${UPSTREAM}/api/friday/calls/${callEventId}/intelligence`,
+      `${UPSTREAM}/friday/calls/${callEventId}/intelligence`,
       {
         method: "GET",
         headers: { Authorization: auth },

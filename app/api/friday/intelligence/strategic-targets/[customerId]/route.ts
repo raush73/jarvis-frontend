@@ -10,7 +10,7 @@ export async function DELETE(
     const { customerId } = await params;
     const auth = req.headers.get("authorization") ?? "";
     const res = await fetch(
-      `${UPSTREAM}/api/friday/intelligence/strategic-targets/${customerId}`,
+      `${UPSTREAM}/friday/intelligence/strategic-targets/${customerId}`,
       {
         method: "DELETE",
         headers: { Authorization: auth },

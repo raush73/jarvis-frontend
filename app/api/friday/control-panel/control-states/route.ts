@@ -1,3 +1,3 @@
 import { proxyGet } from "../../_proxy";
 
-export const GET = proxyGet("/api/friday/control-panel/control-states");
+export const GET = proxyGet("/friday/control-panel/control-states");

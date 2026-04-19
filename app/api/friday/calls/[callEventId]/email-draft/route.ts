@@ -11,7 +11,7 @@ export async function POST(
     const auth = req.headers.get("authorization") ?? "";
     const body = await req.text();
     const res = await fetch(
-      `${UPSTREAM}/api/friday/calls/${callEventId}/email-draft`,
+      `${UPSTREAM}/friday/calls/${callEventId}/email-draft`,
       {
         method: "POST",
         headers: { Authorization: auth, "Content-Type": "application/json" },

@@ -10,7 +10,7 @@ export async function GET(
   const qs = new URL(req.url).search || "";
   const auth = req.headers.get("authorization") ?? "";
   const res = await fetch(
-    `${UPSTREAM}/api/friday/follow-ups/company/${customerId}${qs}`,
+    `${UPSTREAM}/friday/follow-ups/company/${customerId}${qs}`,
     {
       method: "GET",
       headers: { Authorization: auth },

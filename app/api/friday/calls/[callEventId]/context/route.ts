@@ -11,7 +11,7 @@ export async function GET(
     const auth = req.headers.get("authorization") ?? "";
 
     const res = await fetch(
-      `${UPSTREAM}/api/friday/calls/${callEventId}/context`,
+      `${UPSTREAM}/friday/calls/${callEventId}/context`,
       {
         method: "GET",
         headers: {

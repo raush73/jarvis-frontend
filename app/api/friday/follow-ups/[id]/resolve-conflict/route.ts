@@ -1,3 +1,3 @@
 import { proxyPostWithId } from "../../../_proxy";
 
-export const POST = proxyPostWithId("/api/friday/follow-ups/[id]/resolve-conflict");
+export const POST = proxyPostWithId("/friday/follow-ups/[id]/resolve-conflict");

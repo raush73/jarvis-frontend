@@ -1,3 +1,3 @@
 import { proxyGet } from "../../_proxy";
 
-export const GET = proxyGet("/api/friday/intelligence/queue");
+export const GET = proxyGet("/friday/intelligence/queue");

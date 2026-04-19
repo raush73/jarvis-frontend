@@ -1,3 +1,3 @@
 import { proxyPost } from "../../_proxy";
 
-export const POST = proxyPost("/api/friday/continuity/absences");
+export const POST = proxyPost("/friday/continuity/absences");

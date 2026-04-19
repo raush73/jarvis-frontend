@@ -9,7 +9,7 @@ export async function GET(
   const { customerId } = await params;
   const auth = req.headers.get("authorization") ?? "";
   const res = await fetch(
-    `${UPSTREAM}/api/friday/intelligence/company/${customerId}/priority`,
+    `${UPSTREAM}/friday/intelligence/company/${customerId}/priority`,
     {
       method: "GET",
       headers: { Authorization: auth },

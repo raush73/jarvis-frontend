@@ -1,3 +1,3 @@
 import { proxyGet } from "../../friday/_proxy";
 
-export const GET = proxyGet("/api/zoominfo/logs");
+export const GET = proxyGet("/zoominfo/logs");

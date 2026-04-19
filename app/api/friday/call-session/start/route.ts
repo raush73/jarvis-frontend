@@ -1,3 +1,3 @@
 import { proxyPost } from "../../_proxy";
 
-export const POST = proxyPost("/api/friday/call-session/start");
+export const POST = proxyPost("/friday/call-session/start");
