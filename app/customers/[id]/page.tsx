@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/api";
 import type { OrderListItem } from "@/lib/types/order";
 import { getOrderPhase, getPhaseLabel, getPhaseBadgeClass } from "@/lib/order-lifecycle";
 import { HEALTH_STATUS_COLORS } from "@/lib/constants/margin-health";
+import AccountCallTimeline from "@/components/customers/AccountCallTimeline";
 
 // Trade row type for labor plan
 type TradeRow = {
@@ -270,7 +271,7 @@ const AVAILABLE_TRADES = [
 const OT_MULTIPLIER_MIN = 1.47;
 const OT_MULTIPLIER_DEFAULT = 1.5;
 
-type TabKey = "contacts" | "tools" | "toolsByTrade" | "ppe" | "orders" | "quotes" | "invoices";
+type TabKey = "contacts" | "tools" | "toolsByTrade" | "ppe" | "orders" | "quotes" | "invoices" | "calls";
 
 // Tool list item shape (UI-only, trade-scoped)
 type ToolLike = { id: string; name: string; notes: string };
@@ -747,9 +748,41 @@ export default function CustomerDetailPage() {
     }
   };
 
+  // --- Call History (Phase 14B) ---
+  const [callHistory, setCallHistory] = useState<any[]>([]);
+  const [callHistoryLoading, setCallHistoryLoading] = useState(false);
+  const [callHistoryError, setCallHistoryError] = useState("");
+  const [callHistoryLoaded, setCallHistoryLoaded] = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== "calls" || callHistoryLoaded) return;
+    let alive = true;
+    (async () => {
+      setCallHistoryLoading(true);
+      setCallHistoryError("");
+      try {
+        const data = await apiFetch<{ ok: boolean; history: any[] }>(
+          `/customers/${customerId}/call-history`
+        );
+        if (!alive) return;
+        setCallHistory(data.history ?? []);
+      } catch (e: any) {
+        if (!alive) return;
+        setCallHistoryError(e?.message ?? "Failed to load call history.");
+      } finally {
+        if (alive) {
+          setCallHistoryLoading(false);
+          setCallHistoryLoaded(true);
+        }
+      }
+    })();
+    return () => { alive = false; };
+  }, [activeTab, customerId, callHistoryLoaded]);
+
   const tabs: { key: TabKey; label: string }[] = [
     { key: "contacts", label: "Contacts" },
-        { key: "toolsByTrade", label: "Tools [by trade]" },
+    { key: "calls", label: "Calls" },
+    { key: "toolsByTrade", label: "Tools [by trade]" },
     { key: "ppe", label: "PPE" },
     { key: "orders", label: "Orders" },
     { key: "quotes", label: "Quotes" },
@@ -1377,6 +1410,9 @@ export default function CustomerDetailPage() {
             {tab.key === "contacts" && (
               <span className="tab-count">{renderedContacts.length}</span>
             )}
+            {tab.key === "calls" && callHistoryLoaded && (
+              <span className="tab-count">{callHistory.length}</span>
+            )}
             {tab.key === "orders" && (
               <span className="tab-count">{draftOrders.length + fetchedOrders.length}</span>
             )}
@@ -1594,6 +1630,21 @@ export default function CustomerDetailPage() {
             </div>
 </div>
 )}
+
+        {/* Calls Tab (Phase 14B — read-only account call timeline) */}
+        {activeTab === "calls" && (
+          <div className="calls-panel">
+            <div className="panel-header">
+              <h2>Call History</h2>
+              <span className="panel-note">All calls across Friday and operational surfaces</span>
+            </div>
+            <AccountCallTimeline
+              history={callHistory}
+              loading={callHistoryLoading}
+              error={callHistoryError}
+            />
+          </div>
+        )}
 
         {/* Orders Tab */}
         {activeTab === "orders" && (
