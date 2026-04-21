@@ -129,6 +129,50 @@ export interface CallCompletionContext {
   attemptCount: number;
 }
 
+// ─── Phase 14C: KPI Today's Work types ──────────────────────────────
+
+export type TodaysWorkType =
+  | 'SCHEDULED_CALL'
+  | 'FOLLOW_UP_OVERDUE'
+  | 'FOLLOW_UP_DUE'
+  | 'SYSTEM_TOUCH';
+
+export interface TodaysWorkItem {
+  customerId: string;
+  customerName: string;
+  followUpId: string | null;
+  workType: TodaysWorkType;
+  lifecycleStatus: string;
+  bucket: string;
+  bucketReason: string;
+  followUpDueAt: string | null;
+  hasExplicitTime: boolean;
+}
+
+export interface TodaysWorkResult {
+  items: TodaysWorkItem[];
+  total: number;
+}
+
+export const WORK_TYPE_LABELS: Record<TodaysWorkType, string> = {
+  SCHEDULED_CALL: 'Scheduled Call',
+  FOLLOW_UP_OVERDUE: 'Overdue Follow-Up',
+  FOLLOW_UP_DUE: 'Follow-Up Due',
+  SYSTEM_TOUCH: 'System Touch',
+};
+
+export const WORK_TYPE_COLORS: Record<TodaysWorkType, string> = {
+  SCHEDULED_CALL: '#f59e0b',
+  FOLLOW_UP_OVERDUE: '#ef4444',
+  FOLLOW_UP_DUE: '#3b82f6',
+  SYSTEM_TOUCH: '#8b5cf6',
+};
+
+export const LIFECYCLE_SHORT: Record<string, string> = {
+  CUSTOMER: 'C',
+  PROSPECT: 'P',
+};
+
 // ─── Phase 7: Call Intelligence & Email Draft types ─────────────────
 
 export interface CallIntelligence {
