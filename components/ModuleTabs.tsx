@@ -9,7 +9,7 @@ const MODULE_TABS: Record<string, { key: string; label: string }[]> = {
     { key: "overview", label: "Overview" },
     { key: "operations", label: "Operations" },
     { key: "finance", label: "Finance" },
-    { key: "safety", label: "Safety" },
+    { key: "accountability", label: "Accountability" },
   ],
   friday: [
     { key: "dashboard", label: "Dashboard" },
@@ -91,6 +91,7 @@ export default function ModuleTabs() {
   const adminSubpage = currentDomain === "admin" && segments.length > 1 ? segments[1] : "";
 
   const activeTab = (() => {
+    if (firstSegment === "accountability") return "accountability";
     if (currentDomain === "admin" && adminSubpage) {
       const match = tabs.find((t) => t.key === adminSubpage);
       if (match) return match.key;
@@ -106,6 +107,10 @@ export default function ModuleTabs() {
     }
     if (currentDomain === "admin") {
       router.push(`/admin/${tabKey}`);
+      return;
+    }
+    if (tabKey === "accountability") {
+      router.push("/accountability");
       return;
     }
     router.push(`/${currentDomain}#${tabKey}`);
