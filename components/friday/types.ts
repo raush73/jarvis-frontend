@@ -173,6 +173,35 @@ export const LIFECYCLE_SHORT: Record<string, string> = {
   PROSPECT: 'P',
 };
 
+// ─── Phase 14C: KPI Customer Health types ────────────────────────────
+
+export type CustomerHealthState = 'AT_RISK' | 'STALE' | 'CRITICAL';
+
+export interface CustomerHealthItem {
+  customerId: string;
+  customerName: string;
+  healthState: CustomerHealthState;
+  businessDaysSince: number | null;
+  displayText: string;
+}
+
+export interface CustomerHealthResult {
+  items: CustomerHealthItem[];
+  total: number;
+}
+
+export const HEALTH_STATE_LABELS: Record<CustomerHealthState, string> = {
+  AT_RISK: 'At Risk',
+  STALE: 'Stale',
+  CRITICAL: 'Critical',
+};
+
+export const HEALTH_STATE_COLORS: Record<CustomerHealthState, string> = {
+  AT_RISK: '#f59e0b',
+  STALE: '#f97316',
+  CRITICAL: '#ef4444',
+};
+
 // ─── Phase 7: Call Intelligence & Email Draft types ─────────────────
 
 export interface CallIntelligence {

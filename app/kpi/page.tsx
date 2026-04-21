@@ -10,6 +10,11 @@ import {
   WORK_TYPE_COLORS,
   LIFECYCLE_SHORT,
   BUCKET_LABELS,
+  CustomerHealthItem,
+  CustomerHealthResult,
+  CustomerHealthState,
+  HEALTH_STATE_LABELS,
+  HEALTH_STATE_COLORS,
 } from "../../components/friday/types";
 import { FC } from "../../components/friday/styles";
 
@@ -30,6 +35,18 @@ function groupByWorkType(items: TodaysWorkItem[]) {
   return groups;
 }
 
+const HEALTH_ORDER: CustomerHealthState[] = ["CRITICAL", "STALE", "AT_RISK"];
+
+function groupByHealthState(items: CustomerHealthItem[]) {
+  const groups = new Map<CustomerHealthState, CustomerHealthItem[]>();
+  for (const hs of HEALTH_ORDER) groups.set(hs, []);
+  for (const item of items) {
+    const list = groups.get(item.healthState);
+    if (list) list.push(item);
+  }
+  return groups;
+}
+
 function formatTime(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -44,8 +61,11 @@ function formatDate(iso: string | null): string {
 
 export default function KPIPage() {
   const [items, setItems] = useState<TodaysWorkItem[]>([]);
+  const [healthItems, setHealthItems] = useState<CustomerHealthItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [healthLoading, setHealthLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
   const router = useRouter();
 
   const load = useCallback(async () => {
@@ -62,15 +82,31 @@ export default function KPIPage() {
     setLoading(false);
   }, []);
 
+  const loadHealth = useCallback(async () => {
+    setHealthLoading(true);
+    const res = await fridayFetch<CustomerHealthResult>(
+      "/friday/intelligence/customer-health"
+    );
+    if (res.ok) {
+      setHealthItems(res.data.items);
+      setHealthError(null);
+    } else {
+      setHealthError(res.error);
+    }
+    setHealthLoading(false);
+  }, []);
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadHealth();
+  }, [load, loadHealth]);
 
   const handleStartCall = (customerId: string) => {
     router.push(`/friday?directTarget=${customerId}`);
   };
 
   const grouped = groupByWorkType(items);
+  const healthGrouped = groupByHealthState(healthItems);
 
   return (
     <div style={styles.container}>
@@ -144,6 +180,66 @@ export default function KPIPage() {
                       Start Call
                     </button>
                   </div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+
+      {/* ──────────── Customer Health ──────────── */}
+      <div style={styles.healthDivider} />
+      <div style={styles.header}>
+        <h2 style={styles.healthTitle}>Customer Health</h2>
+        <span style={styles.count}>
+          {healthItems.length}{" "}
+          {healthItems.length === 1 ? "account" : "accounts"}
+        </span>
+      </div>
+
+      {healthLoading && <p style={styles.message}>Loading health data...</p>}
+      {healthError && (
+        <p style={{ ...styles.message, color: FC.accentRed }}>{healthError}</p>
+      )}
+
+      {!healthLoading && !healthError && healthItems.length === 0 && (
+        <div style={styles.empty}>
+          <p style={styles.emptyTitle}>All customers are healthy</p>
+          <p style={styles.emptyDesc}>
+            No owned customers require attention right now.
+          </p>
+        </div>
+      )}
+
+      {!healthLoading &&
+        HEALTH_ORDER.map((hs) => {
+          const group = healthGrouped.get(hs) ?? [];
+          if (group.length === 0) return null;
+          return (
+            <div key={hs} style={styles.section}>
+              <div style={styles.sectionHeader}>
+                <span
+                  style={{
+                    ...styles.sectionDot,
+                    background: HEALTH_STATE_COLORS[hs],
+                  }}
+                />
+                <span style={styles.sectionLabel}>
+                  {HEALTH_STATE_LABELS[hs]}
+                </span>
+                <span style={styles.sectionCount}>{group.length}</span>
+              </div>
+              {group.map((item) => (
+                <div key={item.customerId} style={styles.healthCard}>
+                  <span style={styles.companyName}>{item.customerName}</span>
+                  <span
+                    style={{
+                      ...styles.healthBadge,
+                      color: HEALTH_STATE_COLORS[item.healthState],
+                      background: `${HEALTH_STATE_COLORS[item.healthState]}18`,
+                    }}
+                  >
+                    {item.displayText}
+                  </span>
                 </div>
               ))}
             </div>
@@ -300,5 +396,35 @@ const styles: Record<string, CSSProperties> = {
     color: "#fff",
     cursor: "pointer",
     flexShrink: 0,
+  },
+  healthDivider: {
+    height: 1,
+    background: FC.border,
+    margin: "32px 0 28px",
+  },
+  healthTitle: {
+    fontSize: 22,
+    fontWeight: 700,
+    color: FC.textPrimary,
+    margin: 0,
+    letterSpacing: "-0.2px",
+  },
+  healthCard: {
+    background: FC.surface,
+    border: `1px solid ${FC.border}`,
+    borderRadius: 8,
+    padding: "10px 16px",
+    marginBottom: 6,
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+  },
+  healthBadge: {
+    fontSize: 12,
+    fontWeight: 600,
+    padding: "2px 10px",
+    borderRadius: 4,
+    flexShrink: 0,
+    marginLeft: "auto",
   },
 };

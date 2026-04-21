@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { Suspense, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import CallSessionPanel from "../../components/friday/CallSessionPanel";
@@ -8,6 +8,14 @@ import CallHistoryPanel from "../../components/friday/CallHistoryPanel";
 import type { CallTarget } from "../../components/friday/types";
 
 export default function FridayPage() {
+  return (
+    <Suspense fallback={null}>
+      <FridayPageInner />
+    </Suspense>
+  );
+}
+
+function FridayPageInner() {
   const searchParams = useSearchParams();
   const directTarget = searchParams.get("directTarget") ?? undefined;
   const [activeTarget, setActiveTarget] = useState<CallTarget | null>(null);
