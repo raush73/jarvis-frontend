@@ -147,6 +147,8 @@ export interface TodaysWorkItem {
   bucketReason: string;
   followUpDueAt: string | null;
   hasExplicitTime: boolean;
+  touchDeadlineAt: string | null;
+  controlDeadlineAt: string | null;
 }
 
 export interface TodaysWorkResult {

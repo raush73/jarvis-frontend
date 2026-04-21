@@ -59,6 +59,13 @@ function formatDate(iso: string | null): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+function daysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  const target = new Date(iso).getTime();
+  const now = Date.now();
+  return Math.ceil((target - now) / (1000 * 60 * 60 * 24));
+}
+
 export default function KPIPage() {
   const [items, setItems] = useState<TodaysWorkItem[]>([]);
   const [healthItems, setHealthItems] = useState<CustomerHealthItem[]>([]);
@@ -168,6 +175,40 @@ export default function KPIPage() {
                       </span>
                     )}
                   </div>
+                  {item.lifecycleStatus === "PROSPECT" &&
+                    (item.touchDeadlineAt || item.controlDeadlineAt) && (
+                      <div style={styles.urgencyRow}>
+                        {item.touchDeadlineAt && (() => {
+                          const days = daysUntil(item.touchDeadlineAt);
+                          const overdue = days !== null && days < 0;
+                          return (
+                            <span
+                              style={{
+                                ...styles.urgencyTag,
+                                color: overdue ? FC.accentRed : FC.accentAmber,
+                                background: overdue
+                                  ? "rgba(239, 68, 68, 0.12)"
+                                  : FC.accentAmberDim,
+                              }}
+                            >
+                              {overdue
+                                ? `Touch overdue by ${Math.abs(days!)} days`
+                                : `Touch due in ${days} days`}
+                            </span>
+                          );
+                        })()}
+                        {item.controlDeadlineAt && (() => {
+                          const days = daysUntil(item.controlDeadlineAt);
+                          return (
+                            <span style={styles.urgencyTag}>
+                              {days !== null && days < 0
+                                ? `Control expired`
+                                : `Control expires in ${days} days`}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    )}
                   <div style={styles.cardBottom}>
                     <span style={styles.bucketLabel}>
                       {BUCKET_LABELS[item.bucket] ?? item.bucket}
@@ -396,6 +437,21 @@ const styles: Record<string, CSSProperties> = {
     color: "#fff",
     cursor: "pointer",
     flexShrink: 0,
+  },
+  urgencyRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    paddingLeft: 32,
+    marginBottom: 6,
+  },
+  urgencyTag: {
+    fontSize: 11,
+    fontWeight: 600,
+    padding: "2px 8px",
+    borderRadius: 4,
+    color: FC.textSecondary,
+    background: "rgba(255, 255, 255, 0.06)",
   },
   healthDivider: {
     height: 1,
