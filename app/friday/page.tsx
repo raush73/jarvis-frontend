@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import CallSessionPanel from "../../components/friday/CallSessionPanel";
 import CallHistoryPanel from "../../components/friday/CallHistoryPanel";
 import type { CallTarget } from "../../components/friday/types";
 
 export default function FridayPage() {
+  const searchParams = useSearchParams();
+  const directTarget = searchParams.get("directTarget") ?? undefined;
   const [activeTarget, setActiveTarget] = useState<CallTarget | null>(null);
 
   const handleTargetChange = useCallback((target: CallTarget | null) => {
@@ -16,7 +19,10 @@ export default function FridayPage() {
   return (
     <div className="friday-page">
       <div className="friday-session">
-        <CallSessionPanel onTargetChange={handleTargetChange} />
+        <CallSessionPanel
+          onTargetChange={handleTargetChange}
+          directTargetCustomerId={directTarget}
+        />
       </div>
 
       <div className="friday-history">

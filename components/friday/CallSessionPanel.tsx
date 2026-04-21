@@ -29,9 +29,10 @@ type PanelPhase =
 
 interface CallSessionPanelProps {
   onTargetChange?: (target: CallTarget | null) => void;
+  directTargetCustomerId?: string;
 }
 
-export default function CallSessionPanel({ onTargetChange }: CallSessionPanelProps) {
+export default function CallSessionPanel({ onTargetChange, directTargetCustomerId }: CallSessionPanelProps) {
   const [phase, setPhase] = useState<PanelPhase>('loading');
   const [sessionId, setSessionId] = useState('');
   const [callEventId, setCallEventId] = useState<string | null>(null);
@@ -47,6 +48,8 @@ export default function CallSessionPanel({ onTargetChange }: CallSessionPanelPro
   const [deferConflict, setDeferConflict] = useState<DeferResult['conflict'] | null>(null);
 
   const mountedRef = useRef(true);
+  const directConsumedRef = useRef(false);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
@@ -99,6 +102,41 @@ export default function CallSessionPanel({ onTargetChange }: CallSessionPanelPro
       }
     })();
   }, [syncState]);
+
+  // Direct mode: when session is READY and a directTargetCustomerId is pending,
+  // auto-fire startCallDirect to bypass queue. Consumed once per mount.
+  useEffect(() => {
+    if (
+      !directTargetCustomerId ||
+      directConsumedRef.current ||
+      phase !== 'ready' ||
+      !sessionId ||
+      busy
+    ) return;
+
+    directConsumedRef.current = true;
+
+    (async () => {
+      setBusy(true);
+      setError('');
+      const res = await fridayFetch<StartCallResult>(
+        '/friday/call-session/start-call-direct',
+        {
+          method: 'POST',
+          body: JSON.stringify({ customerId: directTargetCustomerId }),
+        },
+      );
+      if (!mountedRef.current) return;
+      setBusy(false);
+      if (res.ok) {
+        setCallEventId(res.data.callEventId);
+        setTarget(res.data.callTarget);
+        setPhase('in_call');
+      } else {
+        setError(res.error);
+      }
+    })();
+  }, [directTargetCustomerId, phase, sessionId, busy]);
 
   const loadContactsAndFollowUps = useCallback(async (customerId: string) => {
     const [cRes, fRes] = await Promise.all([
