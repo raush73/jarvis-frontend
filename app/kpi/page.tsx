@@ -66,6 +66,59 @@ function daysUntil(iso: string | null): number | null {
   return Math.ceil((target - now) / (1000 * 60 * 60 * 24));
 }
 
+function sortWorkItems(items: TodaysWorkItem[]): TodaysWorkItem[] {
+  return [...items].sort((a, b) => {
+    const touchA = daysUntil(a.touchDeadlineAt);
+    const touchB = daysUntil(b.touchDeadlineAt);
+    const aOverdue = touchA !== null && touchA < 0;
+    const bOverdue = touchB !== null && touchB < 0;
+
+    if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+    if (aOverdue && bOverdue) return touchA! - touchB!;
+
+    const aHasUrgency = a.touchDeadlineAt || a.controlDeadlineAt;
+    const bHasUrgency = b.touchDeadlineAt || b.controlDeadlineAt;
+    if (aHasUrgency && !bHasUrgency) return -1;
+    if (!aHasUrgency && bHasUrgency) return 1;
+    if (aHasUrgency && bHasUrgency) {
+      const nearestA = Math.min(
+        touchA ?? Infinity,
+        daysUntil(a.controlDeadlineAt) ?? Infinity
+      );
+      const nearestB = Math.min(
+        touchB ?? Infinity,
+        daysUntil(b.controlDeadlineAt) ?? Infinity
+      );
+      if (nearestA !== nearestB) return nearestA - nearestB;
+    }
+
+    if (a.hasExplicitTime !== b.hasExplicitTime)
+      return a.hasExplicitTime ? -1 : 1;
+    if (a.hasExplicitTime && b.hasExplicitTime && a.followUpDueAt && b.followUpDueAt)
+      return new Date(a.followUpDueAt).getTime() - new Date(b.followUpDueAt).getTime();
+
+    if (a.followUpDueAt && b.followUpDueAt)
+      return new Date(a.followUpDueAt).getTime() - new Date(b.followUpDueAt).getTime();
+    if (a.followUpDueAt && !b.followUpDueAt) return -1;
+    if (!a.followUpDueAt && b.followUpDueAt) return 1;
+
+    return a.customerName.localeCompare(b.customerName);
+  });
+}
+
+function sortHealthItems(items: CustomerHealthItem[]): CustomerHealthItem[] {
+  return [...items].sort((a, b) => {
+    const aDays = a.businessDaysSince ?? Infinity;
+    const bDays = b.businessDaysSince ?? Infinity;
+    if (aDays !== bDays) {
+      if (aDays === Infinity && bDays !== Infinity) return -1;
+      if (bDays === Infinity && aDays !== Infinity) return 1;
+      return bDays - aDays;
+    }
+    return a.customerName.localeCompare(b.customerName);
+  });
+}
+
 export default function KPIPage() {
   const [items, setItems] = useState<TodaysWorkItem[]>([]);
   const [healthItems, setHealthItems] = useState<CustomerHealthItem[]>([]);
@@ -113,7 +166,13 @@ export default function KPIPage() {
   };
 
   const grouped = groupByWorkType(items);
+  for (const [key, list] of grouped) grouped.set(key, sortWorkItems(list));
+
   const healthGrouped = groupByHealthState(healthItems);
+  for (const [key, list] of healthGrouped) healthGrouped.set(key, sortHealthItems(list));
+
+  let workItemIndex = 0;
+  let healthItemIndex = 0;
 
   return (
     <div className="kpi-page">
@@ -160,8 +219,14 @@ export default function KPIPage() {
                       </span>
                       <span style={styles.sectionCount}>{group.length}</span>
                     </div>
-                    {group.map((item) => (
-                      <div key={item.customerId} style={styles.card}>
+                    {group.map((item) => {
+                      const isFirst = workItemIndex === 0;
+                      workItemIndex++;
+                      return (
+                      <div
+                        key={item.customerId}
+                        style={isFirst ? { ...styles.card, ...styles.topItemCard } : styles.card}
+                      >
                         <div style={styles.cardTop}>
                           <span style={styles.lifecycleBadge}>
                             {LIFECYCLE_SHORT[item.lifecycleStatus] ?? "?"}
@@ -241,7 +306,8 @@ export default function KPIPage() {
                           </button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -294,8 +360,14 @@ export default function KPIPage() {
                       </span>
                       <span style={styles.sectionCount}>{group.length}</span>
                     </div>
-                    {group.map((item) => (
-                      <div key={item.customerId} style={styles.healthCard}>
+                    {group.map((item) => {
+                      const isFirst = healthItemIndex === 0;
+                      healthItemIndex++;
+                      return (
+                      <div
+                        key={item.customerId}
+                        style={isFirst ? { ...styles.healthCard, ...styles.topItemCard } : styles.healthCard}
+                      >
                         <span style={styles.companyName}>
                           {item.customerName}
                         </span>
@@ -309,7 +381,8 @@ export default function KPIPage() {
                           {item.displayText}
                         </span>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -560,5 +633,9 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 4,
     flexShrink: 0,
     marginLeft: "auto",
+  },
+  topItemCard: {
+    borderColor: "rgba(59, 130, 246, 0.45)",
+    boxShadow: "0 0 8px rgba(59, 130, 246, 0.15)",
   },
 };
