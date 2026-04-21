@@ -8,6 +8,10 @@ import { INTENT_LABELS, type FollowUpIntentType } from '../../../components/frid
 import { formatDueAt } from '../../../components/friday/displayHelpers';
 import { FC } from '../../../components/friday/styles';
 
+function isAccountLifecycle(status: string): boolean {
+  return status === 'PROSPECT' || status === 'CUSTOMER';
+}
+
 type Tab = 'queue' | 'company' | 'stale' | 'strategic';
 
 const TABS: { id: Tab; label: string }[] = [
@@ -191,6 +195,7 @@ function FlatQueueSection() {
             <th style={thStyle}>Reason</th>
             <th style={thStyle}>Lifecycle</th>
             <th style={thStyle}>Health</th>
+            <th style={thStyle}></th>
           </tr>
         </thead>
         <tbody>
@@ -223,6 +228,16 @@ function FlatQueueSection() {
               </td>
               <td style={tdStyle}>
                 <HealthBadge status={entry.healthStatus} />
+              </td>
+              <td style={tdStyle}>
+                {isAccountLifecycle(entry.lifecycleStatus) && (
+                  <Link
+                    href={`/friday?directTarget=${entry.customerId}`}
+                    style={callLinkStyle}
+                  >
+                    Call
+                  </Link>
+                )}
               </td>
             </tr>
           ))}
@@ -307,7 +322,15 @@ function CompanyCard({ company }: { company: CompanyQueueGroup }) {
             {company.daysSinceLastActivity !== null && <span>{company.daysSinceLastActivity}d since activity</span>}
           </div>
         </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
+          {isAccountLifecycle(company.lifecycleStatus) && (
+            <Link
+              href={`/friday?directTarget=${company.customerId}`}
+              style={callLinkStyle}
+            >
+              Call
+            </Link>
+          )}
           {company.representativeFollowUp && (
             <div style={{ fontSize: '0.75rem', color: FC.textSecondary }}>
               {formatDueAt(company.representativeFollowUp.dueAt, company.representativeFollowUp.hasExplicitTime)}
@@ -396,6 +419,7 @@ function StaleSection() {
             <th style={thStyle}>Reason</th>
             <th style={thStyle}>Lifecycle</th>
             <th style={thStyle}>Health</th>
+            <th style={thStyle}></th>
           </tr>
         </thead>
         <tbody>
@@ -425,6 +449,16 @@ function StaleSection() {
               </td>
               <td style={tdStyle}>
                 <HealthBadge status={entry.healthStatus} />
+              </td>
+              <td style={tdStyle}>
+                {isAccountLifecycle(entry.lifecycleStatus) && (
+                  <Link
+                    href={`/friday?directTarget=${entry.customerId}`}
+                    style={callLinkStyle}
+                  >
+                    Call
+                  </Link>
+                )}
               </td>
             </tr>
           ))}
@@ -683,6 +717,19 @@ function HealthBadge({ status }: { status: string | null }) {
     </span>
   );
 }
+
+const callLinkStyle: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '0.25rem 0.625rem',
+  fontSize: '0.6875rem',
+  fontWeight: 600,
+  border: 'none',
+  borderRadius: 4,
+  background: FC.accentBlue,
+  color: '#fff',
+  textDecoration: 'none',
+  letterSpacing: '0.02em',
+};
 
 const actionBtnStyle: React.CSSProperties = {
   padding: '0.25rem 0.5rem',
