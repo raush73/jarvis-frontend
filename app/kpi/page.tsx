@@ -116,186 +116,269 @@ export default function KPIPage() {
   const healthGrouped = groupByHealthState(healthItems);
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <h1 style={styles.title}>Today&apos;s Work</h1>
-        <span style={styles.count}>
-          {items.length} {items.length === 1 ? "item" : "items"}
-        </span>
-      </div>
+    <div className="kpi-page">
+      <div className="kpi-columns">
+        {/* ──────────── Today's Work ──────────── */}
+        <div className="kpi-panel">
+          <div style={styles.header}>
+            <h1 style={styles.title}>Today&apos;s Work</h1>
+            <span style={styles.count}>
+              {items.length} {items.length === 1 ? "item" : "items"}
+            </span>
+          </div>
+          <div className="kpi-scroll">
+            {loading && <p style={styles.message}>Loading...</p>}
+            {error && (
+              <p style={{ ...styles.message, color: FC.accentRed }}>{error}</p>
+            )}
 
-      {loading && <p style={styles.message}>Loading...</p>}
-      {error && <p style={{ ...styles.message, color: FC.accentRed }}>{error}</p>}
-
-      {!loading && !error && items.length === 0 && (
-        <div style={styles.empty}>
-          <p style={styles.emptyTitle}>No work items right now</p>
-          <p style={styles.emptyDesc}>
-            All owned accounts are either future-scheduled or completed for
-            today.
-          </p>
-        </div>
-      )}
-
-      {!loading &&
-        PRIORITY_ORDER.map((wt) => {
-          const group = grouped.get(wt) ?? [];
-          if (group.length === 0) return null;
-          return (
-            <div key={wt} style={styles.section}>
-              <div style={styles.sectionHeader}>
-                <span
-                  style={{
-                    ...styles.sectionDot,
-                    background: WORK_TYPE_COLORS[wt],
-                  }}
-                />
-                <span style={styles.sectionLabel}>
-                  {WORK_TYPE_LABELS[wt]}
-                </span>
-                <span style={styles.sectionCount}>{group.length}</span>
+            {!loading && !error && items.length === 0 && (
+              <div style={styles.empty}>
+                <p style={styles.emptyTitle}>No work items right now</p>
+                <p style={styles.emptyDesc}>
+                  All owned accounts are either future-scheduled or completed
+                  for today.
+                </p>
               </div>
-              {group.map((item) => (
-                <div key={item.customerId} style={styles.card}>
-                  <div style={styles.cardTop}>
-                    <span style={styles.lifecycleBadge}>
-                      {LIFECYCLE_SHORT[item.lifecycleStatus] ?? "?"}
-                    </span>
-                    <span style={styles.companyName}>
-                      {item.customerName}
-                    </span>
-                    {item.hasExplicitTime && item.followUpDueAt && (
-                      <span style={styles.timeBadge}>
-                        {formatTime(item.followUpDueAt)}
+            )}
+
+            {!loading &&
+              PRIORITY_ORDER.map((wt) => {
+                const group = grouped.get(wt) ?? [];
+                if (group.length === 0) return null;
+                return (
+                  <div key={wt} style={styles.section}>
+                    <div style={styles.sectionHeader}>
+                      <span
+                        style={{
+                          ...styles.sectionDot,
+                          background: WORK_TYPE_COLORS[wt],
+                        }}
+                      />
+                      <span style={styles.sectionLabel}>
+                        {WORK_TYPE_LABELS[wt]}
                       </span>
-                    )}
-                    {!item.hasExplicitTime && item.followUpDueAt && (
-                      <span style={styles.dateBadge}>
-                        {formatDate(item.followUpDueAt)}
-                      </span>
-                    )}
-                  </div>
-                  {item.lifecycleStatus === "PROSPECT" &&
-                    (item.touchDeadlineAt || item.controlDeadlineAt) && (
-                      <div style={styles.urgencyRow}>
-                        {item.touchDeadlineAt && (() => {
-                          const days = daysUntil(item.touchDeadlineAt);
-                          const overdue = days !== null && days < 0;
-                          return (
-                            <span
-                              style={{
-                                ...styles.urgencyTag,
-                                color: overdue ? FC.accentRed : FC.accentAmber,
-                                background: overdue
-                                  ? "rgba(239, 68, 68, 0.12)"
-                                  : FC.accentAmberDim,
-                              }}
-                            >
-                              {overdue
-                                ? `Touch overdue by ${Math.abs(days!)} days`
-                                : `Touch due in ${days} days`}
+                      <span style={styles.sectionCount}>{group.length}</span>
+                    </div>
+                    {group.map((item) => (
+                      <div key={item.customerId} style={styles.card}>
+                        <div style={styles.cardTop}>
+                          <span style={styles.lifecycleBadge}>
+                            {LIFECYCLE_SHORT[item.lifecycleStatus] ?? "?"}
+                          </span>
+                          <span style={styles.companyName}>
+                            {item.customerName}
+                          </span>
+                          {item.hasExplicitTime && item.followUpDueAt && (
+                            <span style={styles.timeBadge}>
+                              {formatTime(item.followUpDueAt)}
                             </span>
-                          );
-                        })()}
-                        {item.controlDeadlineAt && (() => {
-                          const days = daysUntil(item.controlDeadlineAt);
-                          return (
-                            <span style={styles.urgencyTag}>
-                              {days !== null && days < 0
-                                ? `Control expired`
-                                : `Control expires in ${days} days`}
+                          )}
+                          {!item.hasExplicitTime && item.followUpDueAt && (
+                            <span style={styles.dateBadge}>
+                              {formatDate(item.followUpDueAt)}
                             </span>
-                          );
-                        })()}
+                          )}
+                        </div>
+                        {item.lifecycleStatus === "PROSPECT" &&
+                          (item.touchDeadlineAt ||
+                            item.controlDeadlineAt) && (
+                            <div style={styles.urgencyRow}>
+                              {item.touchDeadlineAt &&
+                                (() => {
+                                  const days = daysUntil(
+                                    item.touchDeadlineAt
+                                  );
+                                  const overdue =
+                                    days !== null && days < 0;
+                                  return (
+                                    <span
+                                      style={{
+                                        ...styles.urgencyTag,
+                                        color: overdue
+                                          ? FC.accentRed
+                                          : FC.accentAmber,
+                                        background: overdue
+                                          ? "rgba(239, 68, 68, 0.12)"
+                                          : FC.accentAmberDim,
+                                      }}
+                                    >
+                                      {overdue
+                                        ? `Touch overdue by ${Math.abs(days!)} days`
+                                        : `Touch due in ${days} days`}
+                                    </span>
+                                  );
+                                })()}
+                              {item.controlDeadlineAt &&
+                                (() => {
+                                  const days = daysUntil(
+                                    item.controlDeadlineAt
+                                  );
+                                  return (
+                                    <span style={styles.urgencyTag}>
+                                      {days !== null && days < 0
+                                        ? `Control expired`
+                                        : `Control expires in ${days} days`}
+                                    </span>
+                                  );
+                                })()}
+                            </div>
+                          )}
+                        <div style={styles.cardBottom}>
+                          <span style={styles.bucketLabel}>
+                            {BUCKET_LABELS[item.bucket] ?? item.bucket}
+                          </span>
+                          <span style={styles.reason}>
+                            {item.bucketReason}
+                          </span>
+                          <button
+                            style={styles.callBtn}
+                            onClick={() =>
+                              handleStartCall(item.customerId)
+                            }
+                          >
+                            Start Call
+                          </button>
+                        </div>
                       </div>
-                    )}
-                  <div style={styles.cardBottom}>
-                    <span style={styles.bucketLabel}>
-                      {BUCKET_LABELS[item.bucket] ?? item.bucket}
-                    </span>
-                    <span style={styles.reason}>{item.bucketReason}</span>
-                    <button
-                      style={styles.callBtn}
-                      onClick={() => handleStartCall(item.customerId)}
-                    >
-                      Start Call
-                    </button>
+                    ))}
                   </div>
-                </div>
-              ))}
-            </div>
-          );
-        })}
+                );
+              })}
+          </div>
+        </div>
 
-      {/* ──────────── Customer Health ──────────── */}
-      <div style={styles.healthDivider} />
-      <div style={styles.header}>
-        <h2 style={styles.healthTitle}>Customer Health</h2>
-        <span style={styles.count}>
-          {healthItems.length}{" "}
-          {healthItems.length === 1 ? "account" : "accounts"}
-        </span>
+        {/* ──────────── Customer Health ──────────── */}
+        <div className="kpi-panel">
+          <div style={styles.header}>
+            <h2 style={styles.healthTitle}>Customer Health</h2>
+            <span style={styles.count}>
+              {healthItems.length}{" "}
+              {healthItems.length === 1 ? "account" : "accounts"}
+            </span>
+          </div>
+          <div className="kpi-scroll">
+            {healthLoading && (
+              <p style={styles.message}>Loading health data...</p>
+            )}
+            {healthError && (
+              <p style={{ ...styles.message, color: FC.accentRed }}>
+                {healthError}
+              </p>
+            )}
+
+            {!healthLoading && !healthError && healthItems.length === 0 && (
+              <div style={styles.empty}>
+                <p style={styles.emptyTitle}>All customers are healthy</p>
+                <p style={styles.emptyDesc}>
+                  No owned customers require attention right now.
+                </p>
+              </div>
+            )}
+
+            {!healthLoading &&
+              HEALTH_ORDER.map((hs) => {
+                const group = healthGrouped.get(hs) ?? [];
+                if (group.length === 0) return null;
+                return (
+                  <div key={hs} style={styles.section}>
+                    <div style={styles.sectionHeader}>
+                      <span
+                        style={{
+                          ...styles.sectionDot,
+                          background: HEALTH_STATE_COLORS[hs],
+                        }}
+                      />
+                      <span style={styles.sectionLabel}>
+                        {HEALTH_STATE_LABELS[hs]}
+                      </span>
+                      <span style={styles.sectionCount}>{group.length}</span>
+                    </div>
+                    {group.map((item) => (
+                      <div key={item.customerId} style={styles.healthCard}>
+                        <span style={styles.companyName}>
+                          {item.customerName}
+                        </span>
+                        <span
+                          style={{
+                            ...styles.healthBadge,
+                            color: HEALTH_STATE_COLORS[item.healthState],
+                            background: `${HEALTH_STATE_COLORS[item.healthState]}18`,
+                          }}
+                        >
+                          {item.displayText}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+          </div>
+        </div>
       </div>
 
-      {healthLoading && <p style={styles.message}>Loading health data...</p>}
-      {healthError && (
-        <p style={{ ...styles.message, color: FC.accentRed }}>{healthError}</p>
-      )}
+      <style jsx>{`
+        .kpi-page {
+          padding: 32px 40px;
+          max-width: 1280px;
+          margin: 0 auto;
+        }
 
-      {!healthLoading && !healthError && healthItems.length === 0 && (
-        <div style={styles.empty}>
-          <p style={styles.emptyTitle}>All customers are healthy</p>
-          <p style={styles.emptyDesc}>
-            No owned customers require attention right now.
-          </p>
-        </div>
-      )}
+        .kpi-columns {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 28px;
+          align-items: start;
+        }
 
-      {!healthLoading &&
-        HEALTH_ORDER.map((hs) => {
-          const group = healthGrouped.get(hs) ?? [];
-          if (group.length === 0) return null;
-          return (
-            <div key={hs} style={styles.section}>
-              <div style={styles.sectionHeader}>
-                <span
-                  style={{
-                    ...styles.sectionDot,
-                    background: HEALTH_STATE_COLORS[hs],
-                  }}
-                />
-                <span style={styles.sectionLabel}>
-                  {HEALTH_STATE_LABELS[hs]}
-                </span>
-                <span style={styles.sectionCount}>{group.length}</span>
-              </div>
-              {group.map((item) => (
-                <div key={item.customerId} style={styles.healthCard}>
-                  <span style={styles.companyName}>{item.customerName}</span>
-                  <span
-                    style={{
-                      ...styles.healthBadge,
-                      color: HEALTH_STATE_COLORS[item.healthState],
-                      background: `${HEALTH_STATE_COLORS[item.healthState]}18`,
-                    }}
-                  >
-                    {item.displayText}
-                  </span>
-                </div>
-              ))}
-            </div>
-          );
-        })}
+        .kpi-panel {
+          min-width: 0;
+        }
+
+        .kpi-scroll {
+          max-height: calc(100vh - 180px);
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+
+        .kpi-scroll::-webkit-scrollbar {
+          width: 5px;
+        }
+
+        .kpi-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .kpi-scroll::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 3px;
+        }
+
+        .kpi-scroll::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+
+        @media (max-width: 900px) {
+          .kpi-page {
+            padding: 24px 16px;
+          }
+
+          .kpi-columns {
+            grid-template-columns: 1fr;
+          }
+
+          .kpi-scroll {
+            max-height: none;
+            overflow-y: visible;
+            padding-right: 0;
+          }
+        }
+      `}</style>
     </div>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  container: {
-    padding: "32px 40px",
-    maxWidth: 860,
-    margin: "0 auto",
-  },
   header: {
     display: "flex",
     alignItems: "baseline",
@@ -452,11 +535,6 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 4,
     color: FC.textSecondary,
     background: "rgba(255, 255, 255, 0.06)",
-  },
-  healthDivider: {
-    height: 1,
-    background: FC.border,
-    margin: "32px 0 28px",
   },
   healthTitle: {
     fontSize: 22,
