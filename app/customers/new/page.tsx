@@ -3,165 +3,215 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { apiFetch } from "@/lib/api";
 
-// Mock salesperson options (static)
-const SALESPERSON_OPTIONS = [
-  { value: "sp-001", label: "Jordan Miles" },
-  { value: "sp-002", label: "Sarah Chen" },
-  { value: "sp-003", label: "Marcus Johnson" },
-  { value: "sp-004", label: "Emily Rodriguez" },
-];
+const LIFECYCLE_OPTIONS = [
+  { value: "LEAD", label: "Lead" },
+  { value: "PROSPECT", label: "Prospect" },
+  { value: "CUSTOMER", label: "Customer" },
+] as const;
 
+const US_STATE_CODES = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
+  "HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+  "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
+  "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+] as const;
 
 export default function CreateCustomerPage() {
   const router = useRouter();
 
-  // Form state — Required fields
-  const [customerName, setCustomerName] = useState("");
-  const [defaultSalesperson, setDefaultSalesperson] = useState("");
+  const [name, setName] = useState("");
+  const [lifecycleStatus, setLifecycleStatus] = useState("");
+  const [phone, setPhone] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zipCode, setZipCode] = useState("");
+  const [country, setCountry] = useState("");
 
-  // Form state — Optional fields
-  const [website, setWebsite] = useState("");
-  const [mainPhone, setMainPhone] = useState("");
-  const [address, setAddress] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Validation — Customer Name and Default Salesperson are required
-  const canSubmit = customerName.trim() !== "" && defaultSalesperson !== "";
+  const canSubmit = name.trim() !== "" && lifecycleStatus !== "" && !submitting;
 
-  // Handle create (mock only — no persistence)
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!canSubmit) return;
+    setSubmitting(true);
+    setError(null);
 
-    // Navigate to mock Customer Profile page
-    router.push("/customers/CUST-NEW");
+    try {
+      const payload: Record<string, string> = {
+        name: name.trim(),
+        lifecycleStatus,
+      };
+      if (phone.trim()) payload.phone = phone.trim();
+      if (websiteUrl.trim()) payload.websiteUrl = websiteUrl.trim();
+      if (street.trim()) payload.street = street.trim();
+      if (city.trim()) payload.city = city.trim();
+      if (state) payload.state = state;
+      if (zipCode.trim()) payload.zipCode = zipCode.trim();
+      if (country.trim()) payload.country = country.trim();
+
+      const created = await apiFetch<{ id: string }>("/customers", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      router.push(`/customers/${created.id}`);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create company. Please try again.");
+      setSubmitting(false);
+    }
   };
 
-  // Handle cancel
   const handleCancel = () => {
     router.push("/customers");
   };
 
   return (
     <div className="create-customer-container">
-      {/* UI Shell Banner */}
-      <div className="shell-banner">
-        UI shell (mocked) — No backend wiring — Manual customer creation only.
-      </div>
-
       {/* Header */}
       <div className="page-header">
         <Link href="/customers" className="back-link">
-          ← Back to Customers
+          &larr; Back to Companies
         </Link>
-        <h1>Create Customer</h1>
+        <h1>Add Company</h1>
         <p className="subtitle">
-          Add a new customer record for order and commission management.
+          Create a new Lead, Prospect, or Customer record.
         </p>
       </div>
 
-      {/* Basic Information Section */}
+      {error && <div className="error-banner">{error}</div>}
+
+      {/* Basic Information */}
       <div className="form-section">
         <div className="section-title">Basic Information</div>
         <div className="form-grid">
-          {/* Customer Name */}
           <div className="form-row">
             <label className="form-label">
-              Customer Name <span className="required">*</span>
+              Company Name <span className="required">*</span>
             </label>
             <input
               type="text"
               className="form-input"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               placeholder="e.g., Turner Construction"
             />
-            <span className="field-hint">
-              Legal or commonly used business name.
-            </span>
           </div>
 
-          {/* Default Salesperson */}
           <div className="form-row">
             <label className="form-label">
-              Main / Default Salesperson <span className="required">*</span>
+              Lifecycle Status <span className="required">*</span>
             </label>
             <select
               className="form-select"
-              value={defaultSalesperson}
-              onChange={(e) => setDefaultSalesperson(e.target.value)}
+              value={lifecycleStatus}
+              onChange={(e) => setLifecycleStatus(e.target.value)}
             >
-              <option value="">— Select Salesperson —</option>
-              {SALESPERSON_OPTIONS.map((opt) => (
+              <option value="">— Select Status —</option>
+              {LIFECYCLE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
               ))}
             </select>
-            <span className="field-hint">
-              Primary owner of this customer.
-            </span>
           </div>
         </div>
       </div>
 
-      {/* Sales & Commission Section */}
-      <div className="form-section">
-        <div className="section-title">Sales & Commission</div>
-        <div className="form-grid">
-          {/* Commission Plan (Admin-controlled) */}
-          <div className="form-row">
-            <label className="form-label">Commission Plan</label>
-            <input
-              type="text"
-              className="form-input readonly-field"
-              value="— Use Salesperson Default —"
-              readOnly
-              disabled
-            />
-            <span className="field-hint">
-              Commission plans are set by Admin and audited.
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Contact Information Section */}
+      {/* Contact Information */}
       <div className="form-section">
         <div className="section-title">Contact Information</div>
         <div className="form-grid">
-          {/* Website */}
-          <div className="form-row">
-            <label className="form-label">Website</label>
-            <input
-              type="url"
-              className="form-input"
-              value={website}
-              onChange={(e) => setWebsite(e.target.value)}
-              placeholder="e.g., https://turnerconstruction.com"
-            />
-          </div>
-
-          {/* Main Phone */}
           <div className="form-row">
             <label className="form-label">Main Phone</label>
             <input
               type="tel"
               className="form-input"
-              value={mainPhone}
-              onChange={(e) => setMainPhone(e.target.value)}
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
               placeholder="e.g., (213) 555-1000"
             />
           </div>
 
-          {/* Address */}
+          <div className="form-row">
+            <label className="form-label">Website</label>
+            <input
+              type="url"
+              className="form-input"
+              value={websiteUrl}
+              onChange={(e) => setWebsiteUrl(e.target.value)}
+              placeholder="e.g., https://turnerconstruction.com"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Location */}
+      <div className="form-section">
+        <div className="section-title">Location</div>
+        <div className="form-grid">
           <div className="form-row full-width">
-            <label className="form-label">Address</label>
-            <textarea
-              className="form-textarea"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="e.g., 450 S Grand Ave, Suite 2100, Los Angeles, CA 90071"
-              rows={3}
+            <label className="form-label">Street</label>
+            <input
+              type="text"
+              className="form-input"
+              value={street}
+              onChange={(e) => setStreet(e.target.value)}
+              placeholder="e.g., 450 S Grand Ave, Suite 2100"
+            />
+          </div>
+
+          <div className="form-row">
+            <label className="form-label">City</label>
+            <input
+              type="text"
+              className="form-input"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="e.g., Los Angeles"
+            />
+          </div>
+
+          <div className="form-row">
+            <label className="form-label">State</label>
+            <select
+              className="form-select"
+              value={state}
+              onChange={(e) => setState(e.target.value)}
+            >
+              <option value="">— Select State —</option>
+              {US_STATE_CODES.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-row">
+            <label className="form-label">Zip Code</label>
+            <input
+              type="text"
+              className="form-input"
+              value={zipCode}
+              onChange={(e) => setZipCode(e.target.value)}
+              placeholder="e.g., 90071"
+            />
+          </div>
+
+          <div className="form-row">
+            <label className="form-label">Country</label>
+            <input
+              type="text"
+              className="form-input"
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              placeholder="USA"
             />
           </div>
         </div>
@@ -169,7 +219,6 @@ export default function CreateCustomerPage() {
 
       {/* Form Actions */}
       <div className="form-actions">
-        <p className="helper-text">UI-only: saving will be wired later.</p>
         <div className="action-buttons">
           <button type="button" className="cancel-btn" onClick={handleCancel}>
             Cancel
@@ -180,7 +229,7 @@ export default function CreateCustomerPage() {
             onClick={handleCreate}
             disabled={!canSubmit}
           >
-            Create Customer
+            {submitting ? "Creating..." : "Create Company"}
           </button>
         </div>
       </div>
@@ -192,20 +241,6 @@ export default function CreateCustomerPage() {
           margin: 0 auto;
         }
 
-        /* Shell Banner */
-        .shell-banner {
-          background: rgba(245, 158, 11, 0.1);
-          border: 1px solid rgba(245, 158, 11, 0.3);
-          border-radius: 8px;
-          padding: 10px 16px;
-          font-size: 12px;
-          font-weight: 500;
-          color: #f59e0b;
-          text-align: center;
-          margin-bottom: 24px;
-        }
-
-        /* Header */
         .page-header {
           margin-bottom: 28px;
         }
@@ -237,7 +272,16 @@ export default function CreateCustomerPage() {
           margin: 0;
         }
 
-        /* Form Section */
+        .error-banner {
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid rgba(239, 68, 68, 0.3);
+          border-radius: 8px;
+          padding: 12px 16px;
+          font-size: 13px;
+          color: #ef4444;
+          margin-bottom: 24px;
+        }
+
         .form-section {
           background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.06);
@@ -284,7 +328,6 @@ export default function CreateCustomerPage() {
         }
 
         .form-input,
-        .form-textarea,
         .form-select {
           padding: 10px 12px;
           font-size: 13px;
@@ -296,14 +339,12 @@ export default function CreateCustomerPage() {
         }
 
         .form-input:focus,
-        .form-textarea:focus,
         .form-select:focus {
           outline: none;
           border-color: #3b82f6;
         }
 
-        .form-input::placeholder,
-        .form-textarea::placeholder {
+        .form-input::placeholder {
           color: rgba(255, 255, 255, 0.3);
         }
 
@@ -322,41 +363,12 @@ export default function CreateCustomerPage() {
           color: #fff;
         }
 
-        .form-select option:disabled {
-          color: rgba(255, 255, 255, 0.35);
-        }
-
-        .field-hint {
-          font-size: 11px;
-          color: rgba(255, 255, 255, 0.4);
-          font-style: italic;
-        }
-
-        .readonly-field {
-          background: rgba(255, 255, 255, 0.02);
-          color: rgba(255, 255, 255, 0.4);
-          cursor: not-allowed;
-        }
-
-        .form-textarea {
-          resize: vertical;
-          min-height: 80px;
-        }
-
-        /* Form Actions */
         .form-actions {
           display: flex;
-          justify-content: space-between;
+          justify-content: flex-end;
           align-items: center;
           padding-top: 20px;
           border-top: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        .helper-text {
-          font-size: 12px;
-          color: rgba(255, 255, 255, 0.4);
-          font-style: italic;
-          margin: 0;
         }
 
         .action-buttons {

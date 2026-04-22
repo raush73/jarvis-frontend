@@ -280,8 +280,21 @@ export default function CustomersPage() {
           <span className="customer-count">{totalCount} customers</span>
         </div>
         <div className="header-actions">
-          <Link href="/customers/new" className="btn-add">
-            + Create Customer
+          <Link
+            href="/customers/new"
+            style={{
+              backgroundColor: "#2563eb",
+              color: "#ffffff",
+              padding: "10px 18px",
+              borderRadius: "8px",
+              fontWeight: 600,
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              cursor: "pointer",
+            }}
+          >
+            + Create Company
           </Link>
         </div>
       </div>
@@ -516,21 +529,24 @@ export default function CustomersPage() {
         .btn-add {
           display: inline-flex;
           align-items: center;
-          gap: 5px;
-          padding: 9px 18px;
-          font-size: 13px;
+          gap: 6px;
+          padding: 11px 22px;
+          font-size: 14px;
           font-weight: 700;
           color: #ffffff;
           background: #2563eb;
           border: none;
-          border-radius: 7px;
+          border-radius: 8px;
           cursor: pointer;
-          transition: background 0.12s ease;
+          transition: background 0.15s ease, box-shadow 0.15s ease;
           text-decoration: none;
+          box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
+          letter-spacing: 0.01em;
         }
 
         .btn-add:hover {
           background: #1d4ed8;
+          box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
         }
 
         /* --- Filter / Control Row --- */
