@@ -3,10 +3,9 @@ import { NextResponse } from "next/server";
 export async function GET(req: Request) {
   const token = req.headers.get("authorization") || "";
 
-  // Forward query params to backend (critical for search/filter/sort/pagination)
   const url = new URL(req.url);
   const backendUrl = new URL("http://127.0.0.1:3000/customers");
-  backendUrl.search = url.search; // includes leading "?" if present
+  backendUrl.search = url.search;
 
   const res = await fetch(backendUrl.toString(), {
     method: "GET",
@@ -15,6 +14,26 @@ export async function GET(req: Request) {
       ...(token ? { Authorization: token } : {}),
     },
     cache: "no-store",
+  });
+
+  const text = await res.text();
+  return new NextResponse(text, {
+    status: res.status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+export async function POST(req: Request) {
+  const token = req.headers.get("authorization") || "";
+  const body = await req.text();
+
+  const res = await fetch("http://127.0.0.1:3000/customers", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: token } : {}),
+    },
+    body,
   });
 
   const text = await res.text();

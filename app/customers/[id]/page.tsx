@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { formatPhone } from "@/lib/format";
@@ -9,6 +9,9 @@ import type { OrderListItem } from "@/lib/types/order";
 import { getOrderPhase, getPhaseLabel, getPhaseBadgeClass } from "@/lib/order-lifecycle";
 import { HEALTH_STATUS_COLORS } from "@/lib/constants/margin-health";
 import AccountCallTimeline from "@/components/customers/AccountCallTimeline";
+import CallCompletionGate from "@/components/friday/CallCompletionGate";
+import { fridayFetch } from "@/components/friday/fridayFetch";
+import type { CompanyContact as FridayContact, FollowUp, ConflictResponse } from "@/components/friday/types";
 
 // Trade row type for labor plan
 type TradeRow = {
@@ -779,6 +782,64 @@ export default function CustomerDetailPage() {
     return () => { alive = false; };
   }, [activeTab, customerId, callHistoryLoaded]);
 
+  // --- Operational Call State ---
+  const [activeCallEventId, setActiveCallEventId] = useState<string | null>(null);
+  const [activeCallContactId, setActiveCallContactId] = useState<string | null>(null);
+  const [callStarting, setCallStarting] = useState(false);
+  const [showCompletionGate, setShowCompletionGate] = useState(false);
+  const [completionContacts, setCompletionContacts] = useState<FridayContact[]>([]);
+  const [completionFollowUps, setCompletionFollowUps] = useState<FollowUp[]>([]);
+
+  const lifecycle = liveCustomer?.lifecycleStatus as string | undefined;
+  const canCall = lifecycle === "CUSTOMER" || lifecycle === "PROSPECT";
+
+  const handleStartCall = useCallback(async (contactId?: string) => {
+    if (callStarting || activeCallEventId) return;
+    setCallStarting(true);
+    try {
+      const body = contactId ? { contactId } : {};
+      const result = await apiFetch<{ ok: boolean; callEventId: string }>(
+        `/customers/${customerId}/calls`,
+        { method: "POST", body: JSON.stringify(body) }
+      );
+      setActiveCallEventId(result.callEventId);
+      setActiveCallContactId(contactId ?? null);
+    } catch (e: any) {
+      alert(e?.message ?? "Failed to start call.");
+    } finally {
+      setCallStarting(false);
+    }
+  }, [callStarting, activeCallEventId, customerId]);
+
+  const handleEndCall = useCallback(async () => {
+    if (!activeCallEventId) return;
+    setShowCompletionGate(true);
+    const [contactsRes, fuRes] = await Promise.all([
+      fridayFetch<any[]>(`/friday/contacts/company/${customerId}`),
+      fridayFetch<any[]>(`/friday/follow-ups/company/${customerId}?status=OPEN`),
+    ]);
+    if (contactsRes.ok) setCompletionContacts(contactsRes.data ?? []);
+    if (fuRes.ok) setCompletionFollowUps(fuRes.data ?? []);
+  }, [activeCallEventId, customerId]);
+
+  const handleCompletionDone = useCallback(() => {
+    setActiveCallEventId(null);
+    setActiveCallContactId(null);
+    setShowCompletionGate(false);
+    setCompletionContacts([]);
+    setCompletionFollowUps([]);
+    setCallHistoryLoaded(false);
+  }, []);
+
+  const handleCompletionConflict = useCallback(async (_conflict: ConflictResponse) => {
+    const fuRes = await fridayFetch<any[]>(`/friday/follow-ups/company/${customerId}?status=OPEN`);
+    if (fuRes.ok) setCompletionFollowUps(fuRes.data ?? []);
+  }, [customerId]);
+
+  const handleCompletionClose = useCallback(() => {
+    setShowCompletionGate(false);
+  }, []);
+
   const tabs: { key: TabKey; label: string }[] = [
     { key: "contacts", label: "Contacts" },
     { key: "calls", label: "Calls" },
@@ -1341,6 +1402,20 @@ export default function CustomerDetailPage() {
         <div className="summary-item">
           <span className="summary-label">Main Phone</span>
           <span className="summary-value mono">{formatPhone(headerPhone)}</span>
+          {canCall && headerPhone && !activeCallEventId && (
+            <button
+              className="op-call-btn"
+              disabled={callStarting}
+              onClick={() => handleStartCall()}
+            >
+              {callStarting ? "Starting..." : "Call"}
+            </button>
+          )}
+          {activeCallEventId && !activeCallContactId && (
+            <button className="op-endcall-btn" onClick={handleEndCall}>
+              End Call
+            </button>
+          )}
         </div>
         <div className="summary-item">
           <span className="summary-label">Website</span>
@@ -1465,6 +1540,23 @@ export default function CustomerDetailPage() {
                       <td className="contact-phone">{contact.cellPhone ? formatPhone(contact.cellPhone) : "—"}</td>
                       <td className="contact-notes">{contact.notes || "—"}</td>
                       <td className="contact-actions">
+                        {canCall && (contact.officePhone || contact.cellPhone) && !activeCallEventId && (
+                          <button
+                            className="contact-action-link op-call-inline"
+                            disabled={callStarting}
+                            onClick={() => handleStartCall(contact.id)}
+                          >
+                            {callStarting ? "..." : "Call"}
+                          </button>
+                        )}
+                        {activeCallEventId && activeCallContactId === contact.id && (
+                          <button
+                            className="contact-action-link op-endcall-inline"
+                            onClick={handleEndCall}
+                          >
+                            End Call
+                          </button>
+                        )}
                         <button
                           className="contact-action-link"
                           onClick={() => handleOpenEditContactModal(contact, contact.isUiContact)}
@@ -4036,7 +4128,79 @@ export default function CustomerDetailPage() {
           font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
           font-size: 13px;
         }
+
+        /* --- Operational Call Buttons --- */
+        .op-call-btn {
+          margin-left: 8px;
+          padding: 4px 10px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #fff;
+          background: #2563eb;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+        }
+        .op-call-btn:hover:not(:disabled) { background: #1d4ed8; }
+        .op-call-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .op-endcall-btn {
+          margin-left: 8px;
+          padding: 4px 10px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #fff;
+          background: #dc2626;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+        }
+        .op-endcall-btn:hover { background: #b91c1c; }
+
+        .op-call-inline {
+          color: #2563eb !important;
+          font-weight: 600 !important;
+        }
+        .op-endcall-inline {
+          color: #dc2626 !important;
+          font-weight: 600 !important;
+        }
+
+        .op-completion-overlay {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0,0,0,0.6);
+          z-index: 9999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .op-completion-inner {
+          background: #1a1d24;
+          border-radius: 12px;
+          width: 680px;
+          max-height: 90vh;
+          overflow-y: auto;
+          padding: 24px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
       `}</style>
+
+      {showCompletionGate && activeCallEventId && (
+        <div className="op-completion-overlay" onClick={(e) => { if (e.target === e.currentTarget) handleCompletionClose(); }}>
+          <div className="op-completion-inner">
+            <CallCompletionGate
+              callEventId={activeCallEventId}
+              customerId={customerId}
+              contacts={completionContacts}
+              existingFollowUps={completionFollowUps}
+              onCompleted={handleCompletionDone}
+              onConflict={handleCompletionConflict}
+              onClose={handleCompletionClose}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
