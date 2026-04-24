@@ -33,7 +33,7 @@ export default function LoginPage() {
       }
 
       localStorage.setItem('jp_accessToken', data.accessToken);
-      router.push('/orders');
+      window.location.href = '/orders';
     } catch (err: any) {
       setError(err?.message || 'Sign in failed');
     } finally {
