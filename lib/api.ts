@@ -65,7 +65,9 @@ export async function apiFetch<T>(
       clearAccessToken();
     }
     const text = await res.text().catch(() => "");
-    throw new Error(`API ${res.status} ${res.statusText}: ${text}`);
+    const errorMessage = `API ${res.status} ${res.statusText}: ${text}`;
+    console.error(`[apiFetch] ${init.method ?? "GET"} ${path} failed:`, errorMessage);
+    throw new Error(errorMessage);
   }
 
   return (await res.json()) as T;

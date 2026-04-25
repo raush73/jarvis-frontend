@@ -50,17 +50,21 @@ export async function fridayFetch<T>(
       return { ok: true, data: parsed as T, status: res.status };
     }
 
+    const errorMsg = parsed?.message ?? (typeof parsed === 'string' ? parsed : `Request failed (${res.status})`);
+    console.error(`[fridayFetch] ${init.method ?? 'GET'} ${path} failed (${res.status}):`, errorMsg);
     return {
       ok: false,
       status: res.status,
-      error: parsed?.message ?? (typeof parsed === 'string' ? parsed : `Request failed (${res.status})`),
+      error: errorMsg,
       data: parsed,
     };
   } catch (err: any) {
+    const errorMsg = err?.message ?? 'Network error';
+    console.error(`[fridayFetch] ${init.method ?? 'GET'} ${path} network error:`, errorMsg);
     return {
       ok: false,
       status: 0,
-      error: err?.message ?? 'Network error',
+      error: errorMsg,
     };
   }
 }
