@@ -4197,6 +4197,7 @@ export default function CustomerDetailPage() {
               onCompleted={handleCompletionDone}
               onConflict={handleCompletionConflict}
               onClose={handleCompletionClose}
+              mode="operational"
             />
           </div>
         </div>

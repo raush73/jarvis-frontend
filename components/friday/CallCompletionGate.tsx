@@ -37,6 +37,7 @@ interface Props {
   onCompleted: () => void;
   onConflict: (conflict: ConflictResponse) => void;
   onClose: () => void;
+  mode?: 'friday' | 'operational';
 }
 
 type NoteSourceType = 'MANUAL' | 'AI_ASSISTED' | 'AI_GENERATED';
@@ -49,6 +50,7 @@ export default function CallCompletionGate({
   onCompleted,
   onConflict,
   onClose,
+  mode = 'friday',
 }: Props) {
   // Intelligence loading state
   const [intelligence, setIntelligence] = useState<CallIntelligence | null>(null);
@@ -147,12 +149,16 @@ export default function CallCompletionGate({
   }, [callEventId]);
 
   useEffect(() => {
+    if (mode === 'operational') {
+      setAiLoading(false);
+      return;
+    }
     if (MEANINGFUL_OUTCOMES.has(callOutcome)) {
       loadIntelligence();
     } else {
       setAiLoading(false);
     }
-  }, [callOutcome, loadIntelligence]);
+  }, [callOutcome, loadIntelligence, mode]);
 
   function deriveNoteSource(): NoteSourceType {
     if (!intelligence) return 'MANUAL';
@@ -168,11 +174,12 @@ export default function CallCompletionGate({
     return { text: 'Low confidence', color: S.FC.accentRed };
   }
 
-  const canSubmit =
-    callNoteText.trim().length > 0 &&
-    callOutcome !== '' &&
-    nextAction !== '' &&
-    validateSubForm();
+  const canSubmit = mode === 'operational'
+    ? callNoteText.trim().length > 0
+    : callNoteText.trim().length > 0 &&
+      callOutcome !== '' &&
+      nextAction !== '' &&
+      validateSubForm();
 
   function validateSubForm(): boolean {
     if (nextAction === 'follow-up') {
@@ -241,6 +248,33 @@ export default function CallCompletionGate({
 
   async function handleSubmit() {
     setError('');
+
+    if (mode === 'operational') {
+      if (!callNoteText.trim()) { setError('Call note is required'); return; }
+
+      const payload: CompleteCallPayload = {
+        callNoteText: callNoteText.trim(),
+        noteSource: 'MANUAL',
+      };
+      if (callOutcome) {
+        payload.callOutcome = callOutcome as CallOutcome;
+      }
+
+      setSubmitting(true);
+      const result = await fridayFetch(`/friday/calls/${callEventId}/complete`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      setSubmitting(false);
+
+      if (result.ok) {
+        onCompleted();
+        return;
+      }
+      setError(result.error);
+      return;
+    }
+
     if (!callOutcome) { setError('Call outcome is required'); return; }
     if (!callNoteText.trim()) { setError('Call note is required'); return; }
     if (!nextAction) { setError('Next action is required'); return; }
@@ -326,6 +360,81 @@ export default function CallCompletionGate({
   const conf = confidenceLabel(intelligence?.confidenceScore ?? null);
   const emailContacts = contacts.filter((c) => c.email);
 
+  // ─── Operational Mode (CUSTOMER_DETAIL) ────────────────────────────
+  if (mode === 'operational') {
+    return (
+      <>
+        <h2 style={S.modalTitle}>Complete Call</h2>
+        <p style={{ color: S.FC.textMuted, fontSize: '0.8125rem', marginBottom: 20 }}>
+          Add a note to complete this call.
+        </p>
+
+        <div style={S.fieldGroup}>
+          <label style={S.label}>Call note *</label>
+          <textarea
+            value={callNoteText}
+            onChange={(e) => setCallNoteText(e.target.value)}
+            placeholder="Summarize what was discussed..."
+            style={{ ...S.textarea, minHeight: 100 }}
+          />
+        </div>
+
+        <div style={S.fieldGroup}>
+          <label style={S.label}>Call outcome (optional)</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {ALL_OUTCOMES.map((oc) => {
+              const isSelected = callOutcome === oc;
+              return (
+                <label key={oc} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '7px 12px', borderRadius: 6,
+                  border: `1px solid ${isSelected ? S.FC.accentBlue : S.FC.border}`,
+                  background: isSelected ? S.FC.accentBlueDim : 'transparent',
+                  cursor: 'pointer', fontSize: '0.8125rem', color: S.FC.textSecondary,
+                }}>
+                  <input
+                    type="radio" name="op-call-outcome" value={oc}
+                    checked={isSelected}
+                    onChange={() => setCallOutcome(oc)}
+                    style={{ accentColor: S.FC.accentBlue }}
+                  />
+                  {OUTCOME_LABELS[oc]}
+                </label>
+              );
+            })}
+            {callOutcome && (
+              <button
+                onClick={() => setCallOutcome('')}
+                style={{
+                  alignSelf: 'flex-start', padding: '4px 10px', borderRadius: 5,
+                  border: `1px solid ${S.FC.border}`, background: 'transparent',
+                  color: S.FC.textMuted, fontSize: '0.75rem', cursor: 'pointer',
+                  marginTop: 2,
+                }}
+              >
+                Clear selection
+              </button>
+            )}
+          </div>
+        </div>
+
+        {error && <p style={{ ...S.errorText, marginTop: 12 }}>{error}</p>}
+
+        <div style={S.btnRow}>
+          <button onClick={onClose} style={S.btnSecondary}>Cancel</button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || !canSubmit}
+            style={{ ...S.btnPrimary, opacity: submitting || !canSubmit ? 0.5 : 1 }}
+          >
+            {submitting ? 'Completing...' : 'Complete Call'}
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  // ─── Friday Mode (default) ─────────────────────────────────────────
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={{ ...S.modal, maxWidth: 700 }} onClick={(e) => e.stopPropagation()}>

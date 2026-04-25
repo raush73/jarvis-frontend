@@ -92,9 +92,9 @@ export interface ResolveConflictPayload {
 }
 
 export interface CompleteCallPayload {
-  callOutcome: CallOutcome;
+  callOutcome?: CallOutcome;
   callNoteText: string;
-  nextAction: NextActionType;
+  nextAction?: NextActionType | 'mark-closed';
   intelligenceId?: string;
   noteSource?: 'MANUAL' | 'AI_ASSISTED' | 'AI_GENERATED';
   followUpPayload?: CreateFollowUpPayload;
