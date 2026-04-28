@@ -9,7 +9,7 @@ import type { OrderListItem } from "@/lib/types/order";
 import { getOrderPhase, getPhaseLabel, getPhaseBadgeClass } from "@/lib/order-lifecycle";
 import { HEALTH_STATUS_COLORS } from "@/lib/constants/margin-health";
 import AccountCallTimeline from "@/components/customers/AccountCallTimeline";
-import ActivitySection from "@/components/customers/ActivitySection";
+import CustomerActivitySection from "@/components/activity/CustomerActivitySection";
 import CallCompletionGate from "@/components/friday/CallCompletionGate";
 import { fridayFetch } from "@/components/friday/fridayFetch";
 import type { CompanyContact as FridayContact, FollowUp, ConflictResponse } from "@/components/friday/types";
@@ -1730,7 +1730,7 @@ export default function CustomerDetailPage() {
         {/* Activity Tab (Phase 16 — unified two-zone Activity System) */}
         {activeTab === "activity" && (
           <div className="activity-panel">
-            <ActivitySection customerId={customerId} refreshKey={activityRefreshKey} />
+            <CustomerActivitySection customerId={customerId} refreshKey={activityRefreshKey} />
           </div>
         )}
 

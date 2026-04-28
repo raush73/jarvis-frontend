@@ -2,75 +2,21 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
+import {
+  ActivityType,
+  TimelineEntry,
+  OpenActivityEntry,
+  TimelineResponse,
+  OpenActivitiesResponse,
+  ACTIVITY_FILTER_TABS,
+  ACTIVITY_TYPE_BADGES,
+  formatActivityDateTime,
+  formatActivityDueDate,
+} from "./types";
 
-type ActivityType = "NOTE" | "FOLLOW_UP" | "TASK";
+const TIMELINE_PAGE_SIZE = 50;
 
-type TimelineEntry = {
-  id: string;
-  type: ActivityType;
-  timestamp: string;
-  title: string;
-  body: string | null;
-  status: string | null;
-  userId: string;
-  userName: string;
-  metadata: Record<string, any>;
-};
-
-type OpenActivityEntry = {
-  id: string;
-  type: "FOLLOW_UP" | "TASK";
-  dueAt: string | null;
-  title: string;
-  body: string | null;
-  status: string;
-  isOverdue: boolean;
-  userId: string;
-  userName: string;
-  metadata: Record<string, any>;
-};
-
-type TimelineResponse = {
-  items: TimelineEntry[];
-  total: number;
-  limit: number;
-  offset: number;
-};
-
-type OpenActivitiesResponse = {
-  items: OpenActivityEntry[];
-};
-
-const FILTER_TABS: { label: string; value: ActivityType | "ALL" }[] = [
-  { label: "All", value: "ALL" },
-  { label: "Follow-Ups", value: "FOLLOW_UP" },
-  { label: "Tasks", value: "TASK" },
-  { label: "Notes", value: "NOTE" },
-];
-
-const TYPE_BADGES: Record<ActivityType, { label: string; bg: string; color: string }> = {
-  NOTE: { label: "Note", bg: "#f3e8fd", color: "#7b1fa2" },
-  FOLLOW_UP: { label: "Follow-Up", bg: "#fff3e0", color: "#e67e22" },
-  TASK: { label: "Task", bg: "#e8f5e9", color: "#2e7d32" },
-};
-
-function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatDueDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-export default function ActivitySection({
+export default function CustomerActivitySection({
   customerId,
   refreshKey,
 }: {
@@ -88,8 +34,6 @@ export default function ActivitySection({
   const [timelineOffset, setTimelineOffset] = useState(0);
 
   const [activeFilter, setActiveFilter] = useState<ActivityType | "ALL">("ALL");
-
-  const LIMIT = 50;
 
   const loadOpenActivities = useCallback(async () => {
     setOpenLoading(true);
@@ -113,7 +57,7 @@ export default function ActivitySection({
       try {
         const typesParam = activeFilter !== "ALL" ? `&types=${activeFilter}` : "";
         const data = await apiFetch<TimelineResponse>(
-          `/activity/company/${customerId}/timeline?limit=${LIMIT}&offset=${offset}${typesParam}`
+          `/activity/company/${customerId}/timeline?limit=${TIMELINE_PAGE_SIZE}&offset=${offset}${typesParam}`
         );
         if (append) {
           setTimelineItems((prev) => [...prev, ...(data.items ?? [])]);
@@ -178,18 +122,18 @@ export default function ActivitySection({
                   <span
                     className="oa-type-badge"
                     style={{
-                      background: TYPE_BADGES[item.type]?.bg ?? "#eee",
-                      color: TYPE_BADGES[item.type]?.color ?? "#333",
+                      background: ACTIVITY_TYPE_BADGES[item.type]?.bg ?? "#eee",
+                      color: ACTIVITY_TYPE_BADGES[item.type]?.color ?? "#333",
                     }}
                   >
-                    {TYPE_BADGES[item.type]?.label ?? item.type}
+                    {ACTIVITY_TYPE_BADGES[item.type]?.label ?? item.type}
                   </span>
                   {item.isOverdue && <span className="oa-overdue-badge">Overdue</span>}
                   {item.metadata?.isDueToday && !item.isOverdue && (
                     <span className="oa-due-today-badge">Due Today</span>
                   )}
                   {item.dueAt && (
-                    <span className="oa-due-date">{formatDueDate(item.dueAt)}</span>
+                    <span className="oa-due-date">{formatActivityDueDate(item.dueAt)}</span>
                   )}
                   <span className="oa-assignee">{item.userName}</span>
                 </div>
@@ -206,7 +150,7 @@ export default function ActivitySection({
         <div className="zone-header">
           <h3>Activity Timeline</h3>
           <div className="timeline-filters">
-            {FILTER_TABS.map((f) => (
+            {ACTIVITY_FILTER_TABS.map((f) => (
               <button
                 key={f.value}
                 className={`filter-btn ${activeFilter === f.value ? "active" : ""}`}
@@ -232,15 +176,15 @@ export default function ActivitySection({
             {timelineItems.map((item) => (
               <div key={`${item.type}:${item.id}`} className="timeline-item">
                 <div className="tl-top-row">
-                  <span className="tl-timestamp">{formatDateTime(item.timestamp)}</span>
+                  <span className="tl-timestamp">{formatActivityDateTime(item.timestamp)}</span>
                   <span
                     className="tl-type-badge"
                     style={{
-                      background: TYPE_BADGES[item.type]?.bg ?? "#eee",
-                      color: TYPE_BADGES[item.type]?.color ?? "#333",
+                      background: ACTIVITY_TYPE_BADGES[item.type]?.bg ?? "#eee",
+                      color: ACTIVITY_TYPE_BADGES[item.type]?.color ?? "#333",
                     }}
                   >
-                    {TYPE_BADGES[item.type]?.label ?? item.type}
+                    {ACTIVITY_TYPE_BADGES[item.type]?.label ?? item.type}
                   </span>
                   {item.status && <span className="tl-status">{item.status}</span>}
                   <span className="tl-user">{item.userName}</span>
