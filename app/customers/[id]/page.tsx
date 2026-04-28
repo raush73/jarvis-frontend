@@ -9,6 +9,7 @@ import type { OrderListItem } from "@/lib/types/order";
 import { getOrderPhase, getPhaseLabel, getPhaseBadgeClass } from "@/lib/order-lifecycle";
 import { HEALTH_STATUS_COLORS } from "@/lib/constants/margin-health";
 import AccountCallTimeline from "@/components/customers/AccountCallTimeline";
+import ActivitySection from "@/components/customers/ActivitySection";
 import CallCompletionGate from "@/components/friday/CallCompletionGate";
 import { fridayFetch } from "@/components/friday/fridayFetch";
 import type { CompanyContact as FridayContact, FollowUp, ConflictResponse } from "@/components/friday/types";
@@ -274,7 +275,7 @@ const AVAILABLE_TRADES = [
 const OT_MULTIPLIER_MIN = 1.47;
 const OT_MULTIPLIER_DEFAULT = 1.5;
 
-type TabKey = "contacts" | "tools" | "toolsByTrade" | "ppe" | "orders" | "quotes" | "invoices" | "calls";
+type TabKey = "contacts" | "tools" | "toolsByTrade" | "ppe" | "orders" | "quotes" | "invoices" | "calls" | "activity";
 
 // Tool list item shape (UI-only, trade-scoped)
 type ToolLike = { id: string; name: string; notes: string };
@@ -424,6 +425,7 @@ export default function CustomerDetailPage() {
   }, [customerId]);
 
   const [activeTab, setActiveTab] = useState<TabKey>("contacts");
+  const [activityRefreshKey, setActivityRefreshKey] = useState(0);
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [showInternalTotals, setShowInternalTotals] = useState(false);
 
@@ -829,6 +831,7 @@ export default function CustomerDetailPage() {
     setCompletionContacts([]);
     setCompletionFollowUps([]);
     setCallHistoryLoaded(false);
+    setActivityRefreshKey((k) => k + 1);
   }, []);
 
   const handleCompletionConflict = useCallback(async (_conflict: ConflictResponse) => {
@@ -842,6 +845,7 @@ export default function CustomerDetailPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "contacts", label: "Contacts" },
+    { key: "activity", label: "Activity" },
     { key: "calls", label: "Calls" },
     { key: "toolsByTrade", label: "Tools [by trade]" },
     { key: "ppe", label: "PPE" },
@@ -1723,7 +1727,14 @@ export default function CustomerDetailPage() {
 </div>
 )}
 
-        {/* Calls Tab (Phase 14B — read-only account call timeline) */}
+        {/* Activity Tab (Phase 16 — unified two-zone Activity System) */}
+        {activeTab === "activity" && (
+          <div className="activity-panel">
+            <ActivitySection customerId={customerId} refreshKey={activityRefreshKey} />
+          </div>
+        )}
+
+        {/* Calls Tab (Phase 14B — legacy call timeline, preserved for reference) */}
         {activeTab === "calls" && (
           <div className="calls-panel">
             <div className="panel-header">
