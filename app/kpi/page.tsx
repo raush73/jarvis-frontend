@@ -2,11 +2,11 @@
 
 import { useEffect, useState, useCallback, CSSProperties } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "../../lib/auth/useSession";
 import { fridayFetch } from "../../components/friday/fridayFetch";
 import {
   TodaysWorkItem,
   TodaysWorkResult,
-  WORK_TYPE_LABELS,
   WORK_TYPE_COLORS,
   LIFECYCLE_SHORT,
   BUCKET_LABELS,
@@ -18,21 +18,41 @@ import {
 } from "../../components/friday/types";
 import { FC } from "../../components/friday/styles";
 
-const PRIORITY_ORDER: TodaysWorkItem["workType"][] = [
-  "SCHEDULED_CALL",
-  "FOLLOW_UP_OVERDUE",
-  "FOLLOW_UP_DUE",
-  "SYSTEM_TOUCH",
+interface BadgeCounts {
+  followUps: { overdue: number; dueToday: number };
+  tasks: { overdue: number; dueToday: number };
+}
+
+type WorkSection = {
+  key: string;
+  label: string;
+  color: string;
+  types: TodaysWorkItem["workType"][];
+};
+
+const WORK_SECTIONS: WorkSection[] = [
+  { key: "todays-followups", label: "Today\u2019s Follow-Ups", color: "#3b82f6", types: ["SCHEDULED_CALL", "FOLLOW_UP_DUE"] },
+  { key: "overdue-followups", label: "Overdue Follow-Ups", color: "#ef4444", types: ["FOLLOW_UP_OVERDUE"] },
+  { key: "notifications", label: "Operational Notifications", color: "#8b5cf6", types: ["SYSTEM_TOUCH"] },
 ];
 
-function groupByWorkType(items: TodaysWorkItem[]) {
-  const groups = new Map<TodaysWorkItem["workType"], TodaysWorkItem[]>();
-  for (const wt of PRIORITY_ORDER) groups.set(wt, []);
+function groupBySection(items: TodaysWorkItem[]) {
+  const groups = new Map<string, TodaysWorkItem[]>();
+  for (const s of WORK_SECTIONS) groups.set(s.key, []);
   for (const item of items) {
-    const list = groups.get(item.workType);
-    if (list) list.push(item);
+    for (const s of WORK_SECTIONS) {
+      if (s.types.includes(item.workType)) {
+        groups.get(s.key)!.push(item);
+        break;
+      }
+    }
   }
   return groups;
+}
+
+function resolveWorkspaceLabel(scope: string): string {
+  if (scope === "COMPANY" || scope === "TEAM") return "KPI";
+  return "My Work";
 }
 
 const HEALTH_ORDER: CustomerHealthState[] = ["CRITICAL", "STALE", "AT_RISK"];
@@ -120,13 +140,18 @@ function sortHealthItems(items: CustomerHealthItem[]): CustomerHealthItem[] {
 }
 
 export default function KPIPage() {
+  const session = useSession();
   const [items, setItems] = useState<TodaysWorkItem[]>([]);
   const [healthItems, setHealthItems] = useState<CustomerHealthItem[]>([]);
+  const [badges, setBadges] = useState<BadgeCounts | null>(null);
   const [loading, setLoading] = useState(true);
   const [healthLoading, setHealthLoading] = useState(true);
+  const [badgesLoading, setBadgesLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const router = useRouter();
+
+  const workspaceLabel = resolveWorkspaceLabel(session.getScope("customers"));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -156,33 +181,103 @@ export default function KPIPage() {
     setHealthLoading(false);
   }, []);
 
+  const loadBadges = useCallback(async () => {
+    setBadgesLoading(true);
+    const res = await fridayFetch<BadgeCounts>("/activity/badges");
+    if (res.ok) {
+      setBadges(res.data);
+    }
+    setBadgesLoading(false);
+  }, []);
+
   useEffect(() => {
+    if (!session.ready) return;
     load();
     loadHealth();
-  }, [load, loadHealth]);
+    loadBadges();
+  }, [load, loadHealth, loadBadges, session.ready]);
 
   const handleStartCall = (customerId: string) => {
     router.push(`/friday?directTarget=${customerId}`);
   };
 
-  const grouped = groupByWorkType(items);
-  for (const [key, list] of grouped) grouped.set(key, sortWorkItems(list));
+  const sectionGrouped = groupBySection(items);
+  for (const [key, list] of sectionGrouped) sectionGrouped.set(key, sortWorkItems(list));
 
   const healthGrouped = groupByHealthState(healthItems);
   for (const [key, list] of healthGrouped) healthGrouped.set(key, sortHealthItems(list));
+
+  const totalFollowUps = (sectionGrouped.get("todays-followups")?.length ?? 0) +
+    (sectionGrouped.get("overdue-followups")?.length ?? 0);
+  const totalNotifications = sectionGrouped.get("notifications")?.length ?? 0;
+  const totalWorkItems = totalFollowUps + totalNotifications;
 
   let workItemIndex = 0;
   let healthItemIndex = 0;
 
   return (
     <div className="kpi-page">
+      {/* ──────────── Role-Based Workspace Header ──────────── */}
+      <div style={styles.pageHeader}>
+        <h1 style={styles.pageTitle}>{workspaceLabel}</h1>
+        {session.ready && session.fullName && (
+          <span style={styles.userName}>{session.fullName}</span>
+        )}
+      </div>
+
+      {/* ──────────── Task Pressure Panel ──────────── */}
+      <div style={styles.taskPanel}>
+        {badgesLoading && <span style={styles.taskPanelLoading}>Loading task status...</span>}
+        {!badgesLoading && badges && (
+          <>
+            <div style={styles.taskPanelSection}>
+              <span style={styles.taskPanelLabel}>Follow-Ups</span>
+              <div style={styles.taskPanelCounts}>
+                {badges.followUps.overdue > 0 && (
+                  <span style={styles.badgeRed}>
+                    {badges.followUps.overdue} overdue
+                  </span>
+                )}
+                {badges.followUps.dueToday > 0 && (
+                  <span style={styles.badgeBlue}>
+                    {badges.followUps.dueToday} due today
+                  </span>
+                )}
+                {badges.followUps.overdue === 0 && badges.followUps.dueToday === 0 && (
+                  <span style={styles.badgeNeutral}>All clear</span>
+                )}
+              </div>
+            </div>
+            <div style={styles.taskPanelDivider} />
+            <div style={styles.taskPanelSection}>
+              <span style={styles.taskPanelLabel}>Tasks</span>
+              <div style={styles.taskPanelCounts}>
+                {badges.tasks.overdue > 0 && (
+                  <span style={styles.badgeAmber}>
+                    {badges.tasks.overdue} overdue
+                  </span>
+                )}
+                {badges.tasks.dueToday > 0 && (
+                  <span style={styles.badgeBlue}>
+                    {badges.tasks.dueToday} due today
+                  </span>
+                )}
+                {badges.tasks.overdue === 0 && badges.tasks.dueToday === 0 && (
+                  <span style={styles.badgeNeutral}>All clear</span>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
       <div className="kpi-columns">
-        {/* ──────────── Today's Work ──────────── */}
+        {/* ──────────── Structured Work Sections ──────────── */}
         <div className="kpi-panel">
           <div style={styles.header}>
-            <h1 style={styles.title}>Today&apos;s Work</h1>
+            <h2 style={styles.title}>Today&apos;s Work</h2>
             <span style={styles.count}>
-              {items.length} {items.length === 1 ? "item" : "items"}
+              {totalWorkItems} {totalWorkItems === 1 ? "item" : "items"}
             </span>
           </div>
           <div className="kpi-scroll">
@@ -191,7 +286,7 @@ export default function KPIPage() {
               <p style={{ ...styles.message, color: FC.accentRed }}>{error}</p>
             )}
 
-            {!loading && !error && items.length === 0 && (
+            {!loading && !error && totalWorkItems === 0 && (
               <div style={styles.empty}>
                 <p style={styles.emptyTitle}>No work items right now</p>
                 <p style={styles.emptyDesc}>
@@ -202,20 +297,20 @@ export default function KPIPage() {
             )}
 
             {!loading &&
-              PRIORITY_ORDER.map((wt) => {
-                const group = grouped.get(wt) ?? [];
+              WORK_SECTIONS.map((section) => {
+                const group = sectionGrouped.get(section.key) ?? [];
                 if (group.length === 0) return null;
                 return (
-                  <div key={wt} style={styles.section}>
+                  <div key={section.key} style={styles.section}>
                     <div style={styles.sectionHeader}>
                       <span
                         style={{
                           ...styles.sectionDot,
-                          background: WORK_TYPE_COLORS[wt],
+                          background: section.color,
                         }}
                       />
                       <span style={styles.sectionLabel}>
-                        {WORK_TYPE_LABELS[wt]}
+                        {section.label}
                       </span>
                       <span style={styles.sectionCount}>{group.length}</span>
                     </div>
@@ -452,6 +547,95 @@ export default function KPIPage() {
 }
 
 const styles: Record<string, CSSProperties> = {
+  pageHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 16,
+    marginBottom: 24,
+  },
+  pageTitle: {
+    fontSize: 32,
+    fontWeight: 700,
+    color: FC.textPrimary,
+    margin: 0,
+    letterSpacing: "-0.4px",
+  },
+  userName: {
+    fontSize: 14,
+    color: FC.textMuted,
+    fontWeight: 400,
+  },
+  taskPanel: {
+    display: "flex",
+    alignItems: "center",
+    gap: 0,
+    background: FC.surface,
+    border: `1px solid ${FC.border}`,
+    borderRadius: 10,
+    padding: "12px 20px",
+    marginBottom: 24,
+    minHeight: 48,
+  },
+  taskPanelLoading: {
+    fontSize: 13,
+    color: FC.textMuted,
+  },
+  taskPanelSection: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+  taskPanelLabel: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: FC.textSecondary,
+    minWidth: 80,
+  },
+  taskPanelCounts: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  taskPanelDivider: {
+    width: 1,
+    height: 28,
+    background: FC.border,
+    margin: "0 20px",
+    flexShrink: 0,
+  },
+  badgeRed: {
+    fontSize: 12,
+    fontWeight: 600,
+    padding: "3px 10px",
+    borderRadius: 4,
+    background: "rgba(239, 68, 68, 0.12)",
+    color: "#ef4444",
+  },
+  badgeAmber: {
+    fontSize: 12,
+    fontWeight: 600,
+    padding: "3px 10px",
+    borderRadius: 4,
+    background: "rgba(245, 158, 11, 0.12)",
+    color: "#f59e0b",
+  },
+  badgeBlue: {
+    fontSize: 12,
+    fontWeight: 600,
+    padding: "3px 10px",
+    borderRadius: 4,
+    background: "rgba(59, 130, 246, 0.12)",
+    color: "#3b82f6",
+  },
+  badgeNeutral: {
+    fontSize: 12,
+    fontWeight: 500,
+    padding: "3px 10px",
+    borderRadius: 4,
+    background: "rgba(255, 255, 255, 0.06)",
+    color: FC.textMuted,
+  },
   header: {
     display: "flex",
     alignItems: "baseline",
@@ -459,11 +643,11 @@ const styles: Record<string, CSSProperties> = {
     marginBottom: 28,
   },
   title: {
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: 700,
     color: FC.textPrimary,
     margin: 0,
-    letterSpacing: "-0.3px",
+    letterSpacing: "-0.2px",
   },
   count: {
     fontSize: 14,
