@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import TaskCreateForm from "./TaskCreateForm";
 import NoteCreateForm from "./NoteCreateForm";
 
@@ -22,10 +22,22 @@ export default function AddActivityModal({
 }) {
   const [activeTab, setActiveTab] = useState<ActivityTab>("task");
 
-  const handleCreated = () => {
+  const handleCreated = useCallback(() => {
     onCreated();
     onClose();
-  };
+  }, [onCreated, onClose]);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleEsc);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handleEsc);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
 
   return (
     <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>

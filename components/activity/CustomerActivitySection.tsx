@@ -15,6 +15,7 @@ import {
 } from "./types";
 import FullConnectivityPanel from "./FullConnectivityPanel";
 import AddActivityModal from "./AddActivityModal";
+import TaskEditForm from "./TaskEditForm";
 
 const TIMELINE_PAGE_SIZE = 50;
 
@@ -31,6 +32,44 @@ export default function CustomerActivitySection({
   const combinedRefreshKey = refreshKey + localRefresh;
 
   const handleActivityCreated = useCallback(() => {
+    setLocalRefresh((k) => k + 1);
+  }, []);
+
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [cancellingTaskId, setCancellingTaskId] = useState<string | null>(null);
+  const [editingTask, setEditingTask] = useState<OpenActivityEntry | null>(null);
+
+  const handleCompleteTask = useCallback(async (taskId: string) => {
+    setCompletingTaskId(taskId);
+    try {
+      await apiFetch(`/activity/tasks/${taskId}/complete`, {
+        method: "PATCH",
+        body: JSON.stringify({}),
+      });
+      setLocalRefresh((k) => k + 1);
+    } catch {
+      // Item stays in list, user can retry
+    } finally {
+      setCompletingTaskId(null);
+    }
+  }, []);
+
+  const handleCancelTask = useCallback(async (taskId: string) => {
+    setCancellingTaskId(taskId);
+    try {
+      await apiFetch(`/activity/tasks/${taskId}/cancel`, {
+        method: "PATCH",
+      });
+      setLocalRefresh((k) => k + 1);
+    } catch {
+      // Item stays in list, user can retry
+    } finally {
+      setCancellingTaskId(null);
+    }
+  }, []);
+
+  const handleTaskEdited = useCallback(() => {
+    setEditingTask(null);
     setLocalRefresh((k) => k + 1);
   }, []);
 
@@ -163,6 +202,31 @@ export default function CustomerActivitySection({
                 </div>
                 <div className="oa-title">{item.title}</div>
                 {item.body && <div className="oa-body">{item.body}</div>}
+                {item.type === "TASK" && (
+                  <div className="oa-actions">
+                    <button
+                      className="oa-complete-btn"
+                      disabled={completingTaskId === item.id || cancellingTaskId === item.id}
+                      onClick={() => handleCompleteTask(item.id)}
+                    >
+                      {completingTaskId === item.id ? "Completing…" : "Complete"}
+                    </button>
+                    <button
+                      className="oa-edit-btn"
+                      disabled={completingTaskId === item.id || cancellingTaskId === item.id}
+                      onClick={() => setEditingTask(item)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="oa-cancel-btn"
+                      disabled={completingTaskId === item.id || cancellingTaskId === item.id}
+                      onClick={() => handleCancelTask(item.id)}
+                    >
+                      {cancellingTaskId === item.id ? "Cancelling…" : "Cancel"}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -238,6 +302,27 @@ export default function CustomerActivitySection({
           onCreated={handleActivityCreated}
           onClose={() => setShowAddModal(false)}
         />
+      )}
+
+      {editingTask && (
+        <div className="edit-task-backdrop" onClick={(e) => { if (e.target === e.currentTarget) setEditingTask(null); }}>
+          <div className="edit-task-modal">
+            <div className="edit-task-header">
+              <h2>Edit Task</h2>
+              <button className="edit-task-close" onClick={() => setEditingTask(null)} aria-label="Close">&times;</button>
+            </div>
+            <div className="edit-task-body">
+              <TaskEditForm
+                taskId={editingTask.id}
+                initialTitle={editingTask.title ?? ""}
+                initialDescription={editingTask.body ?? ""}
+                initialDueDate={editingTask.dueAt ? editingTask.dueAt.slice(0, 10) : ""}
+                onSaved={handleTaskEdited}
+                onCancel={() => setEditingTask(null)}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       <style jsx>{`
@@ -357,6 +442,113 @@ export default function CustomerActivitySection({
           line-height: 1.4;
           white-space: pre-wrap;
           word-break: break-word;
+        }
+        .oa-actions {
+          margin-top: 6px;
+        }
+        .oa-complete-btn {
+          padding: 3px 12px;
+          border: 1px solid #2e7d32;
+          border-radius: 4px;
+          background: #fff;
+          color: #2e7d32;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .oa-complete-btn:hover:not(:disabled) {
+          background: #2e7d32;
+          color: #fff;
+        }
+        .oa-complete-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .oa-edit-btn {
+          padding: 3px 12px;
+          border: 1px solid #1976d2;
+          border-radius: 4px;
+          background: #fff;
+          color: #1976d2;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .oa-edit-btn:hover:not(:disabled) {
+          background: #1976d2;
+          color: #fff;
+        }
+        .oa-edit-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .oa-cancel-btn {
+          padding: 3px 12px;
+          border: 1px solid #8e99a4;
+          border-radius: 4px;
+          background: #fff;
+          color: #8e99a4;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .oa-cancel-btn:hover:not(:disabled) {
+          background: #8e99a4;
+          color: #fff;
+        }
+        .oa-cancel-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .edit-task-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.45);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          padding: 24px;
+        }
+        .edit-task-modal {
+          background: #fff;
+          border-radius: 12px;
+          width: 100%;
+          max-width: 480px;
+          max-height: 90vh;
+          overflow-y: auto;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+        }
+        .edit-task-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px 20px 12px;
+          border-bottom: 1px solid #e9ecef;
+        }
+        .edit-task-header h2 {
+          margin: 0;
+          font-size: 17px;
+          font-weight: 600;
+          color: #2c3e50;
+        }
+        .edit-task-close {
+          background: none;
+          border: none;
+          font-size: 22px;
+          color: #8e99a4;
+          cursor: pointer;
+          padding: 0 4px;
+          line-height: 1;
+        }
+        .edit-task-close:hover {
+          color: #2c3e50;
+        }
+        .edit-task-body {
+          padding: 20px;
         }
 
         /* ── Timeline ── */
