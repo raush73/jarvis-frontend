@@ -19,66 +19,21 @@ function buildSalespersonLabel(sp: SalespersonRecord): string {
 }
 
 const US_STATE_CODES = [
-  "AL",
-  "AK",
-  "AZ",
-  "AR",
-  "CA",
-  "CO",
-  "CT",
-  "DE",
-  "FL",
-  "GA",
-  "HI",
-  "ID",
-  "IL",
-  "IN",
-  "IA",
-  "KS",
-  "KY",
-  "LA",
-  "ME",
-  "MD",
-  "MA",
-  "MI",
-  "MN",
-  "MS",
-  "MO",
-  "MT",
-  "NE",
-  "NV",
-  "NH",
-  "NJ",
-  "NM",
-  "NY",
-  "NC",
-  "ND",
-  "OH",
-  "OK",
-  "OR",
-  "PA",
-  "RI",
-  "SC",
-  "SD",
-  "TN",
-  "TX",
-  "UT",
-  "VT",
-  "VA",
-  "WA",
-  "WV",
-  "WI",
-  "WY",
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+  "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+  "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+  "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+  "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
 ] as const;
 
 function formatUpdatedAt(value: any): string {
-  if (!value) return "â€”";
+  if (!value) return "\u2014";
   const d = new Date(value);
-  if (isNaN(d.getTime())) return "â€”";
+  if (isNaN(d.getTime())) return "\u2014";
   return d.toLocaleString();
 }
 
-const AZ_STRIP = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")] as const;
+const AZ_STRIP = ["All", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")] as const;
 type AzBucket = (typeof AZ_STRIP)[number];
 
 function getAlphaBucket(name: string): string {
@@ -92,21 +47,19 @@ function azAnchorId(bucket: string): string {
   return bucket === "#" ? "az-bucket-hash" : `az-bucket-${bucket}`;
 }
 
-function azFirstRowId(bucket: string): string {
-  return bucket === "#" ? "az-hash-first" : `az-${bucket}-first`;
-}
 export default function CustomersPage() {
   const router = useRouter();
 
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"all" | "customer" | "prospect">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "customer" | "prospect" | "lead">("all");
   const [salespersonIdFilter, setSalespersonIdFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"name" | "createdAt" | "updatedAt">("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [alphaFilter, setAlphaFilter] = useState<string | null>(null);
 
   const [salespeople, setSalespeople] = useState<SalespersonRecord[]>([]);
 
@@ -114,10 +67,6 @@ export default function CustomersPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [azJumpLoading, setAzJumpLoading] = useState(false);
-  const [pendingJumpLetter, setPendingJumpLetter] = useState<string | null>(null);
-  const [azJumpMessage, setAzJumpMessage] = useState<string | null>(null);
 
   function buildCustomersParams(skip: number, take: number) {
     const params = new URLSearchParams({
@@ -134,6 +83,9 @@ export default function CustomersPage() {
     if (stateFilter && stateFilter !== "all") {
       params.set("state", stateFilter);
     }
+    if (alphaFilter) {
+      params.set("startsWith", alphaFilter);
+    }
     return params;
   }
 
@@ -144,45 +96,19 @@ export default function CustomersPage() {
     }>(`/customers?${buildCustomersParams(skip, take).toString()}`);
   }
 
-  async function jumpToLetter(letter: string) {
-    if (azJumpLoading) return;
-
-    const target = (letter || "").trim().toUpperCase();
-    const targetBucket: string = target >= "A" && target <= "Z" ? target : "#";
-
-    setAzJumpLoading(true);
-    setAzJumpMessage(null);
-    try {
-      if (!totalCount) {
-        setAzJumpMessage(`No ${targetBucket} customers under current filters`);
-        return;
-      }
-
-      const pagesToScan = Math.max(1, Math.ceil(totalCount / pageSize));
-      let foundPage: number | null = null;
-
-      for (let p = 1; p <= pagesToScan; p++) {
-        const skip = (p - 1) * pageSize;
-        const res = await fetchCustomersPage(skip, pageSize);
-        const data = Array.isArray(res.data) ? res.data : [];
-        const found = data.find((c) => getAlphaBucket(String(c?.name ?? "")) === targetBucket);
-        if (found) {
-          foundPage = p;
-          break;
-        }
-      }
-
-      if (foundPage) {
-        setPage(foundPage);
-        setPendingJumpLetter(targetBucket);
-      } else {
-        setAzJumpMessage(`No ${targetBucket} customers under current filters`);
-      }
-    } catch {
-      setAzJumpMessage("Aâ€“Z jump failed");
-    } finally {
-      setAzJumpLoading(false);
+  function handleAlphaFilter(letter: string) {
+    if (letter === "All") {
+      setAlphaFilter(null);
+      setPage(1);
+      return;
     }
+    const target = (letter || "").trim().toUpperCase();
+    if (target === alphaFilter) {
+      setAlphaFilter(null);
+    } else {
+      setAlphaFilter(target >= "A" && target <= "Z" ? target : null);
+    }
+    setPage(1);
   }
 
   useEffect(() => {
@@ -232,7 +158,7 @@ export default function CustomersPage() {
     return () => {
       alive = false;
     };
-  }, [debouncedSearch, typeFilter, salespersonIdFilter, stateFilter, sortBy, sortOrder, page, pageSize]);
+  }, [debouncedSearch, typeFilter, salespersonIdFilter, stateFilter, sortBy, sortOrder, page, pageSize, alphaFilter]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -248,28 +174,13 @@ export default function CustomersPage() {
   );
 
   const azBuckets = useMemo(() => {
-    const firstIndex: Partial<Record<AzBucket, number>> = {};
+    const firstIndex: Partial<Record<string, number>> = {};
     for (let i = 0; i < customers.length; i++) {
-      const bucket = getAlphaBucket(String(customers[i]?.name ?? "")) as AzBucket;
+      const bucket = getAlphaBucket(String(customers[i]?.name ?? ""));
       if (firstIndex[bucket] === undefined) firstIndex[bucket] = i;
     }
     return { firstIndex };
   }, [customers]);
-
-  useEffect(() => {
-    if (!pendingJumpLetter) return;
-    if (loading) return;
-    if (!customers.length) return;
-
-    const bucket = pendingJumpLetter;
-    requestAnimationFrame(() => {
-      const el = document.getElementById(azFirstRowId(bucket));
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-      setPendingJumpLetter(null);
-    });
-  }, [pendingJumpLetter, loading, customers]);
 
   return (
     <div className="customers-container">
@@ -277,7 +188,7 @@ export default function CustomersPage() {
       <div className="customers-header">
         <div className="header-left">
           <h1>Customers</h1>
-          <span className="customer-count">{totalCount} customers</span>
+          <span className="customer-count">{totalCount} companies</span>
         </div>
         <div className="header-actions">
           <Link
@@ -341,14 +252,15 @@ export default function CustomersPage() {
         <select
           value={typeFilter}
           onChange={(e) => {
-            setTypeFilter(e.target.value as "all" | "customer" | "prospect");
+            setTypeFilter(e.target.value as "all" | "customer" | "prospect" | "lead");
             setPage(1);
           }}
           className="control-select"
         >
-          <option value="all">All</option>
+          <option value="all">All types</option>
           <option value="customer">Customers</option>
           <option value="prospect">Prospects</option>
+          <option value="lead">Leads</option>
         </select>
         <select
           value={sortBy}
@@ -400,91 +312,95 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      <div className="az-strip" aria-label="A to Z jump">
+      {/* Alphabet Filter Strip */}
+      <div className="az-strip" aria-label="Alphabet filter">
         {AZ_STRIP.map((bucket) => {
+          const isActive = bucket === "All" ? !alphaFilter : alphaFilter === bucket;
           return (
             <button
               key={bucket}
               type="button"
-              className="az-btn"
-              disabled={azJumpLoading}
-              aria-disabled={azJumpLoading}
-              aria-busy={azJumpLoading}
-              onClick={() => {
-                jumpToLetter(bucket);
-              }}
+              className={`az-btn${isActive ? " az-btn-active" : ""}`}
+              onClick={() => handleAlphaFilter(bucket)}
             >
               {bucket}
             </button>
           );
         })}
-        <div className="az-status" aria-live="polite">
-          {azJumpLoading ? "Findingâ€¦" : azJumpMessage ? azJumpMessage : null}
-        </div>
+        {alphaFilter && (
+          <span className="az-active-label">
+            Showing: {alphaFilter}
+          </span>
+        )}
       </div>
 
-      {/* Customers Table */}
-      <div className="customers-table-wrap">
-  <table className="customers-table">
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Location</th>
-        <th>Main Phone</th>
-        <th>Customer Owner</th>
-        <th>Last Updated</th>
-      </tr>
-    </thead>
-    <tbody>
-      {customers.map((customer, idx) => {
-        const bucket = getAlphaBucket(String(customer?.name ?? "")) as AzBucket;
-        const isFirstForBucket = azBuckets.firstIndex[bucket] === idx;
+      {/* Loading / Error States */}
+      {loading && <div className="state-loading">Loading...</div>}
+      {error && <div className="state-error">{error}</div>}
 
-        return (
-          <Fragment key={customer.id}>
-            {isFirstForBucket ? (
-              <tr id={azAnchorId(bucket)} className="az-anchor-row">
-                <td colSpan={5}>
-                  <span className="az-anchor-label">{bucket}</span>
-                </td>
+      {/* Customers Table */}
+      {!loading && !error && customers.length === 0 && (
+        <div className="state-empty">
+          {alphaFilter
+            ? `No companies starting with "${alphaFilter}" under current filters.`
+            : "No companies found."}
+        </div>
+      )}
+
+      {!loading && customers.length > 0 && (
+        <div className="customers-table-wrap">
+          <table className="customers-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Location</th>
+                <th>Main Phone</th>
+                <th>Customer Owner</th>
+                <th>Last Updated</th>
               </tr>
-            ) : null}
-            <tr
-              id={isFirstForBucket ? azFirstRowId(bucket) : undefined}
-              onClick={() => router.push(`/customers/${customer.id}`)}
-              style={{ cursor: "pointer" }}
-            >
-              <td>
-                <div className="cell-primary">{customer.name}</div>
-                {customer.websiteUrl ? (
-                  <div className="cell-sub">{customer.websiteUrl}</div>
-                ) : null}
-              </td>
-              <td>{customer.locationCity && customer.locationState ? `${customer.locationCity}, ${customer.locationState}` : customer.locationCity ?? customer.locationState ?? "\u2014"}</td>
-              <td>{customer.mainPhone ?? "\u2014"}</td>
-              <td>
-                {customer.registrySalesperson
-                  ? `${customer.registrySalesperson.firstName} ${customer.registrySalesperson.lastName}`
-                  : "\u2014"}
-              </td>
-              <td>{formatUpdatedAt(customer.updatedAt)}</td>
-            </tr>
-          </Fragment>
-        );
-      })}
-    </tbody>
-  </table>
-</div>
+            </thead>
+            <tbody>
+              {customers.map((customer, idx) => {
+                const bucket = getAlphaBucket(String(customer?.name ?? ""));
+                const isFirstForBucket = azBuckets.firstIndex[bucket] === idx;
+
+                return (
+                  <Fragment key={customer.id}>
+                    {isFirstForBucket && !alphaFilter ? (
+                      <tr id={azAnchorId(bucket)} className="az-anchor-row">
+                        <td colSpan={5}>
+                          <span className="az-anchor-label">{bucket}</span>
+                        </td>
+                      </tr>
+                    ) : null}
+                    <tr
+                      onClick={() => router.push(`/customers/${customer.id}`)}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <td>
+                        <div className="cell-primary">{customer.name}</div>
+                        {customer.websiteUrl ? (
+                          <div className="cell-sub">{customer.websiteUrl}</div>
+                        ) : null}
+                      </td>
+                      <td>{customer.locationCity && customer.locationState ? `${customer.locationCity}, ${customer.locationState}` : customer.locationCity ?? customer.locationState ?? "\u2014"}</td>
+                      <td>{customer.mainPhone ?? "\u2014"}</td>
+                      <td>
+                        {customer.registrySalesperson
+                          ? `${customer.registrySalesperson.firstName} ${customer.registrySalesperson.lastName}`
+                          : "\u2014"}
+                      </td>
+                      <td>{formatUpdatedAt(customer.updatedAt)}</td>
+                    </tr>
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <style jsx>{`
-        /* ============================================================
-           INDUSTRIAL LIGHT V1 — Customer Hub Page
-           Palette: bg #f8fafc | card #fff | border #e5e7eb
-                    text-primary #111827 | text-secondary #4b5563
-                    text-muted #6b7280 | blue #2563eb | blue-hover #1d4ed8
-        ============================================================ */
-
-        /* --- Page Shell --- */
         .customers-container {
           padding: 32px 40px 60px;
           max-width: 1400px;
@@ -493,7 +409,6 @@ export default function CustomersPage() {
           min-height: 100vh;
         }
 
-        /* --- Page Header --- */
         .customers-header {
           display: flex;
           align-items: center;
@@ -525,31 +440,6 @@ export default function CustomersPage() {
           align-items: center;
         }
 
-        /* --- Primary Add Button --- */
-        .btn-add {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 11px 22px;
-          font-size: 14px;
-          font-weight: 700;
-          color: #ffffff;
-          background: #2563eb;
-          border: none;
-          border-radius: 8px;
-          cursor: pointer;
-          transition: background 0.15s ease, box-shadow 0.15s ease;
-          text-decoration: none;
-          box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
-          letter-spacing: 0.01em;
-        }
-
-        .btn-add:hover {
-          background: #1d4ed8;
-          box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
-        }
-
-        /* --- Filter / Control Row --- */
         .controls-row {
           display: flex;
           align-items: center;
@@ -635,7 +525,6 @@ export default function CustomersPage() {
           white-space: nowrap;
         }
 
-        /* --- A–Z Jump Strip --- */
         .az-strip {
           display: flex;
           align-items: center;
@@ -661,25 +550,36 @@ export default function CustomersPage() {
           transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
         }
 
-        .az-btn:hover:not(:disabled) {
+        .az-btn:first-child {
+          width: auto;
+          padding: 0 10px;
+        }
+
+        .az-btn:hover {
           background: #eff6ff;
           border-color: #bfdbfe;
           color: #1d4ed8;
         }
 
-        .az-btn:disabled {
-          opacity: 0.4;
-          cursor: not-allowed;
+        .az-btn-active {
+          background: #2563eb;
+          border-color: #2563eb;
+          color: #ffffff;
         }
 
-        .az-status {
+        .az-btn-active:hover {
+          background: #1d4ed8;
+          border-color: #1d4ed8;
+          color: #ffffff;
+        }
+
+        .az-active-label {
           margin-left: 8px;
           font-size: 12.5px;
-          color: #6b7280;
-          min-height: 16px;
+          color: #2563eb;
+          font-weight: 600;
         }
 
-        /* --- Table Wrapper --- */
         .customers-table-wrap {
           background: #ffffff;
           border: 1px solid #e5e7eb;
@@ -687,7 +587,6 @@ export default function CustomersPage() {
           overflow: hidden;
         }
 
-        /* --- Table --- */
         .customers-table {
           width: 100%;
           border-collapse: collapse;
@@ -725,7 +624,6 @@ export default function CustomersPage() {
           background: #f9fafb;
         }
 
-        /* --- A–Z Anchor Row (table section divider) --- */
         .az-anchor-row td {
           padding: 8px 20px;
           font-size: 11px;
@@ -751,7 +649,6 @@ export default function CustomersPage() {
           font-weight: 700;
         }
 
-        /* --- Cell Hierarchy --- */
         .cell-primary {
           font-size: 13px;
           font-weight: 600;
@@ -764,7 +661,6 @@ export default function CustomersPage() {
           margin-top: 2px;
         }
 
-        /* --- Loading / Error / Empty States --- */
         .state-loading,
         .state-empty {
           padding: 32px 20px;
@@ -786,8 +682,3 @@ export default function CustomersPage() {
     </div>
   );
 }
-
-
-
-
-
