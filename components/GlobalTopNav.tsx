@@ -2,8 +2,9 @@
 
 import { apiFetch, clearAccessToken } from "@/lib/api";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/lib/auth/useSession";
+import { fridayFetch } from "./friday/fridayFetch";
 
 const DOMAINS = [
   { key: "kpi", label: "KPI" },
@@ -16,6 +17,11 @@ const DOMAINS = [
   { key: "accounting", label: "Accounting" },
   { key: "admin", label: "Admin" },
 ];
+
+interface NavBadgeCounts {
+  followUps: { overdue: number; dueToday: number };
+  tasks: { overdue: number; dueToday: number };
+}
 
 type CustomerSearchResult = {
   id: string;
@@ -37,6 +43,28 @@ export default function GlobalTopNav() {
     () => DOMAINS.filter((d) => session.canAccessModule(d.key)),
     [session],
   );
+
+  const kpiLabel = useMemo(() => {
+    const scope = session.getScope("customers");
+    return scope === "COMPANY" || scope === "TEAM" ? "KPI" : "My Work";
+  }, [session]);
+
+  const [badges, setBadges] = useState<NavBadgeCounts | null>(null);
+
+  const loadBadges = useCallback(async () => {
+    const res = await fridayFetch<NavBadgeCounts>("/activity/badges");
+    if (res.ok) setBadges(res.data);
+  }, []);
+
+  useEffect(() => {
+    if (!session.ready || !session.authenticated) return;
+    loadBadges();
+  }, [session.ready, session.authenticated, loadBadges]);
+
+  useEffect(() => {
+    if (!session.ready || !session.authenticated) return;
+    loadBadges();
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -133,18 +161,35 @@ export default function GlobalTopNav() {
 
       {/* Domain Navigation — filtered by role access */}
       <div className="nav-domains">
-        {visibleDomains.map((domain) => (
-          <button
-            key={domain.key}
-            className={`nav-domain-item ${
-              domain.key === activeDomain ? "active" : ""
-            }`}
-            type="button"
-            onClick={() => router.push(`/${domain.key}`)}
-          >
-            {domain.label}
-          </button>
-        ))}
+        {visibleDomains.map((domain) => {
+          const label = domain.key === "kpi" ? kpiLabel : domain.label;
+          const showBadges = domain.key === "kpi" && badges;
+          const fuOverdue = badges?.followUps.overdue ?? 0;
+          const taskOverdue = badges?.tasks.overdue ?? 0;
+
+          return (
+            <button
+              key={domain.key}
+              className={`nav-domain-item ${
+                domain.key === activeDomain ? "active" : ""
+              }`}
+              type="button"
+              onClick={() => router.push(`/${domain.key}`)}
+            >
+              {label}
+              {showBadges && fuOverdue > 0 && (
+                <span className="nav-badge nav-badge-red" title={`${fuOverdue} overdue follow-up${fuOverdue !== 1 ? "s" : ""}`}>
+                  {fuOverdue}
+                </span>
+              )}
+              {showBadges && taskOverdue > 0 && (
+                <span className="nav-badge nav-badge-amber" title={`${taskOverdue} overdue task${taskOverdue !== 1 ? "s" : ""}`}>
+                  {taskOverdue}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Right-side tools */}

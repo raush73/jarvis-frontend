@@ -205,6 +205,30 @@ body {
   background: rgba(59, 130, 246, 0.15);
 }
 
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 5px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.nav-badge-red {
+  background: rgba(239, 68, 68, 0.85);
+  color: #fff;
+}
+
+.nav-badge-amber {
+  background: rgba(245, 158, 11, 0.85);
+  color: #fff;
+}
+
 /* ============================================================
    INDUSTRIAL LIGHT V1 — MODULE TABS
    Level 1: Module Tab Bar (dark navy, sticky at top: 52px, 44px)
