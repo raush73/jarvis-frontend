@@ -14,6 +14,7 @@ import {
   formatActivityDueDate,
 } from "./types";
 import FullConnectivityPanel from "./FullConnectivityPanel";
+import AddActivityModal from "./AddActivityModal";
 
 const TIMELINE_PAGE_SIZE = 50;
 
@@ -24,6 +25,15 @@ export default function CustomerActivitySection({
   customerId: string;
   refreshKey: number;
 }) {
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [localRefresh, setLocalRefresh] = useState(0);
+
+  const combinedRefreshKey = refreshKey + localRefresh;
+
+  const handleActivityCreated = useCallback(() => {
+    setLocalRefresh((k) => k + 1);
+  }, []);
+
   const [openItems, setOpenItems] = useState<OpenActivityEntry[]>([]);
   const [openLoading, setOpenLoading] = useState(false);
   const [openError, setOpenError] = useState("");
@@ -78,13 +88,13 @@ export default function CustomerActivitySection({
 
   useEffect(() => {
     loadOpenActivities();
-  }, [loadOpenActivities, refreshKey]);
+  }, [loadOpenActivities, combinedRefreshKey]);
 
   useEffect(() => {
     setTimelineOffset(0);
     setTimelineItems([]);
     loadTimeline(0, false);
-  }, [loadTimeline, refreshKey]);
+  }, [loadTimeline, combinedRefreshKey]);
 
   const handleLoadMore = () => {
     loadTimeline(timelineOffset, true);
@@ -102,13 +112,19 @@ export default function CustomerActivitySection({
       <FullConnectivityPanel
         customerId={customerId}
         openItems={openItems}
-        refreshKey={refreshKey}
+        refreshKey={combinedRefreshKey}
       />
 
       {/* ── ZONE 1: Open Activities ── */}
       <div className="activity-zone open-activities-zone">
         <div className="zone-header">
           <h3>Open Activities</h3>
+          <button
+            className="add-activity-btn"
+            onClick={() => setShowAddModal(true)}
+          >
+            + Add Activity
+          </button>
         </div>
         {openLoading && (
           <div className="activity-empty">Loading open activities…</div>
@@ -216,7 +232,29 @@ export default function CustomerActivitySection({
         )}
       </div>
 
+      {showAddModal && (
+        <AddActivityModal
+          customerId={customerId}
+          onCreated={handleActivityCreated}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
+
       <style jsx>{`
+        .add-activity-btn {
+          padding: 5px 14px;
+          border: 1px solid #1976d2;
+          border-radius: 6px;
+          background: #1976d2;
+          color: #fff;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+        .add-activity-btn:hover {
+          background: #1565c0;
+        }
         .activity-section {
           display: flex;
           flex-direction: column;
