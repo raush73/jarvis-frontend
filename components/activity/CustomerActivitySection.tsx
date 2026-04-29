@@ -13,6 +13,7 @@ import {
   formatActivityDateTime,
   formatActivityDueDate,
 } from "./types";
+import FullConnectivityPanel from "./FullConnectivityPanel";
 
 const TIMELINE_PAGE_SIZE = 50;
 
@@ -97,6 +98,13 @@ export default function CustomerActivitySection({
 
   return (
     <div className="activity-section">
+      {/* ── Connectivity Panel: Relationship Context ── */}
+      <FullConnectivityPanel
+        customerId={customerId}
+        openItems={openItems}
+        refreshKey={refreshKey}
+      />
+
       {/* ── ZONE 1: Open Activities ── */}
       <div className="activity-zone open-activities-zone">
         <div className="zone-header">

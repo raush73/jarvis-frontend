@@ -49,6 +49,26 @@ export const ACTIVITY_TYPE_BADGES: Record<ActivityType, { label: string; bg: str
   TASK: { label: "Task", bg: "#e8f5e9", color: "#2e7d32" },
 };
 
+export const LIFECYCLE_BADGES: Record<string, { label: string; bg: string; color: string }> = {
+  CUSTOMER: { label: "Customer", bg: "#e8f5e9", color: "#2e7d32" },
+  PROSPECT: { label: "Prospect", bg: "#fff3e0", color: "#e67e22" },
+  LEAD: { label: "Lead", bg: "#e3f2fd", color: "#1565c0" },
+};
+
+export function formatRelativeTime(iso: string | null): string {
+  if (!iso) return "No activity recorded";
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 30) return `${days} days ago`;
+  if (days < 365) {
+    const months = Math.floor(days / 30);
+    return months === 1 ? "1 month ago" : `${months} months ago`;
+  }
+  const years = Math.floor(days / 365);
+  return years === 1 ? "1 year ago" : `${years} years ago`;
+}
+
 export function formatActivityDateTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", {
