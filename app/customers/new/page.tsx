@@ -4,12 +4,15 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
+import { useSession } from "@/lib/auth/useSession";
 
-const LIFECYCLE_OPTIONS = [
+const ALL_LIFECYCLE_OPTIONS = [
   { value: "LEAD", label: "Lead" },
   { value: "PROSPECT", label: "Prospect" },
   { value: "CUSTOMER", label: "Customer" },
 ] as const;
+
+const CUSTOMER_LIFECYCLE_AUTHORITY_ROLES = ["admin", "admin_system", "manager", "sales_admin"];
 
 const US_STATE_CODES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
@@ -21,6 +24,14 @@ const US_STATE_CODES = [
 
 export default function CreateCustomerPage() {
   const router = useRouter();
+  const session = useSession();
+
+  const canCreateCustomer = session.ready &&
+    session.roles.some((r) => CUSTOMER_LIFECYCLE_AUTHORITY_ROLES.includes(r));
+
+  const lifecycleOptions = canCreateCustomer
+    ? ALL_LIFECYCLE_OPTIONS
+    : ALL_LIFECYCLE_OPTIONS.filter((opt) => opt.value !== "CUSTOMER");
 
   const [name, setName] = useState("");
   const [lifecycleStatus, setLifecycleStatus] = useState("");
@@ -113,7 +124,7 @@ export default function CreateCustomerPage() {
               onChange={(e) => setLifecycleStatus(e.target.value)}
             >
               <option value="">— Select Status —</option>
-              {LIFECYCLE_OPTIONS.map((opt) => (
+              {lifecycleOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
