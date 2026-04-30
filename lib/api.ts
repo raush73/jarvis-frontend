@@ -26,6 +26,11 @@ export function clearAccessToken(): void {
   } catch {
     // ignore
   }
+  try {
+    window.dispatchEvent(new Event("jp:session-sync"));
+  } catch {
+    // ignore
+  }
 }
 
 function isPublicPath(path: string): boolean {

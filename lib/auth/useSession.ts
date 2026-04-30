@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type JwtPayload = {
   sub: string;
@@ -38,6 +38,9 @@ const MODULE_ACCESS: Record<string, string[]> = {
   "time-entry": ["admin", "accounting", "recruiting"],
 };
 
+export const SESSION_SYNC_EVENT = "jp:session-sync";
+const TOKEN_KEY = "jp_accessToken";
+
 export type SessionInfo = {
   ready: boolean;
   authenticated: boolean;
@@ -59,12 +62,16 @@ export type SessionInfo = {
  * Returns the same "loading" state for SSR and first client render
  * (no localStorage access during render). Real session is set only
  * inside a useEffect after mount so hydration is always stable.
+ *
+ * Reactively synchronizes when the token changes via:
+ * - "storage" event (cross-tab changes)
+ * - "jp:session-sync" custom event (same-tab programmatic changes)
  */
 export function useSession(): SessionInfo {
   const [session, setSession] = useState<SessionInfo>(loadingSession);
 
-  useEffect(() => {
-    const token = localStorage.getItem("jp_accessToken");
+  const syncFromToken = useCallback(() => {
+    const token = localStorage.getItem(TOKEN_KEY);
     if (!token) {
       setSession(emptySession());
       return;
@@ -113,6 +120,23 @@ export function useSession(): SessionInfo {
       isSalesOnly,
     });
   }, []);
+
+  useEffect(() => {
+    syncFromToken();
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === TOKEN_KEY || e.key === null) syncFromToken();
+    };
+
+    const onSessionSync = () => syncFromToken();
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(SESSION_SYNC_EVENT, onSessionSync);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(SESSION_SYNC_EVENT, onSessionSync);
+    };
+  }, [syncFromToken]);
 
   return session;
 }
