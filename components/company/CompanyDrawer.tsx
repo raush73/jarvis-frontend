@@ -1,8 +1,12 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { FC } from '../friday/styles';
+import { apiFetch } from '@/lib/api';
+import type { CompanyRecord, ContactRecord, DrawerTab } from './types';
+import CompanyHeader from './CompanyHeader';
+import ContactsPanel from './ContactsPanel';
 
 interface CompanyDrawerProps {
   customerId: string;
@@ -10,63 +14,97 @@ interface CompanyDrawerProps {
 }
 
 export default function CompanyDrawer({ customerId, onClose }: CompanyDrawerProps) {
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    },
-    [onClose],
-  );
+  const [tab, setTab] = useState<DrawerTab>('overview');
+  const [company, setCompany] = useState<CompanyRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadCompany = useCallback(async () => {
+    try {
+      const data = await apiFetch<CompanyRecord>(`/customers/${customerId}`);
+      setCompany(data);
+      setError('');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load company.');
+    } finally {
+      setLoading(false);
+    }
+  }, [customerId]);
 
   useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+    setLoading(true);
+    setCompany(null);
+    setError('');
+    setTab('overview');
+    loadCompany();
+  }, [customerId, loadCompany]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const contacts: ContactRecord[] = Array.isArray(company?.contacts) ? company.contacts : [];
+
+  const tabs: { key: DrawerTab; label: string }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'contacts', label: `Contacts (${contacts.length})` },
+  ];
 
   return (
     <>
-      {/* Backdrop — click to close */}
       <div style={backdrop} onClick={onClose} />
 
-      {/* Drawer panel — right side */}
       <div style={drawerPanel} role="dialog" aria-label="Company Detail">
         {/* Header */}
         <div style={drawerHeader}>
           <div style={drawerTitleRow}>
-            <div style={drawerTitle}>Company Detail</div>
-            <div style={drawerBadge}>Phase A</div>
+            <div style={drawerTitle}>
+              {company?.name ?? 'Company Detail'}
+            </div>
           </div>
           <button style={closeBtn} onClick={onClose} aria-label="Close drawer">
             ✕
           </button>
         </div>
 
-        {/* Phase A placeholder content */}
+        {/* Tabs */}
+        <div style={tabBar}>
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              style={tab === t.key ? tabBtnActive : tabBtn}
+              onClick={() => setTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
         <div style={drawerBody}>
-          <div style={placeholderCard}>
-            <div style={placeholderLabel}>Customer ID</div>
-            <div style={placeholderValue}>{customerId}</div>
-          </div>
+          {loading && (
+            <div style={loadingState}>Loading company data...</div>
+          )}
 
-          <div style={placeholderNotice}>
-            <div style={noticeIcon}>🏗</div>
-            <div style={noticeTitle}>Drawer Shell Active</div>
-            <div style={noticeDesc}>
-              Company Detail panels will be wired in Phase B (Overview, Contacts)
-              and Phase C (Activity, History). This shell validates that the drawer
-              opens, closes, and preserves active call state.
-            </div>
-          </div>
+          {error && !loading && (
+            <div style={errorBanner}>{error}</div>
+          )}
 
-          <div style={tabPreview}>
-            <div style={tabPreviewLabel}>Planned Tabs</div>
-            <div style={tabRow}>
-              {['Overview', 'Contacts', 'Activity', 'History'].map((t) => (
-                <div key={t} style={tabItem}>
-                  {t}
-                </div>
-              ))}
-            </div>
-          </div>
+          {!loading && !error && company && tab === 'overview' && (
+            <CompanyHeader company={company} />
+          )}
+
+          {!loading && !error && company && tab === 'contacts' && (
+            <ContactsPanel
+              customerId={customerId}
+              contacts={contacts}
+              onRefresh={loadCompany}
+            />
+          )}
         </div>
       </div>
     </>
@@ -106,7 +144,7 @@ const drawerHeader: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  padding: '20px 24px',
+  padding: '16px 24px',
   borderBottom: `1px solid ${FC.border}`,
   flexShrink: 0,
 };
@@ -115,23 +153,17 @@ const drawerTitleRow: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 10,
+  minWidth: 0,
+  flex: 1,
 };
 
 const drawerTitle: CSSProperties = {
-  fontSize: '1.125rem',
+  fontSize: '1rem',
   fontWeight: 700,
   color: FC.textPrimary,
-};
-
-const drawerBadge: CSSProperties = {
-  fontSize: '0.625rem',
-  fontWeight: 700,
-  padding: '2px 8px',
-  borderRadius: 4,
-  color: FC.accentPurple,
-  background: 'rgba(139, 92, 246, 0.15)',
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
 };
 
 const closeBtn: CSSProperties = {
@@ -146,6 +178,33 @@ const closeBtn: CSSProperties = {
   border: `1px solid ${FC.border}`,
   borderRadius: 6,
   cursor: 'pointer',
+  flexShrink: 0,
+};
+
+const tabBar: CSSProperties = {
+  display: 'flex',
+  gap: 0,
+  padding: '0 24px',
+  borderBottom: `1px solid ${FC.border}`,
+  flexShrink: 0,
+};
+
+const tabBtn: CSSProperties = {
+  padding: '10px 16px',
+  fontSize: '0.8125rem',
+  fontWeight: 600,
+  color: FC.textMuted,
+  background: 'transparent',
+  border: 'none',
+  borderBottom: '2px solid transparent',
+  cursor: 'pointer',
+  transition: 'color 0.15s',
+};
+
+const tabBtnActive: CSSProperties = {
+  ...tabBtn,
+  color: FC.textPrimary,
+  borderBottomColor: FC.accentPurple,
 };
 
 const drawerBody: CSSProperties = {
@@ -154,89 +213,18 @@ const drawerBody: CSSProperties = {
   padding: 24,
 };
 
-const placeholderCard: CSSProperties = {
-  background: FC.surface,
-  border: `1px solid ${FC.border}`,
-  borderRadius: 8,
-  padding: 16,
-  marginBottom: 20,
-};
-
-const placeholderLabel: CSSProperties = {
-  fontSize: '0.6875rem',
-  fontWeight: 600,
+const loadingState: CSSProperties = {
   color: FC.textMuted,
-  textTransform: 'uppercase',
-  letterSpacing: '0.04em',
-  marginBottom: 6,
-};
-
-const placeholderValue: CSSProperties = {
   fontSize: '0.875rem',
-  fontWeight: 600,
-  color: FC.textPrimary,
-  fontFamily: 'monospace',
-  wordBreak: 'break-all',
-};
-
-const placeholderNotice: CSSProperties = {
-  background: 'rgba(139, 92, 246, 0.06)',
-  border: '1px solid rgba(139, 92, 246, 0.18)',
-  borderRadius: 10,
-  padding: 24,
   textAlign: 'center',
-  marginBottom: 20,
+  padding: '40px 0',
 };
 
-const noticeIcon: CSSProperties = {
-  fontSize: 32,
-  marginBottom: 12,
-};
-
-const noticeTitle: CSSProperties = {
-  fontSize: '1rem',
-  fontWeight: 700,
-  color: FC.textPrimary,
-  marginBottom: 8,
-};
-
-const noticeDesc: CSSProperties = {
-  fontSize: '0.8125rem',
-  color: FC.textSecondary,
-  lineHeight: 1.5,
-  maxWidth: 440,
-  margin: '0 auto',
-};
-
-const tabPreview: CSSProperties = {
-  background: FC.surface,
-  border: `1px solid ${FC.border}`,
+const errorBanner: CSSProperties = {
+  background: FC.accentRedDim,
+  border: '1px solid rgba(239, 68, 68, 0.3)',
   borderRadius: 8,
-  padding: 16,
-};
-
-const tabPreviewLabel: CSSProperties = {
-  fontSize: '0.6875rem',
-  fontWeight: 600,
-  color: FC.textMuted,
-  textTransform: 'uppercase',
-  letterSpacing: '0.04em',
-  marginBottom: 10,
-};
-
-const tabRow: CSSProperties = {
-  display: 'flex',
-  gap: 6,
-};
-
-const tabItem: CSSProperties = {
-  flex: 1,
-  padding: '8px 0',
-  fontSize: '0.75rem',
-  fontWeight: 600,
-  color: FC.textFaint,
-  textAlign: 'center',
-  background: 'rgba(255, 255, 255, 0.03)',
-  border: `1px solid ${FC.border}`,
-  borderRadius: 6,
+  padding: '10px 14px',
+  fontSize: '0.8125rem',
+  color: FC.accentRed,
 };
