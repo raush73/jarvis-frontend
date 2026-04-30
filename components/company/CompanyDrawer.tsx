@@ -7,6 +7,7 @@ import { apiFetch } from '@/lib/api';
 import type { CompanyRecord, ContactRecord, DrawerTab } from './types';
 import CompanyHeader from './CompanyHeader';
 import ContactsPanel from './ContactsPanel';
+import CompanyActivityPanel from './CompanyActivityPanel';
 
 interface CompanyDrawerProps {
   customerId: string;
@@ -52,6 +53,7 @@ export default function CompanyDrawer({ customerId, onClose }: CompanyDrawerProp
   const tabs: { key: DrawerTab; label: string }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'contacts', label: `Contacts (${contacts.length})` },
+    { key: 'activity', label: 'Activity' },
   ];
 
   return (
@@ -104,6 +106,10 @@ export default function CompanyDrawer({ customerId, onClose }: CompanyDrawerProp
               contacts={contacts}
               onRefresh={loadCompany}
             />
+          )}
+
+          {!loading && !error && company && tab === 'activity' && (
+            <CompanyActivityPanel customerId={customerId} />
           )}
         </div>
       </div>

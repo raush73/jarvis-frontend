@@ -32,4 +32,4 @@ export interface ContactRecord {
   cellPhone?: string | null;
 }
 
-export type DrawerTab = 'overview' | 'contacts';
+export type DrawerTab = 'overview' | 'contacts' | 'activity';
