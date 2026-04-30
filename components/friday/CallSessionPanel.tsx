@@ -30,9 +30,10 @@ type PanelPhase =
 interface CallSessionPanelProps {
   onTargetChange?: (target: CallTarget | null) => void;
   directTargetCustomerId?: string;
+  onOpenCompanyDetail?: (customerId: string) => void;
 }
 
-export default function CallSessionPanel({ onTargetChange, directTargetCustomerId }: CallSessionPanelProps) {
+export default function CallSessionPanel({ onTargetChange, directTargetCustomerId, onOpenCompanyDetail }: CallSessionPanelProps) {
   const [phase, setPhase] = useState<PanelPhase>('loading');
   const [sessionId, setSessionId] = useState('');
   const [callEventId, setCallEventId] = useState<string | null>(null);
@@ -402,6 +403,15 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
             </button>
           </div>
 
+          {onOpenCompanyDetail && target.customerId && (
+            <button
+              style={companyDetailBtn}
+              onClick={() => onOpenCompanyDetail(target.customerId)}
+            >
+              Open Company Detail
+            </button>
+          )}
+
           {/* Defer controls */}
           <div style={deferSection}>
             <div style={deferLabel}>Defer this call</div>
@@ -494,6 +504,14 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
               End Call &amp; Complete
             </button>
           </div>
+          {onOpenCompanyDetail && target.customerId && (
+            <button
+              style={companyDetailBtn}
+              onClick={() => onOpenCompanyDetail(target.customerId)}
+            >
+              Open Company Detail
+            </button>
+          )}
         </div>
       )}
 
@@ -535,6 +553,14 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
               {busy ? 'Loading...' : 'Complete Call Now'}
             </button>
           </div>
+          {onOpenCompanyDetail && target?.customerId && (
+            <button
+              style={companyDetailBtn}
+              onClick={() => onOpenCompanyDetail(target.customerId)}
+            >
+              Open Company Detail
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -878,4 +904,19 @@ const conflictBtn: CSSProperties = {
   background: 'transparent',
   color: S.FC.accentAmber,
   cursor: 'pointer',
+};
+
+const companyDetailBtn: CSSProperties = {
+  display: 'block',
+  width: '100%',
+  marginTop: 10,
+  padding: '9px 16px',
+  fontSize: '0.8125rem',
+  fontWeight: 600,
+  color: S.FC.accentPurple,
+  background: 'rgba(139, 92, 246, 0.08)',
+  border: '1px solid rgba(139, 92, 246, 0.22)',
+  borderRadius: 6,
+  cursor: 'pointer',
+  textAlign: 'center' as const,
 };

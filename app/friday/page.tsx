@@ -9,6 +9,7 @@ import ManualCallModal from "../../components/friday/ManualCallModal";
 import CallCompletionGate from "../../components/friday/CallCompletionGate";
 import { fridayFetch } from "../../components/friday/fridayFetch";
 import type { CallTarget, CompanyContact, FollowUp } from "../../components/friday/types";
+import CompanyDrawer from "../../components/company/CompanyDrawer";
 
 export default function FridayPage() {
   return (
@@ -37,6 +38,17 @@ function FridayPageInner() {
   const [manualCall, setManualCall] = useState<ManualCallState | null>(null);
   const [manualContacts, setManualContacts] = useState<CompanyContact[]>([]);
   const [manualFollowUps, setManualFollowUps] = useState<FollowUp[]>([]);
+
+  // Company Detail Drawer state
+  const [drawerCustomerId, setDrawerCustomerId] = useState<string | null>(null);
+
+  const handleOpenCompanyDetail = useCallback((customerId: string) => {
+    setDrawerCustomerId(customerId);
+  }, []);
+
+  const handleCloseDrawer = useCallback(() => {
+    setDrawerCustomerId(null);
+  }, []);
 
   const handleTargetChange = useCallback((target: CallTarget | null) => {
     setActiveTarget(target);
@@ -83,6 +95,7 @@ function FridayPageInner() {
         <CallSessionPanel
           onTargetChange={handleTargetChange}
           directTargetCustomerId={directTarget}
+          onOpenCompanyDetail={handleOpenCompanyDetail}
         />
       </div>
 
@@ -140,6 +153,12 @@ function FridayPageInner() {
             <button className="manual-call-end-btn" onClick={handleManualEndCall}>
               End Call &amp; Complete
             </button>
+            <button
+              className="manual-call-detail-btn"
+              onClick={() => handleOpenCompanyDetail(manualCall.customerId)}
+            >
+              Open Company Detail
+            </button>
           </div>
         </div>
       )}
@@ -155,6 +174,14 @@ function FridayPageInner() {
           onConflict={() => {}}
           onClose={handleManualClose}
           mode="friday"
+        />
+      )}
+
+      {/* Company Detail Drawer */}
+      {drawerCustomerId && (
+        <CompanyDrawer
+          customerId={drawerCustomerId}
+          onClose={handleCloseDrawer}
         />
       )}
 
@@ -315,6 +342,26 @@ function FridayPageInner() {
 
         .manual-call-end-btn:hover {
           background: #16a34a;
+        }
+
+        .manual-call-detail-btn {
+          display: block;
+          width: 100%;
+          margin-top: 10px;
+          padding: 10px 24px;
+          font-size: 0.8125rem;
+          font-weight: 600;
+          border: 1px solid rgba(139, 92, 246, 0.3);
+          border-radius: 6px;
+          background: rgba(139, 92, 246, 0.1);
+          color: #a78bfa;
+          cursor: pointer;
+          transition: background 0.15s, border-color 0.15s;
+        }
+
+        .manual-call-detail-btn:hover {
+          background: rgba(139, 92, 246, 0.2);
+          border-color: rgba(139, 92, 246, 0.45);
         }
 
         @media (max-width: 900px) {
