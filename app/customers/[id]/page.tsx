@@ -63,199 +63,7 @@ type DraftQuote = {
   };
 };
 
-// Mock customer details data
-const MOCK_CUSTOMER_DETAILS: Record<string, {
-  id: string;
-  name: string;
-  status: string;
-  city: string;
-  state: string;
-  address: string;
-  mainPhone: string;
-  website: string;
-  ownerSalespersonName: string;
-  contacts: Array<{
-    id: string;
-    name: string;
-    title: string;
-    email: string;
-    officePhone: string;
-    cellPhone: string;
-    notes: string;
-    isPrimary: boolean;
-  }>;
-  tools: string[];
-  ppe: string[];
-  orders: Array<{
-    id: string;
-    site: string;
-    startDate: string;
-    status: string;
-  }>;
-  quotes: Quote[];
-}> = {
-  "CUST-001": {
-    id: "CUST-001",
-    name: "Turner Construction",
-    status: "Active",
-    city: "Los Angeles",
-    state: "CA",
-    address: "450 S Grand Ave, Suite 2100, Los Angeles, CA 90071",
-    mainPhone: "(213) 555-1000",
-    website: "https://turnerconstruction.com",
-    ownerSalespersonName: "Jordan Miles",
-    contacts: [
-      {
-        id: "CON-001",
-        name: "Michael Torres",
-        title: "VP of Operations",
-        email: "mtorres@turnerconstruction.com",
-        officePhone: "(213) 555-1001",
-        cellPhone: "(310) 555-2001",
-        notes: "Prefers email communication",
-        isPrimary: true,
-      },
-      {
-        id: "CON-002",
-        name: "Lisa Chen",
-        title: "Project Director",
-        email: "lchen@turnerconstruction.com",
-        officePhone: "(213) 555-1002",
-        cellPhone: "(310) 555-2002",
-        notes: "",
-        isPrimary: false,
-      },
-      {
-        id: "CON-003",
-        name: "Robert Williams",
-        title: "Safety Manager",
-        email: "rwilliams@turnerconstruction.com",
-        officePhone: "(213) 555-1003",
-        cellPhone: "(310) 555-2003",
-        notes: "Contact for safety certifications",
-        isPrimary: false,
-      },
-      {
-        id: "CON-004",
-        name: "Amanda Foster",
-        title: "Procurement Specialist",
-        email: "afoster@turnerconstruction.com",
-        officePhone: "(213) 555-1004",
-        cellPhone: "(310) 555-2004",
-        notes: "Handles equipment requests",
-        isPrimary: false,
-      },
-    ],
-    tools: ["Torque Wrenches (Calibrated)", "Laser Alignment Kits", "Rigging Equipment", "Dial Indicators", "Portable Crane (10-ton)"],
-    ppe: ["Hard Hat (ANSI Type II)", "Safety Glasses (ANSI Z87.1)", "Steel-Toe Boots", "Hi-Vis Vest (Class 3)", "Cut-Resistant Gloves", "Fall Protection Harness"],
-    orders: [
-      { id: "ORD-2024-001", site: "Downtown Tower — Los Angeles, CA", startDate: "2024-02-15", status: "Active" },
-      { id: "ORD-2024-010", site: "Westside Medical Center — Santa Monica, CA", startDate: "2024-04-01", status: "Pending" },
-    ],
-    quotes: [
-      {
-        id: "QTE-2024-003",
-        title: "Downtown Tower Phase 2 — Millwright Services",
-        status: "Sent",
-        startDate: "2024-06-01",
-        expiresAt: "2024-07-01",
-        salespersonName: "Jordan Miles",
-        hasEconomicsSnapshot: true,
-        notes: "Priority project for Q2",
-        trades: [
-          { trade: "Millwright", headcount: 2, hours: 80, basePay: 32, burdenedPay: 38, billRate: 58, gmPerHr: 20, gmPct: 34.5, health: "Good", otMultiplier: 1.5 },
-          { trade: "Electrician", headcount: 1, hours: 40, basePay: 36, burdenedPay: 42.5, billRate: 62, gmPerHr: 19.5, gmPct: 31.5, health: "Watch", otMultiplier: 1.5 },
-        ],
-        modifiers: { perDiem: 125, travel: 0.58, bonuses: 2 },
-      },
-      {
-        id: "QTE-2024-004",
-        title: "Westside Medical — Equipment Install",
-        status: "Draft",
-        startDate: "2024-07-15",
-        expiresAt: "2024-08-15",
-        salespersonName: "Jordan Miles",
-        hasEconomicsSnapshot: false,
-        notes: "",
-        trades: [
-          { trade: "Millwright", headcount: 3, hours: 120, basePay: 32, burdenedPay: 38, billRate: 58, gmPerHr: 20, gmPct: 34.5, health: "Good", otMultiplier: 1.5 },
-        ],
-        modifiers: { perDiem: 100, travel: 0.58, bonuses: 0 },
-      },
-      {
-        id: "QTE-2024-005",
-        title: "LAX Terminal Expansion — Rigging Support",
-        status: "Accepted",
-        startDate: "2024-05-01",
-        expiresAt: "2024-06-01",
-        salespersonName: "Sarah Chen",
-        hasEconomicsSnapshot: true,
-        notes: "Long-term engagement potential",
-        trades: [
-          { trade: "Rigger", headcount: 4, hours: 160, basePay: 30, burdenedPay: 36, billRate: 55, gmPerHr: 19, gmPct: 34.5, health: "Good", otMultiplier: 1.5 },
-          { trade: "Crane Operator", headcount: 2, hours: 80, basePay: 40, burdenedPay: 48, billRate: 72, gmPerHr: 24, gmPct: 33.3, health: "Good", otMultiplier: 1.5 },
-        ],
-        modifiers: { perDiem: 150, travel: 0.65, bonuses: 5 },
-      },
-    ],
-  },
-};
 
-// Default fallback for any customer ID
-const DEFAULT_CUSTOMER = {
-  id: "CUST-XXX",
-  name: "Sample Customer",
-  status: "Active",
-  city: "City",
-  state: "ST",
-  address: "123 Main St, Suite 100, City, ST 00000",
-  mainPhone: "(000) 000-0000",
-  website: "https://example.com",
-  ownerSalespersonName: "Sales Rep",
-  contacts: [
-    {
-      id: "CON-001",
-      name: "John Smith",
-      title: "Operations Manager",
-      email: "jsmith@example.com",
-      officePhone: "(000) 000-0001",
-      cellPhone: "(000) 000-1001",
-      notes: "Primary point of contact",
-      isPrimary: true,
-    },
-    {
-      id: "CON-002",
-      name: "Jane Doe",
-      title: "Project Manager",
-      email: "jdoe@example.com",
-      officePhone: "(000) 000-0002",
-      cellPhone: "(000) 000-1002",
-      notes: "",
-      isPrimary: false,
-    },
-  ],
-  tools: ["Standard Tool Kit", "Measuring Equipment"],
-  ppe: ["Hard Hat", "Safety Glasses", "Steel-Toe Boots"],
-  orders: [
-    { id: "ORD-2024-001", site: "Sample Site — City, ST", startDate: "2024-03-01", status: "Active" },
-  ],
-  quotes: [
-    {
-      id: "QTE-2024-001",
-      title: "Sample Quote — Millwright Services",
-      status: "Draft",
-      startDate: "2024-04-01",
-      expiresAt: "2024-05-01",
-      salespersonName: "Sales Rep",
-      hasEconomicsSnapshot: false,
-      notes: "",
-      trades: [
-        { trade: "Millwright", headcount: 1, hours: 40, basePay: 30, burdenedPay: 36, billRate: 55, gmPerHr: 19, gmPct: 34.5, health: "Good" as const, otMultiplier: 1.5 },
-      ],
-      modifiers: { perDiem: 100, travel: 0.58, bonuses: 0 },
-    },
-  ],
-};
 
 // Available trades for dropdown
 const AVAILABLE_TRADES = [
@@ -292,19 +100,6 @@ type CustomerToolTrade = {
   items: CustomerToolTypeItem[];
 };
 
-// Base mock tools per trade (read-only; do not mutate)
-const MOCK_TOOLS_BY_TRADE: Record<string, string[]> = {
-  Millwright: ["Torque Wrenches (Calibrated)", "Laser Alignment Kits", "Rigging Equipment", "Dial Indicators", "Portable Crane (10-ton)"],
-  Electrician: ["Multimeter", "Wire Strippers", "Fish Tape"],
-  Pipefitter: ["Pipe Threader", "Level", "Tape Measure"],
-  Welder: ["Welding Machine", "Grinder", "Clamps"],
-  Rigger: ["Slings", "Shackles", "Spreader Bar"],
-  "Crane Operator": ["Radio", "Signal Flags"],
-  "HVAC Technician": ["Manifold Gauge Set", "Vacuum Pump", "Leak Detector"],
-  Ironworker: ["Spud Wrench", "Bull Pin", "Connector"],
-  Carpenter: ["Circular Saw", "Drill", "Level"],
-  Plumber: ["Pipe Wrench", "Snake", "Torch"],
-};
 type QuoteMode = "view" | "create" | "edit";
 
 // Helper to generate a new quote ID
@@ -432,11 +227,8 @@ export default function CustomerDetailPage() {
   // Customer-level approval toggle (UI-only, non-persistent)
   const [customerApprovalRequired, setCustomerApprovalRequired] = useState(true);
 
-  // Get base customer data
-  const baseCustomer = MOCK_CUSTOMER_DETAILS[customerId] || { ...DEFAULT_CUSTOMER, id: customerId };
-
-  // In-memory quotes state (initialized from mock data)
-  const [quotes, setQuotes] = useState<Quote[]>(baseCustomer.quotes);
+  // In-memory quotes state
+  const [quotes, setQuotes] = useState<Quote[]>([]);
 
   // Quote form mode and draft
   const [mode, setMode] = useState<QuoteMode>("view");
@@ -454,7 +246,7 @@ export default function CustomerDetailPage() {
     isPrimary: boolean;
   }>>([]);
 
-  // UI overlays for base/mock contacts (edits and deletes without mutating source)
+  // UI overlays for contacts (edits and deletes without mutating source)
   const [uiContactOverrides, setUiContactOverrides] = useState<Record<string, {
     id: string;
     name: string;
@@ -695,8 +487,6 @@ export default function CustomerDetailPage() {
     return () => { alive = false; };
   }, [customerId]);
 
-  // Merge customer with in-memory quotes
-  const customer = { ...baseCustomer, quotes };
   const liveRegistrySalespersonName = (() => {
     const sp = liveCustomer?.registrySalesperson;
     if (!sp) return null;
@@ -704,7 +494,7 @@ export default function CustomerDetailPage() {
     const firstLast = `${sp.firstName ?? ""} ${sp.lastName ?? ""}`.trim();
     return fullName || firstLast || sp.email || sp.id || null;
   })();
-  const effectiveOwnerName = liveRegistrySalespersonName ?? customer.ownerSalespersonName;
+  const effectiveOwnerName = liveRegistrySalespersonName ?? liveCustomer?.ownerSalespersonName ?? null;
 
   // Collect UI-only draft orders from sessionStorage
   const draftOrders = useMemo(() => {
@@ -1034,10 +824,8 @@ export default function CustomerDetailPage() {
       };
     });
 
-    // Start with base contacts, filter out hidden, apply overrides
-    const baseSource =
-      liveBaseContacts.length > 0 ? liveBaseContacts : baseCustomer.contacts;
-    const baseRendered = baseSource
+    // Start with live contacts, filter out hidden, apply overrides
+    const baseRendered = liveBaseContacts
       .filter((c: any) => !uiContactHiddenIds.has(c.id))
       .map((c: any) => ({
         ...c,
@@ -1054,7 +842,6 @@ export default function CustomerDetailPage() {
     return [...baseRendered, ...uiRendered];
   }, [
     liveCustomer?.contacts,
-    baseCustomer.contacts,
     uiContactHiddenIds,
     uiContactOverrides,
     uiContacts,
@@ -1114,32 +901,16 @@ export default function CustomerDetailPage() {
     if (!editingTool || !editingToolTrade) return;
   };
 
-  // Compute rendered tools per trade: base (filtered, overrides) + ui-created for that trade only
+  // Compute rendered tools per trade: ui-created for that trade only
   const renderedToolsByTrade = useMemo(() => {
     const result: Record<string, Array<ToolLike & { isUiTool: boolean }>> = {};
     for (const tradeId of AVAILABLE_TRADES) {
-      const baseNames = MOCK_TOOLS_BY_TRADE[tradeId] ?? [];
-      const overrides = uiToolOverridesByTrade[tradeId] ?? {};
-      const hidden = uiToolHiddenIdsByTrade[tradeId] ?? new Set();
       const uiList = uiToolsByTrade[tradeId] ?? [];
-
-      const baseRendered = baseNames
-        .map((toolName, idx) => {
-          const id = `BASE-TOOL-${tradeId}-${idx}`;
-          return { id, name: toolName, notes: "" };
-        })
-        .filter((t) => !hidden.has(t.id))
-        .map((t) => ({
-          ...t,
-          ...(overrides[t.id] || {}),
-          isUiTool: false as const,
-        }));
-
       const uiRendered = uiList.map((t) => ({ ...t, isUiTool: true as const }));
-      result[tradeId] = [...baseRendered, ...uiRendered];
+      result[tradeId] = uiRendered;
     }
     return result;
-  }, [uiToolsByTrade, uiToolOverridesByTrade, uiToolHiddenIdsByTrade]);
+  }, [uiToolsByTrade]);
 
   // ========== PPE HANDLERS ==========
 
@@ -1339,36 +1110,63 @@ export default function CustomerDetailPage() {
     setDraftQuote({ ...draftQuote, trades: newTrades });
   };
 
-  const headerName = liveCustomer?.name ?? customer.name;
-  const headerId = liveCustomer?.id ?? customer.id;
+  const headerName = liveCustomer?.name ?? "—";
+  const headerId = liveCustomer?.id ?? customerId;
   const primaryLoc = liveCustomer?.locations?.[0] ?? null;
   const headerLocation = primaryLoc
     ? [
         [primaryLoc.city, primaryLoc.state].filter(Boolean).join(", "),
         primaryLoc.zip,
       ].filter(Boolean).join(" ")
-    : (liveCustomer?.location ?? `${customer.city}, ${customer.state}`);
+    : (liveCustomer?.location ?? null);
   const firstContact = liveCustomer?.contacts?.[0] ?? null;
   const headerPhone = liveCustomer?.mainPhone
     ?? firstContact?.officePhone
     ?? firstContact?.cellPhone
-    ?? customer.mainPhone;
-  const headerWebsite = liveCustomer?.websiteUrl ?? customer.website;
+    ?? null;
+  const headerWebsite = liveCustomer?.websiteUrl ?? null;
   const headerSalesperson = effectiveOwnerName;
-  const isMockCustomer = Boolean(MOCK_CUSTOMER_DETAILS[customerId]);
 
   const headerStreetAddress =
     primaryLoc?.address1
       ? [primaryLoc.address1, primaryLoc.address2].filter(Boolean).join(", ")
-      : (liveCustomer?.address ?? customer.address ?? null);
+      : (liveCustomer?.address ?? null);
+
+  if (headerLoading) {
+    return (
+      <div className="customer-detail-container">
+        <div className="header-loading-banner">Loading customer&hellip;</div>
+      </div>
+    );
+  }
+
+  if (!liveCustomer) {
+    const isForbidden = headerError.includes("403");
+    return (
+      <div className="customer-detail-container">
+        <div className="detail-header">
+          <div className="header-left">
+            <button className="back-btn" onClick={handleBackToCustomers}>
+              ← Back to Customers
+            </button>
+          </div>
+        </div>
+        <div style={{ padding: "48px 24px", textAlign: "center", color: "rgba(255,255,255,0.6)" }}>
+          <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: "rgba(255,255,255,0.85)" }}>
+            {isForbidden ? "Access Denied" : "Customer Unavailable"}
+          </div>
+          <div style={{ fontSize: 14 }}>
+            {isForbidden
+              ? "You do not have permission to view this customer."
+              : headerError || "This customer could not be loaded."}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="customer-detail-container">
-      {headerLoading && (
-        <div className="header-loading-banner">Loading customer&hellip;</div>
-      )}
-      {headerError && (
-        <div className="header-error-banner">{headerError}</div>
-      )}
 
       {/* Page Header */}
       <div className="detail-header">
@@ -1379,7 +1177,9 @@ export default function CustomerDetailPage() {
           <div className="header-title">
             <h1>{headerName}</h1>
             <span className="customer-id-badge">{headerId}</span>
-            <span className={`status-badge ${customer.status.toLowerCase()}`}>{customer.status}</span>
+            {liveCustomer?.lifecycleStatus && (
+              <span className={`status-badge ${liveCustomer.lifecycleStatus.toLowerCase()}`}>{liveCustomer.lifecycleStatus}</span>
+            )}
           </div>
         </div>
       </div>
@@ -1405,7 +1205,7 @@ export default function CustomerDetailPage() {
         </div>
         <div className="summary-item">
           <span className="summary-label">Main Phone</span>
-          <span className="summary-value mono">{formatPhone(headerPhone)}</span>
+          <span className="summary-value mono">{headerPhone ? formatPhone(headerPhone) : "\u2014"}</span>
           {canCall && headerPhone && !activeCallEventId && (
             <button
               className="op-call-btn"
@@ -1423,16 +1223,19 @@ export default function CustomerDetailPage() {
         </div>
         <div className="summary-item">
           <span className="summary-label">Website</span>
-          <a href={headerWebsite} className="summary-link" target="_blank" rel="noopener noreferrer">
-            {(headerWebsite ?? "").replace(/^https?:\/\//, "") || "\u2014"}
-          </a>
+          {headerWebsite ? (
+            <a href={headerWebsite} className="summary-link" target="_blank" rel="noopener noreferrer">
+              {headerWebsite.replace(/^https?:\/\//, "")}
+            </a>
+          ) : (
+            <span className="summary-value">{"\u2014"}</span>
+          )}
         </div>
         <div className="summary-item address-item">
           <span className="summary-label">Location</span>
           <div className="summary-value address-block">
             <div className={headerStreetAddress ? "" : "address-missing"}>
-              {headerStreetAddress ??
-                (isMockCustomer ? "—" : "Street address not on file")}
+              {headerStreetAddress ?? "Street address not on file"}
             </div>
             <div className="address-city">{headerLocation || "\u2014"}</div>
           </div>
@@ -1496,7 +1299,7 @@ export default function CustomerDetailPage() {
               <span className="tab-count">{draftOrders.length + fetchedOrders.length}</span>
             )}
             {tab.key === "quotes" && (
-              <span className="tab-count">{customer.quotes.length}</span>
+              <span className="tab-count">{quotes.length}</span>
             )}
           </button>
         ))}
@@ -1847,7 +1650,7 @@ export default function CustomerDetailPage() {
                 + Create Quote
               </button>
             </div>
-            {customer.quotes.length === 0 && mode === "view" ? (
+            {quotes.length === 0 && mode === "view" ? (
               <div className="placeholder-note">
                 <span className="placeholder-icon">📋</span>
                 <span>No quotes for this customer yet.</span>
@@ -1855,8 +1658,8 @@ export default function CustomerDetailPage() {
             ) : (
               <div className="quotes-split">
                 <div className="quote-list">
-                  {customer.quotes.map((quote) => {
-                    const isSelected = mode === "view" && (selectedQuoteId === quote.id || (selectedQuoteId === null && quote.id === customer.quotes[0]?.id));
+                  {quotes.map((quote) => {
+                    const isSelected = mode === "view" && (selectedQuoteId === quote.id || (selectedQuoteId === null && quote.id === quotes[0]?.id));
                     return (
                       <div
                         key={quote.id}
@@ -2163,7 +1966,7 @@ export default function CustomerDetailPage() {
                   ) : (
                     /* VIEW MODE */
                     (() => {
-                      const selectedQuote = customer.quotes.find((q) => q.id === selectedQuoteId) || customer.quotes[0];
+                      const selectedQuote = quotes.find((q) => q.id === selectedQuoteId) || quotes[0];
                       if (!selectedQuote) return null;
                       const laborRows = selectedQuote.trades;
                       // Map health values for display
