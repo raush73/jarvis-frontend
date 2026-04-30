@@ -61,7 +61,7 @@ export async function apiFetch<T>(
   });
 
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       clearAccessToken();
     }
     const text = await res.text().catch(() => "");
