@@ -121,24 +121,33 @@ function ContactForm({ customerId, existing, onDone, onCancel }: ContactFormProp
     setSaving(true);
     setError('');
     try {
-      const payload: Record<string, string> = {
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-      };
-      if (jobTitle.trim()) payload.jobTitle = jobTitle.trim();
-      if (email.trim()) payload.email = email.trim();
-      if (officePhone.trim()) payload.officePhone = officePhone.trim();
-      if (cellPhone.trim()) payload.cellPhone = cellPhone.trim();
-
       if (isEdit) {
+        const payload: Record<string, string> = {
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          jobTitle: jobTitle.trim(),
+          email: email.trim(),
+          officePhone: officePhone.trim(),
+          cellPhone: cellPhone.trim(),
+        };
         await apiFetch(`/customer-contacts/${existing.id}`, {
           method: 'PATCH',
           body: JSON.stringify(payload),
         });
       } else {
+        const payload: Record<string, string> = {
+          customerId,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+        };
+        if (jobTitle.trim()) payload.jobTitle = jobTitle.trim();
+        if (email.trim()) payload.email = email.trim();
+        if (officePhone.trim()) payload.officePhone = officePhone.trim();
+        if (cellPhone.trim()) payload.cellPhone = cellPhone.trim();
+
         await apiFetch('/customer-contacts', {
           method: 'POST',
-          body: JSON.stringify({ customerId, ...payload }),
+          body: JSON.stringify(payload),
         });
       }
       onDone();

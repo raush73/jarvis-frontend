@@ -97,7 +97,7 @@ export default function CompanyDrawer({ customerId, onClose }: CompanyDrawerProp
           )}
 
           {!loading && !error && company && tab === 'overview' && (
-            <CompanyHeader company={company} />
+            <CompanyHeader company={company} onRefresh={loadCompany} />
           )}
 
           {!loading && !error && company && tab === 'contacts' && (

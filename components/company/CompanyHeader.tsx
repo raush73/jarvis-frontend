@@ -1,12 +1,15 @@
 'use client';
 
+import { useState, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import type { CompanyRecord } from './types';
-import { FC } from '../friday/styles';
+import { FC, input, btnPrimary, btnSecondary } from '../friday/styles';
 import { formatPhone } from '@/lib/format';
+import { apiFetch } from '@/lib/api';
 
 interface CompanyHeaderProps {
   company: CompanyRecord;
+  onRefresh: () => void;
 }
 
 const LIFECYCLE_COLORS: Record<string, string> = {
@@ -18,76 +21,165 @@ const LIFECYCLE_COLORS: Record<string, string> = {
 function resolveOwnerName(company: CompanyRecord): string | null {
   const sp = company.registrySalesperson;
   if (sp) {
-    const full = typeof sp.fullName === 'string' ? sp.fullName.trim() : '';
     const firstLast = `${sp.firstName ?? ''} ${sp.lastName ?? ''}`.trim();
-    return full || firstLast || sp.email || null;
+    return firstLast || null;
   }
-  return company.ownerSalespersonName ?? null;
+  return null;
 }
 
 function buildAddress(company: CompanyRecord): string | null {
+  const loc = company.locations?.[0];
+  if (!loc) return null;
   const parts: string[] = [];
-  if (company.street) parts.push(company.street);
-  const cityState = [company.city, company.state].filter(Boolean).join(', ');
+  if (loc.address1) parts.push(loc.address1);
+  if (loc.address2) parts.push(loc.address2);
+  const cityState = [loc.city, loc.state].filter(Boolean).join(', ');
   if (cityState) parts.push(cityState);
-  if (company.zipCode) parts.push(company.zipCode);
+  if (loc.zip) parts.push(loc.zip);
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
-export default function CompanyHeader({ company }: CompanyHeaderProps) {
+export default function CompanyHeader({ company, onRefresh }: CompanyHeaderProps) {
   const lifecycle = company.lifecycleStatus ?? 'UNKNOWN';
   const lifecycleColor = LIFECYCLE_COLORS[lifecycle] ?? FC.textMuted;
   const ownerName = resolveOwnerName(company);
   const address = buildAddress(company);
   const phone = company.phone;
-  const website = company.website || company.domain;
+  const website = company.websiteUrl;
+
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(company.name);
+  const [editWebsite, setEditWebsite] = useState(company.websiteUrl ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const startEdit = useCallback(() => {
+    setEditName(company.name);
+    setEditWebsite(company.websiteUrl ?? '');
+    setError('');
+    setEditing(true);
+  }, [company]);
+
+  const cancelEdit = useCallback(() => {
+    setEditing(false);
+    setError('');
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const payload: Record<string, string> = {};
+      const trimName = editName.trim();
+      const trimSite = editWebsite.trim();
+
+      if (trimName && trimName !== company.name) payload.name = trimName;
+      if (trimSite !== (company.websiteUrl ?? '')) payload.websiteUrl = trimSite;
+
+      if (Object.keys(payload).length === 0) {
+        setEditing(false);
+        return;
+      }
+
+      await apiFetch(`/customers/${company.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      setEditing(false);
+      onRefresh();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to save.');
+    } finally {
+      setSaving(false);
+    }
+  }, [editName, editWebsite, company, onRefresh]);
+
+  const hasAnyDetail = phone || website || ownerName || address;
 
   return (
     <div style={wrapper}>
-      {/* Name + lifecycle */}
+      {/* Name + lifecycle + edit toggle */}
       <div style={nameRow}>
-        <div style={companyName}>{company.name || 'Unnamed Company'}</div>
-        <div style={lifecycleBadge(lifecycleColor)}>{lifecycle}</div>
+        <div style={nameLeft}>
+          {editing ? (
+            <input
+              style={{ ...input, fontSize: '1rem', fontWeight: 700, padding: '6px 10px' }}
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="Company name"
+            />
+          ) : (
+            <div style={companyNameStyle}>{company.name || 'Unnamed Company'}</div>
+          )}
+          <div style={lifecycleBadge(lifecycleColor)}>{lifecycle}</div>
+        </div>
+        {!editing && (
+          <button style={editToggle} onClick={startEdit}>
+            Edit
+          </button>
+        )}
       </div>
 
-      {/* Info grid */}
+      {/* Editable website row */}
+      {editing && (
+        <div style={editSection}>
+          <div style={editField}>
+            <label style={fieldLabel}>Website</label>
+            <input
+              style={input}
+              value={editWebsite}
+              onChange={(e) => setEditWebsite(e.target.value)}
+              placeholder="https://example.com"
+            />
+          </div>
+          {error && <div style={errorText}>{error}</div>}
+          <div style={editActions}>
+            <button style={btnSecondary} onClick={cancelEdit} disabled={saving}>Cancel</button>
+            <button style={btnPrimary} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Info cards */}
       <div style={infoGrid}>
-        {phone && (
-          <InfoItem label="Phone" value={formatPhone(phone)} />
+        {phone && <InfoCard label="Phone" value={formatPhone(phone)} />}
+        {website && !editing && (
+          <InfoCard label="Website" value={website} isLink />
         )}
-        {website && (
-          <InfoItem label="Website" value={website} isLink />
-        )}
-        {ownerName && (
-          <InfoItem label="Owner" value={ownerName} />
-        )}
-        {company.primaryIndustry && (
-          <InfoItem label="Industry" value={company.primaryIndustry} />
-        )}
+        {ownerName && <InfoCard label="Owner" value={ownerName} />}
       </div>
 
       {/* Address */}
       {address && (
-        <div style={addressRow}>
-          <span style={infoLabel}>Location</span>
+        <div style={addressBlock}>
+          <span style={fieldLabel}>Location</span>
           <span style={infoValue}>{address}</span>
         </div>
       )}
 
       {/* Empty lead state */}
-      {!phone && !website && !ownerName && !address && (
+      {!hasAnyDetail && !editing && (
         <div style={emptyHint}>
-          Minimal record — add details during discovery.
+          Minimal record — click Edit to add details during discovery.
+        </div>
+      )}
+
+      {/* Non-editable limitations note */}
+      {editing && (
+        <div style={limitNote}>
+          Phone and address are read-only here. Update them in Customer Detail.
         </div>
       )}
     </div>
   );
 }
 
-function InfoItem({ label, value, isLink }: { label: string; value: string; isLink?: boolean }) {
+function InfoCard({ label, value, isLink }: { label: string; value: string; isLink?: boolean }) {
   return (
-    <div style={infoItem}>
-      <span style={infoLabel}>{label}</span>
+    <div style={infoCard}>
+      <span style={fieldLabel}>{label}</span>
       {isLink ? (
         <a
           href={value.startsWith('http') ? value : `https://${value}`}
@@ -121,10 +213,21 @@ const nameRow: CSSProperties = {
   marginBottom: 16,
 };
 
-const companyName: CSSProperties = {
+const nameLeft: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  flex: 1,
+  minWidth: 0,
+};
+
+const companyNameStyle: CSSProperties = {
   fontSize: '1.125rem',
   fontWeight: 700,
   color: FC.textPrimary,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 };
 
 function lifecycleBadge(color: string): CSSProperties {
@@ -141,24 +244,56 @@ function lifecycleBadge(color: string): CSSProperties {
   };
 }
 
+const editToggle: CSSProperties = {
+  padding: '4px 12px',
+  fontSize: '0.6875rem',
+  fontWeight: 600,
+  border: `1px solid ${FC.borderStrong}`,
+  borderRadius: 4,
+  background: 'transparent',
+  color: FC.accentPurple,
+  cursor: 'pointer',
+  flexShrink: 0,
+};
+
+const editSection: CSSProperties = {
+  background: 'rgba(139, 92, 246, 0.04)',
+  border: '1px solid rgba(139, 92, 246, 0.18)',
+  borderRadius: 6,
+  padding: 14,
+  marginBottom: 16,
+};
+
+const editField: CSSProperties = {
+  marginBottom: 12,
+};
+
+const fieldLabel: CSSProperties = {
+  display: 'block',
+  fontSize: '0.6875rem',
+  fontWeight: 600,
+  color: FC.textMuted,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  marginBottom: 4,
+};
+
+const editActions: CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  justifyContent: 'flex-end',
+};
+
 const infoGrid: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: '1fr 1fr',
   gap: '12px 16px',
 };
 
-const infoItem: CSSProperties = {
+const infoCard: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 3,
-};
-
-const infoLabel: CSSProperties = {
-  fontSize: '0.6875rem',
-  fontWeight: 600,
-  color: FC.textMuted,
-  textTransform: 'uppercase',
-  letterSpacing: '0.04em',
 };
 
 const infoValue: CSSProperties = {
@@ -174,7 +309,7 @@ const linkValue: CSSProperties = {
   wordBreak: 'break-word',
 };
 
-const addressRow: CSSProperties = {
+const addressBlock: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 3,
@@ -188,4 +323,19 @@ const emptyHint: CSSProperties = {
   color: FC.textFaint,
   fontStyle: 'italic',
   marginTop: 4,
+};
+
+const errorText: CSSProperties = {
+  color: FC.accentRed,
+  fontSize: '0.75rem',
+  marginBottom: 8,
+};
+
+const limitNote: CSSProperties = {
+  fontSize: '0.6875rem',
+  color: FC.textFaint,
+  fontStyle: 'italic',
+  marginTop: 12,
+  paddingTop: 10,
+  borderTop: `1px solid ${FC.border}`,
 };
