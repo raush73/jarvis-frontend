@@ -5,7 +5,10 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import CallSessionPanel from "../../components/friday/CallSessionPanel";
 import CallHistoryPanel from "../../components/friday/CallHistoryPanel";
-import type { CallTarget } from "../../components/friday/types";
+import ManualCallModal from "../../components/friday/ManualCallModal";
+import CallCompletionGate from "../../components/friday/CallCompletionGate";
+import { fridayFetch } from "../../components/friday/fridayFetch";
+import type { CallTarget, CompanyContact, FollowUp } from "../../components/friday/types";
 
 export default function FridayPage() {
   return (
@@ -15,14 +18,64 @@ export default function FridayPage() {
   );
 }
 
+type ManualCallPhase = 'idle' | 'form' | 'in_call' | 'completing';
+
+interface ManualCallState {
+  callEventId: string;
+  customerId: string;
+  companyName: string;
+  phone: string;
+}
+
 function FridayPageInner() {
   const searchParams = useSearchParams();
   const directTarget = searchParams.get("directTarget") ?? undefined;
   const [activeTarget, setActiveTarget] = useState<CallTarget | null>(null);
 
+  // Manual Call state
+  const [manualPhase, setManualPhase] = useState<ManualCallPhase>('idle');
+  const [manualCall, setManualCall] = useState<ManualCallState | null>(null);
+  const [manualContacts, setManualContacts] = useState<CompanyContact[]>([]);
+  const [manualFollowUps, setManualFollowUps] = useState<FollowUp[]>([]);
+
   const handleTargetChange = useCallback((target: CallTarget | null) => {
     setActiveTarget(target);
   }, []);
+
+  const handleManualCallStarted = (result: { callEventId: string; customerId: string; createdLead?: { customerId: string; name: string; phone: string } }) => {
+    setManualCall({
+      callEventId: result.callEventId,
+      customerId: result.customerId,
+      companyName: result.createdLead?.name ?? 'Manual Call',
+      phone: result.createdLead?.phone ?? '',
+    });
+    setManualPhase('in_call');
+  };
+
+  const handleManualEndCall = async () => {
+    if (!manualCall) return;
+    const [cRes, fRes] = await Promise.all([
+      fridayFetch<CompanyContact[]>(`/friday/contacts/company/${manualCall.customerId}`),
+      fridayFetch<FollowUp[]>(`/friday/follow-ups/company/${manualCall.customerId}?status=OPEN`),
+    ]);
+    setManualContacts(cRes.ok ? cRes.data : []);
+    setManualFollowUps(fRes.ok ? fRes.data : []);
+    setManualPhase('completing');
+  };
+
+  const handleManualCompleted = () => {
+    setManualPhase('idle');
+    setManualCall(null);
+    setManualContacts([]);
+    setManualFollowUps([]);
+  };
+
+  const handleManualClose = () => {
+    setManualPhase('idle');
+    setManualCall(null);
+    setManualContacts([]);
+    setManualFollowUps([]);
+  };
 
   return (
     <div className="friday-page">
@@ -42,6 +95,17 @@ function FridayPageInner() {
 
       <div className="friday-sidebar">
         <div className="sidebar-section">
+          <div className="sidebar-label">Actions</div>
+          <button
+            className="sidebar-action-btn"
+            onClick={() => setManualPhase('form')}
+            disabled={manualPhase !== 'idle'}
+          >
+            Manual Call
+          </button>
+        </div>
+
+        <div className="sidebar-section" style={{ marginTop: 12 }}>
           <div className="sidebar-label">Tools</div>
           <Link href="/friday/intelligence" className="sidebar-link">
             Intelligence Queue
@@ -54,6 +118,45 @@ function FridayPageInner() {
           </Link>
         </div>
       </div>
+
+      {/* Manual Call Modal (form) */}
+      {manualPhase === 'form' && (
+        <ManualCallModal
+          onClose={() => setManualPhase('idle')}
+          onCallStarted={handleManualCallStarted}
+        />
+      )}
+
+      {/* Manual Call In-Call overlay */}
+      {manualPhase === 'in_call' && manualCall && (
+        <div className="manual-call-overlay">
+          <div className="manual-call-card">
+            <div className="manual-call-indicator" />
+            <span className="manual-call-status">Manual Call In Progress</span>
+            <div className="manual-call-info">
+              <div className="manual-call-name">{manualCall.companyName}</div>
+              {manualCall.phone && <div className="manual-call-phone">{manualCall.phone}</div>}
+            </div>
+            <button className="manual-call-end-btn" onClick={handleManualEndCall}>
+              End Call &amp; Complete
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Call Completion Gate */}
+      {manualPhase === 'completing' && manualCall && (
+        <CallCompletionGate
+          callEventId={manualCall.callEventId}
+          customerId={manualCall.customerId}
+          contacts={manualContacts}
+          existingFollowUps={manualFollowUps}
+          onCompleted={handleManualCompleted}
+          onConflict={() => {}}
+          onClose={handleManualClose}
+          mode="friday"
+        />
+      )}
 
       <style jsx>{`
         .friday-page {
@@ -96,6 +199,31 @@ function FridayPageInner() {
           margin-bottom: 12px;
         }
 
+        .sidebar-action-btn {
+          display: block;
+          width: 100%;
+          padding: 10px 12px;
+          font-size: 13px;
+          font-weight: 600;
+          color: #a78bfa;
+          background: rgba(139, 92, 246, 0.1);
+          border: 1px solid rgba(139, 92, 246, 0.25);
+          border-radius: 6px;
+          cursor: pointer;
+          transition: background 0.15s, border-color 0.15s;
+          text-align: left;
+        }
+
+        .sidebar-action-btn:hover:not(:disabled) {
+          background: rgba(139, 92, 246, 0.18);
+          border-color: rgba(139, 92, 246, 0.4);
+        }
+
+        .sidebar-action-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
         :global(.sidebar-link) {
           display: block;
           padding: 10px 12px;
@@ -111,6 +239,82 @@ function FridayPageInner() {
         :global(.sidebar-link:hover) {
           background: rgba(139, 92, 246, 0.1);
           color: #a78bfa;
+        }
+
+        .manual-call-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          backdrop-filter: blur(4px);
+        }
+
+        .manual-call-card {
+          background: #1a1d24;
+          border: 1px solid rgba(34, 197, 94, 0.4);
+          border-radius: 12px;
+          padding: 32px;
+          width: 100%;
+          max-width: 400px;
+          text-align: center;
+        }
+
+        .manual-call-indicator {
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: #22c55e;
+          box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15);
+          margin: 0 auto 12px;
+          animation: pulse-green 2s infinite;
+        }
+
+        @keyframes pulse-green {
+          0%, 100% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15); }
+          50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.08); }
+        }
+
+        .manual-call-status {
+          display: block;
+          font-size: 0.875rem;
+          font-weight: 700;
+          color: #22c55e;
+          margin-bottom: 16px;
+        }
+
+        .manual-call-info {
+          margin-bottom: 24px;
+        }
+
+        .manual-call-name {
+          font-size: 1.125rem;
+          font-weight: 700;
+          color: #ffffff;
+          margin-bottom: 4px;
+        }
+
+        .manual-call-phone {
+          font-size: 0.8125rem;
+          color: rgba(255, 255, 255, 0.6);
+        }
+
+        .manual-call-end-btn {
+          padding: 12px 24px;
+          font-size: 0.9375rem;
+          font-weight: 600;
+          border: none;
+          border-radius: 6px;
+          background: #22c55e;
+          color: #ffffff;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+
+        .manual-call-end-btn:hover {
+          background: #16a34a;
         }
 
         @media (max-width: 900px) {
