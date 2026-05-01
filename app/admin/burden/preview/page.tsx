@@ -60,6 +60,8 @@ type SellingComputeResponse = {
   customProfit: SellingRateResult | null;
 };
 
+type CostCalcType = "standard" | "ocip" | "prevailing" | "prevailing-ocip";
+
 type SellingTab = "presets" | "custom-margin" | "profit-hr";
 
 function getAuthHeaders(): Record<string, string> {
@@ -101,9 +103,12 @@ export default function BurdenPreviewPage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [tradesLoading, setTradesLoading] = useState(true);
 
+  const [costCalcType, setCostCalcType] = useState<CostCalcType>("standard");
   const [stateCode, setStateCode] = useState("");
   const [tradeId, setTradeId] = useState("");
   const [payRate, setPayRate] = useState("");
+  const [baseWage, setBaseWage] = useState("");
+  const [fringeAmount, setFringeAmount] = useState("");
 
   const [result, setResult] = useState<BurdenPreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -143,9 +148,29 @@ export default function BurdenPreviewPage() {
     })();
   }, []);
 
+  const isPrevailing = costCalcType === "prevailing" || costCalcType === "prevailing-ocip";
+  const isOcip = costCalcType === "ocip" || costCalcType === "prevailing-ocip";
+
   const computePreview = useCallback(async () => {
-    const rate = parseFloat(payRate);
-    if (!stateCode || !tradeId || isNaN(rate) || rate <= 0) return;
+    if (!stateCode || !tradeId) return;
+
+    let payload: Record<string, unknown> = { stateCode, tradeId };
+
+    if (isPrevailing) {
+      const bw = parseFloat(baseWage);
+      const fr = parseFloat(fringeAmount);
+      if (isNaN(bw) || bw <= 0 || isNaN(fr) || fr < 0) return;
+      payload.baseWage = bw;
+      payload.fringeAmount = fr;
+    } else {
+      const rate = parseFloat(payRate);
+      if (isNaN(rate) || rate <= 0) return;
+      payload.payRate = rate;
+    }
+
+    if (isOcip) {
+      payload.isOsep = true;
+    }
 
     setComputing(true);
     setError(null);
@@ -158,7 +183,7 @@ export default function BurdenPreviewPage() {
           "Content-Type": "application/json",
           ...getAuthHeaders(),
         },
-        body: JSON.stringify({ payRate: rate, stateCode, tradeId }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -172,7 +197,7 @@ export default function BurdenPreviewPage() {
     } finally {
       setComputing(false);
     }
-  }, [stateCode, tradeId, payRate]);
+  }, [stateCode, tradeId, payRate, baseWage, fringeAmount, isPrevailing, isOcip]);
 
   // Auto-fetch selling presets when burden result changes
   useEffect(() => {
@@ -262,7 +287,11 @@ export default function BurdenPreviewPage() {
   const canComputeCp = !cpLoading && cpProfitPerHour !== "" && parseFloat(cpProfitPerHour) >= 0 && parseFloat(cpOtMult) > 0;
 
   const selectedTrade = trades.find((t) => t.id === tradeId);
-  const canCompute = stateCode && tradeId && payRate && parseFloat(payRate) > 0;
+  const canCompute = stateCode && tradeId && (
+    isPrevailing
+      ? baseWage !== "" && parseFloat(baseWage) > 0 && fringeAmount !== "" && parseFloat(fringeAmount) >= 0
+      : payRate !== "" && parseFloat(payRate) > 0
+  );
 
   return (
     <div className="preview-container">
@@ -282,6 +311,46 @@ export default function BurdenPreviewPage() {
       {/* Input Section */}
       <div className="input-section">
         <h2>Inputs</h2>
+
+        {/* Cost Calculation Type Selector */}
+        <div className="cost-type-selector">
+          <label className="cost-type-label">Cost Calculation Type</label>
+          <div className="cost-type-options">
+            {([
+              { value: "standard", label: "Standard" },
+              { value: "ocip", label: "OCIP" },
+              { value: "prevailing", label: "Prevailing Wage" },
+              { value: "prevailing-ocip", label: "Prevailing Wage + OCIP" },
+            ] as const).map((opt) => (
+              <label key={opt.value} className={`cost-type-radio ${costCalcType === opt.value ? "active" : ""}`}>
+                <input
+                  type="radio"
+                  name="costCalcType"
+                  value={opt.value}
+                  checked={costCalcType === opt.value}
+                  onChange={() => {
+                    setCostCalcType(opt.value);
+                    setResult(null);
+                    setError(null);
+                  }}
+                />
+                <span>{opt.label}</span>
+              </label>
+            ))}
+          </div>
+          {isOcip && (
+            <div className="cost-type-hint ocip-hint">OCIP excludes workers&apos; comp from the cost calculation.</div>
+          )}
+          {isPrevailing && !isOcip && (
+            <div className="cost-type-hint pw-hint">Fringe is flat and is not multiplied for OT/DT.</div>
+          )}
+          {isPrevailing && isOcip && (
+            <div className="cost-type-hint pw-ocip-hint">
+              Fringe is flat (not multiplied for OT/DT). OCIP excludes workers&apos; comp.
+            </div>
+          )}
+        </div>
+
         <div className="input-grid">
           <div className="input-field">
             <label htmlFor="stateSelect">State</label>
@@ -306,7 +375,7 @@ export default function BurdenPreviewPage() {
               disabled={tradesLoading}
             >
               <option value="">
-                {tradesLoading ? "Loading trades…" : "Select Trade"}
+                {tradesLoading ? "Loading trades\u2026" : "Select Trade"}
               </option>
               {trades.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -316,18 +385,47 @@ export default function BurdenPreviewPage() {
             </select>
           </div>
 
-          <div className="input-field">
-            <label htmlFor="payRateInput">Base Pay Rate ($/hr)</label>
-            <input
-              id="payRateInput"
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="e.g. 35.00"
-              value={payRate}
-              onChange={(e) => setPayRate(e.target.value)}
-            />
-          </div>
+          {!isPrevailing ? (
+            <div className="input-field">
+              <label htmlFor="payRateInput">Base Pay Rate ($/hr)</label>
+              <input
+                id="payRateInput"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="e.g. 35.00"
+                value={payRate}
+                onChange={(e) => setPayRate(e.target.value)}
+              />
+            </div>
+          ) : (
+            <>
+              <div className="input-field">
+                <label htmlFor="baseWageInput">Base Wage ($/hr)</label>
+                <input
+                  id="baseWageInput"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 45.00"
+                  value={baseWage}
+                  onChange={(e) => setBaseWage(e.target.value)}
+                />
+              </div>
+              <div className="input-field">
+                <label htmlFor="fringeInput">Fringe Amount ($/hr)</label>
+                <input
+                  id="fringeInput"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 18.50"
+                  value={fringeAmount}
+                  onChange={(e) => setFringeAmount(e.target.value)}
+                />
+              </div>
+            </>
+          )}
         </div>
 
         <div className="compute-row">
@@ -336,7 +434,7 @@ export default function BurdenPreviewPage() {
             disabled={!canCompute || computing}
             onClick={computePreview}
           >
-            {computing ? "Computing…" : "Compute Preview"}
+            {computing ? "Computing\u2026" : "Compute Preview"}
           </button>
           {selectedTrade && (
             <span className="trade-hint">
@@ -360,13 +458,53 @@ export default function BurdenPreviewPage() {
           {/* Left Column: True Labor Cost */}
           <div className="col-left">
             <div className="results-section">
-              <h2>True Labor Cost</h2>
+              <div className="cost-type-header">
+                <h2>True Labor Cost</h2>
+                <div className="cost-type-badges">
+                  <span className="cost-type-badge">
+                    {costCalcType === "standard" && "Standard"}
+                    {costCalcType === "ocip" && "OCIP"}
+                    {costCalcType === "prevailing" && "Prevailing Wage"}
+                    {costCalcType === "prevailing-ocip" && "Prevailing Wage + OCIP"}
+                  </span>
+                  {isOcip && <span className="wc-excluded-badge">WC Excluded</span>}
+                </div>
+              </div>
 
               <div className={`wc-source-badge ${result.wcSource === "CLASS_CODE_RATE" ? "primary" : "fallback"}`}>
                 WC Source: {result.wcSource === "CLASS_CODE_RATE"
-                  ? `Class Code Rate (${result.stateCode} × ${result.wcClassCode})`
+                  ? `Class Code Rate (${result.stateCode} \u00d7 ${result.wcClassCode})`
                   : "Payroll Burden Rate (fallback)"}
               </div>
+
+              {isPrevailing && (
+                <div className="wage-basis-section">
+                  <div className="wage-basis-title">Effective Wage Basis</div>
+                  <div className="wage-basis-grid">
+                    <div className="wage-basis-item">
+                      <span className="wage-basis-label">REG</span>
+                      <span className="wage-basis-value">
+                        {formatCurrency(parseFloat(baseWage) + parseFloat(fringeAmount))}/hr
+                      </span>
+                      <span className="wage-basis-formula">baseWage + fringe</span>
+                    </div>
+                    <div className="wage-basis-item">
+                      <span className="wage-basis-label">OT</span>
+                      <span className="wage-basis-value">
+                        {formatCurrency(parseFloat(baseWage) * 1.5 + parseFloat(fringeAmount))}/hr
+                      </span>
+                      <span className="wage-basis-formula">baseWage &times; 1.5 + fringe</span>
+                    </div>
+                    <div className="wage-basis-item">
+                      <span className="wage-basis-label">DT</span>
+                      <span className="wage-basis-value">
+                        {formatCurrency(parseFloat(baseWage) * 2.0 + parseFloat(fringeAmount))}/hr
+                      </span>
+                      <span className="wage-basis-formula">baseWage &times; 2.0 + fringe</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="results-grid">
                 <div className="result-card reg">
@@ -396,7 +534,7 @@ export default function BurdenPreviewPage() {
                 <h3>Calculation Breakdown</h3>
                 <div className="breakdown-grid">
                   <div className="breakdown-item">
-                    <span className="breakdown-label">Base Pay Rate</span>
+                    <span className="breakdown-label">{isPrevailing ? "Effective REG Rate" : "Base Pay Rate"}</span>
                     <span className="breakdown-value">{formatCurrency(result.payRate)}/hr</span>
                   </div>
                   <div className="breakdown-item">
@@ -418,22 +556,48 @@ export default function BurdenPreviewPage() {
                         <span className="category-rate">{val.toFixed(2)}%</span>
                       </div>
                     ))}
+                  {isOcip && (
+                    <div className="category-chip wc-excluded-chip">
+                      <span className="category-name">WC</span>
+                      <span className="category-rate">0.00% (OCIP)</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="formula-section">
-                  <div className="formula-title">Formulas Applied (Split Burden):</div>
-                  <div className="formula">
-                    <code>REG = payRate &times; (1 + fullBurden%)</code>
-                    <span className="formula-note">all categories on base hour</span>
-                  </div>
-                  <div className="formula">
-                    <code>OT = REG + payRate &times; 0.5 &times; (1 + premiumBurden%)</code>
-                    <span className="formula-note">premium carries FICA+SUTA+FUTA only</span>
-                  </div>
-                  <div className="formula">
-                    <code>DT = REG + payRate &times; 1.0 &times; (1 + premiumBurden%)</code>
-                    <span className="formula-note">premium carries FICA+SUTA+FUTA only</span>
-                  </div>
+                  {isPrevailing ? (
+                    <>
+                      <div className="formula-title">Formulas Applied (Split Burden, Prevailing Wage):</div>
+                      <div className="formula">
+                        <code>REG = (baseWage + fringe) &times; (1 + fullBurden%)</code>
+                        <span className="formula-note">fringe is flat on base hour</span>
+                      </div>
+                      <div className="formula">
+                        <code>OT = REG + baseWage &times; 0.5 &times; (1 + premiumBurden%)</code>
+                        <span className="formula-note">premium on baseWage only</span>
+                      </div>
+                      <div className="formula">
+                        <code>DT = REG + baseWage &times; 1.0 &times; (1 + premiumBurden%)</code>
+                        <span className="formula-note">premium on baseWage only</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="formula-title">Formulas Applied (Split Burden):</div>
+                      <div className="formula">
+                        <code>REG = payRate &times; (1 + fullBurden%)</code>
+                        <span className="formula-note">all categories on base hour</span>
+                      </div>
+                      <div className="formula">
+                        <code>OT = REG + payRate &times; 0.5 &times; (1 + premiumBurden%)</code>
+                        <span className="formula-note">premium carries FICA+SUTA+FUTA only</span>
+                      </div>
+                      <div className="formula">
+                        <code>DT = REG + payRate &times; 1.0 &times; (1 + premiumBurden%)</code>
+                        <span className="formula-note">premium carries FICA+SUTA+FUTA only</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -719,7 +883,7 @@ export default function BurdenPreviewPage() {
 
         .input-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
           gap: 16px;
         }
 
@@ -1322,6 +1486,195 @@ export default function BurdenPreviewPage() {
           font-family: var(--font-geist-mono), monospace;
         }
 
+        /* Cost Calculation Type Selector */
+        .cost-type-selector {
+          margin-bottom: 16px;
+          padding-bottom: 16px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .cost-type-label {
+          display: block;
+          font-size: 11px;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.5);
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          margin-bottom: 8px;
+        }
+
+        .cost-type-options {
+          display: flex;
+          gap: 4px;
+          background: rgba(255, 255, 255, 0.03);
+          border-radius: 8px;
+          padding: 3px;
+        }
+
+        .cost-type-radio {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 8px 12px;
+          font-size: 12px;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.5);
+          background: transparent;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          white-space: nowrap;
+          text-align: center;
+        }
+
+        .cost-type-radio input {
+          display: none;
+        }
+
+        .cost-type-radio:hover {
+          color: rgba(255, 255, 255, 0.8);
+        }
+
+        .cost-type-radio.active {
+          background: rgba(59, 130, 246, 0.15);
+          color: #3b82f6;
+        }
+
+        .cost-type-hint {
+          margin-top: 8px;
+          font-size: 12px;
+          line-height: 1.5;
+          padding: 6px 10px;
+          border-radius: 6px;
+        }
+
+        .ocip-hint {
+          color: #fbbf24;
+          background: rgba(245, 158, 11, 0.08);
+          border: 1px solid rgba(245, 158, 11, 0.15);
+        }
+
+        .pw-hint {
+          color: #a78bfa;
+          background: rgba(167, 139, 250, 0.08);
+          border: 1px solid rgba(167, 139, 250, 0.15);
+        }
+
+        .pw-ocip-hint {
+          color: #a78bfa;
+          background: rgba(167, 139, 250, 0.08);
+          border: 1px solid rgba(167, 139, 250, 0.15);
+        }
+
+        /* Cost Type Header / Badges */
+        .cost-type-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 16px;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .cost-type-header h2 {
+          margin: 0;
+        }
+
+        .cost-type-badges {
+          display: flex;
+          gap: 6px;
+          align-items: center;
+        }
+
+        .cost-type-badge {
+          display: inline-block;
+          padding: 4px 10px;
+          font-size: 11px;
+          font-weight: 600;
+          border-radius: 4px;
+          color: #a78bfa;
+          background: rgba(167, 139, 250, 0.1);
+          border: 1px solid rgba(167, 139, 250, 0.25);
+          letter-spacing: 0.3px;
+        }
+
+        .wc-excluded-badge {
+          display: inline-block;
+          padding: 4px 10px;
+          font-size: 11px;
+          font-weight: 600;
+          border-radius: 4px;
+          color: #fbbf24;
+          background: rgba(245, 158, 11, 0.1);
+          border: 1px solid rgba(245, 158, 11, 0.25);
+          letter-spacing: 0.3px;
+        }
+
+        .wc-excluded-chip {
+          border-color: rgba(245, 158, 11, 0.3) !important;
+          background: rgba(245, 158, 11, 0.06) !important;
+        }
+
+        .wc-excluded-chip .category-rate {
+          color: #fbbf24;
+        }
+
+        /* Wage Basis Section (Prevailing Wage) */
+        .wage-basis-section {
+          margin-bottom: 16px;
+          padding: 12px;
+          background: rgba(167, 139, 250, 0.06);
+          border: 1px solid rgba(167, 139, 250, 0.15);
+          border-radius: 8px;
+        }
+
+        .wage-basis-title {
+          font-size: 11px;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.5);
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          margin-bottom: 8px;
+        }
+
+        .wage-basis-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 8px;
+        }
+
+        .wage-basis-item {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          text-align: center;
+          padding: 8px;
+          background: rgba(255, 255, 255, 0.03);
+          border-radius: 6px;
+        }
+
+        .wage-basis-label {
+          font-size: 10px;
+          font-weight: 700;
+          color: #a78bfa;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        .wage-basis-value {
+          font-size: 15px;
+          font-weight: 700;
+          color: #fff;
+          font-family: var(--font-geist-mono), monospace;
+        }
+
+        .wage-basis-formula {
+          font-size: 10px;
+          color: rgba(255, 255, 255, 0.35);
+          font-style: italic;
+        }
+
         /* Responsive */
         @media (max-width: 1024px) {
           .two-col-layout {
@@ -1336,7 +1689,8 @@ export default function BurdenPreviewPage() {
         @media (max-width: 768px) {
           .input-grid,
           .results-grid,
-          .breakdown-grid {
+          .breakdown-grid,
+          .wage-basis-grid {
             grid-template-columns: 1fr;
           }
 
@@ -1346,6 +1700,10 @@ export default function BurdenPreviewPage() {
 
           .sell-rates-grid {
             grid-template-columns: 1fr;
+          }
+
+          .cost-type-options {
+            flex-direction: column;
           }
         }
       `}</style>
