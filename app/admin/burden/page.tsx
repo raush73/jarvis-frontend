@@ -46,6 +46,25 @@ type BackendBurdenRate = {
   effectiveDate?: string | null;
 };
 
+type SellingPreset = {
+  id: string;
+  marginPct: number;
+  otMultiplier: number;
+  label: string | null;
+  displayOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type SellingPresetEditing = {
+  marginPct: string;
+  otMultiplier: string;
+  displayOrder: string;
+  label: string;
+  isActive: boolean;
+};
+
 
 function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -61,6 +80,17 @@ export default function BurdenSettingsPage() {
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [sutaRates, setSutaRates] = useState<SUTARate[]>([]);
   const [sutaSearch, setSutaSearch] = useState("");
+
+  // Selling Presets state
+  const [sellingPresets, setSellingPresets] = useState<SellingPreset[]>([]);
+  const [spLoading, setSpLoading] = useState(true);
+  const [spError, setSpError] = useState<string | null>(null);
+  const [spEditing, setSpEditing] = useState<Record<string, SellingPresetEditing>>({});
+  const [spSaved, setSpSaved] = useState<Record<string, SellingPresetEditing>>({});
+  const [spSavingIds, setSpSavingIds] = useState<Set<string>>(new Set());
+  const [spShowNew, setSpShowNew] = useState(false);
+  const [spNewDraft, setSpNewDraft] = useState({ marginPct: "", otMultiplier: "1.50", displayOrder: "0", label: "" });
+  const [spNewSaving, setSpNewSaving] = useState(false);
 
   // Load all burden rows from API on mount; derives both component table and SUTA grid
   useEffect(() => {
@@ -123,6 +153,199 @@ export default function BurdenSettingsPage() {
     };
     load();
   }, []);
+
+  // Fetch selling presets
+  useEffect(() => {
+    const loadPresets = async () => {
+      setSpLoading(true);
+      setSpError(null);
+      try {
+        const res = await fetch("/api/selling-presets", {
+          headers: { ...getAuthHeaders() },
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        const data = (await res.json()) as SellingPreset[];
+        setSellingPresets(data);
+        const editing: Record<string, SellingPresetEditing> = {};
+        data.forEach((p) => {
+          editing[p.id] = {
+            marginPct: p.marginPct.toFixed(2),
+            otMultiplier: p.otMultiplier.toFixed(2),
+            displayOrder: String(p.displayOrder),
+            label: p.label ?? "",
+            isActive: p.isActive,
+          };
+        });
+        setSpEditing(editing);
+        setSpSaved(JSON.parse(JSON.stringify(editing)));
+      } catch (e: any) {
+        console.error("Failed to load selling presets:", e);
+        setSpError(e?.message ?? "Failed to load selling presets");
+      } finally {
+        setSpLoading(false);
+      }
+    };
+    loadPresets();
+  }, []);
+
+  const spIsRowDirty = (id: string) => {
+    const cur = spEditing[id];
+    const orig = spSaved[id];
+    if (!cur || !orig) return false;
+    return (
+      cur.marginPct !== orig.marginPct ||
+      cur.otMultiplier !== orig.otMultiplier ||
+      cur.displayOrder !== orig.displayOrder ||
+      cur.label !== orig.label ||
+      cur.isActive !== orig.isActive
+    );
+  };
+
+  const spIsRowValid = (vals: SellingPresetEditing) => {
+    const m = parseFloat(vals.marginPct);
+    const ot = parseFloat(vals.otMultiplier);
+    const d = parseInt(vals.displayOrder, 10);
+    return !isNaN(m) && m >= 0 && m < 100 && !isNaN(ot) && ot > 0 && !isNaN(d) && d >= 0;
+  };
+
+  const handleSpFieldChange = (id: string, field: keyof SellingPresetEditing, value: string | boolean) => {
+    setSpEditing((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], [field]: value },
+    }));
+  };
+
+  const handleSpSave = async (id: string) => {
+    const vals = spEditing[id];
+    if (!vals || !spIsRowValid(vals)) return;
+    setSpSavingIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch(`/api/selling-presets/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          marginPct: parseFloat(vals.marginPct),
+          otMultiplier: parseFloat(vals.otMultiplier),
+          displayOrder: parseInt(vals.displayOrder, 10),
+          label: vals.label || null,
+          isActive: vals.isActive,
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const updated = (await res.json()) as SellingPreset;
+      setSellingPresets((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      const newVals: SellingPresetEditing = {
+        marginPct: updated.marginPct.toFixed(2),
+        otMultiplier: updated.otMultiplier.toFixed(2),
+        displayOrder: String(updated.displayOrder),
+        label: updated.label ?? "",
+        isActive: updated.isActive,
+      };
+      setSpEditing((prev) => ({ ...prev, [id]: newVals }));
+      setSpSaved((prev) => ({ ...prev, [id]: { ...newVals } }));
+    } catch (e) {
+      console.error("Failed to save selling preset:", e);
+    } finally {
+      setSpSavingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
+  };
+
+  const handleSpDeactivate = async (id: string) => {
+    setSpSavingIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch(`/api/selling-presets/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ isActive: false }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const updated = (await res.json()) as SellingPreset;
+      setSellingPresets((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      const newVals: SellingPresetEditing = {
+        marginPct: updated.marginPct.toFixed(2),
+        otMultiplier: updated.otMultiplier.toFixed(2),
+        displayOrder: String(updated.displayOrder),
+        label: updated.label ?? "",
+        isActive: false,
+      };
+      setSpEditing((prev) => ({ ...prev, [id]: newVals }));
+      setSpSaved((prev) => ({ ...prev, [id]: { ...newVals } }));
+    } catch (e) {
+      console.error("Failed to deactivate selling preset:", e);
+    } finally {
+      setSpSavingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
+  };
+
+  const handleSpReactivate = async (id: string) => {
+    setSpSavingIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch(`/api/selling-presets/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ isActive: true }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const updated = (await res.json()) as SellingPreset;
+      setSellingPresets((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      const newVals: SellingPresetEditing = {
+        marginPct: updated.marginPct.toFixed(2),
+        otMultiplier: updated.otMultiplier.toFixed(2),
+        displayOrder: String(updated.displayOrder),
+        label: updated.label ?? "",
+        isActive: true,
+      };
+      setSpEditing((prev) => ({ ...prev, [id]: newVals }));
+      setSpSaved((prev) => ({ ...prev, [id]: { ...newVals } }));
+    } catch (e) {
+      console.error("Failed to reactivate selling preset:", e);
+    } finally {
+      setSpSavingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
+  };
+
+  const spIsNewValid = () => {
+    const m = parseFloat(spNewDraft.marginPct);
+    const ot = parseFloat(spNewDraft.otMultiplier);
+    const d = parseInt(spNewDraft.displayOrder, 10);
+    return !isNaN(m) && m >= 0 && m < 100 && !isNaN(ot) && ot > 0 && !isNaN(d) && d >= 0 && spNewDraft.marginPct !== "";
+  };
+
+  const handleSpCreate = async () => {
+    if (!spIsNewValid()) return;
+    setSpNewSaving(true);
+    try {
+      const res = await fetch("/api/selling-presets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          marginPct: parseFloat(spNewDraft.marginPct),
+          otMultiplier: parseFloat(spNewDraft.otMultiplier),
+          displayOrder: parseInt(spNewDraft.displayOrder, 10),
+          label: spNewDraft.label || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const created = (await res.json()) as SellingPreset;
+      setSellingPresets((prev) => [...prev, created]);
+      const newVals: SellingPresetEditing = {
+        marginPct: created.marginPct.toFixed(2),
+        otMultiplier: created.otMultiplier.toFixed(2),
+        displayOrder: String(created.displayOrder),
+        label: created.label ?? "",
+        isActive: created.isActive,
+      };
+      setSpEditing((prev) => ({ ...prev, [created.id]: newVals }));
+      setSpSaved((prev) => ({ ...prev, [created.id]: { ...newVals } }));
+      setSpNewDraft({ marginPct: "", otMultiplier: "1.50", displayOrder: "0", label: "" });
+      setSpShowNew(false);
+    } catch (e) {
+      console.error("Failed to create selling preset:", e);
+    } finally {
+      setSpNewSaving(false);
+    }
+  };
 
   // Filtered SUTA rates
   const filteredSutaRates = sutaRates.filter((s) =>
@@ -357,6 +580,228 @@ export default function BurdenSettingsPage() {
           ))}
           {filteredSutaRates.length === 0 && (
             <div className="suta-empty">No states match your filter</div>
+          )}
+        </div>
+      </div>
+
+      {/* Selling Presets */}
+      <div className="section">
+        <div className="section-header">
+          <div>
+            <h2>Selling Presets</h2>
+            <p className="section-subtitle">Configure preset margin suggestions for the selling calculator.</p>
+          </div>
+          <span className="section-count">
+            {spLoading ? "Loading\u2026" : `${sellingPresets.filter((p) => p.isActive).length} active`}
+          </span>
+        </div>
+
+        {spError && (
+          <div className="sp-error">{spError}</div>
+        )}
+
+        <div className="table-section">
+          <div className="table-wrap">
+            <table className="burden-table sp-table">
+              <thead>
+                <tr>
+                  <th>Margin %</th>
+                  <th>OT Mult</th>
+                  <th>DT Mult</th>
+                  <th>Order</th>
+                  <th>Active</th>
+                  <th>Note</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {spLoading ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: "center", padding: "28px 16px", color: "rgba(255,255,255,0.4)" }}>
+                      Loading selling presets&hellip;
+                    </td>
+                  </tr>
+                ) : sellingPresets.length === 0 && !spShowNew ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: "center", padding: "28px 16px", color: "rgba(255,255,255,0.4)" }}>
+                      No selling presets configured yet. Add presets to power the Selling Price Calculator.
+                    </td>
+                  </tr>
+                ) : (
+                  sellingPresets.map((preset) => {
+                    const vals = spEditing[preset.id];
+                    if (!vals) return null;
+                    const otNum = parseFloat(vals.otMultiplier);
+                    const dtDisplay = !isNaN(otNum) ? (otNum * 2).toFixed(2) : "\u2014";
+                    const inactive = !vals.isActive;
+                    return (
+                      <tr key={preset.id} className={inactive ? "sp-row-inactive" : ""}>
+                        <td>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="99.99"
+                            className="rate-input sp-input"
+                            value={vals.marginPct}
+                            onChange={(e) => handleSpFieldChange(preset.id, "marginPct", e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            className="rate-input sp-input"
+                            value={vals.otMultiplier}
+                            onChange={(e) => handleSpFieldChange(preset.id, "otMultiplier", e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <span className="sp-derived">{dtDisplay}</span>
+                          <span className="sp-derived-label">derived</span>
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            className="rate-input sp-input sp-input-sm"
+                            value={vals.displayOrder}
+                            onChange={(e) => handleSpFieldChange(preset.id, "displayOrder", e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <span className={`premium-badge ${vals.isActive ? "yes" : "no"}`}>
+                            {vals.isActive ? "Yes" : "No"}
+                          </span>
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            className="rate-input sp-input sp-input-label"
+                            placeholder="optional"
+                            value={vals.label}
+                            onChange={(e) => handleSpFieldChange(preset.id, "label", e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <div className="sp-actions">
+                            <button
+                              type="button"
+                              className="btn-save-rate"
+                              disabled={!spIsRowDirty(preset.id) || !spIsRowValid(vals) || spSavingIds.has(preset.id)}
+                              onClick={() => handleSpSave(preset.id)}
+                            >
+                              {spSavingIds.has(preset.id) ? "\u2026" : "Save"}
+                            </button>
+                            {vals.isActive ? (
+                              <button
+                                type="button"
+                                className="btn-deactivate"
+                                disabled={spSavingIds.has(preset.id)}
+                                onClick={() => handleSpDeactivate(preset.id)}
+                              >
+                                Deactivate
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn-reactivate"
+                                disabled={spSavingIds.has(preset.id)}
+                                onClick={() => handleSpReactivate(preset.id)}
+                              >
+                                Reactivate
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+                {spShowNew && (
+                  <tr className="sp-row-new">
+                    <td>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="99.99"
+                        className="rate-input sp-input"
+                        placeholder="20.00"
+                        value={spNewDraft.marginPct}
+                        onChange={(e) => setSpNewDraft((d) => ({ ...d, marginPct: e.target.value }))}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        className="rate-input sp-input"
+                        value={spNewDraft.otMultiplier}
+                        onChange={(e) => setSpNewDraft((d) => ({ ...d, otMultiplier: e.target.value }))}
+                      />
+                    </td>
+                    <td>
+                      <span className="sp-derived">
+                        {!isNaN(parseFloat(spNewDraft.otMultiplier)) ? (parseFloat(spNewDraft.otMultiplier) * 2).toFixed(2) : "\u2014"}
+                      </span>
+                      <span className="sp-derived-label">derived</span>
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        className="rate-input sp-input sp-input-sm"
+                        value={spNewDraft.displayOrder}
+                        onChange={(e) => setSpNewDraft((d) => ({ ...d, displayOrder: e.target.value }))}
+                      />
+                    </td>
+                    <td>
+                      <span className="premium-badge yes">Yes</span>
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        className="rate-input sp-input sp-input-label"
+                        placeholder="optional"
+                        value={spNewDraft.label}
+                        onChange={(e) => setSpNewDraft((d) => ({ ...d, label: e.target.value }))}
+                      />
+                    </td>
+                    <td>
+                      <div className="sp-actions">
+                        <button
+                          type="button"
+                          className="btn-save-rate"
+                          disabled={!spIsNewValid() || spNewSaving}
+                          onClick={handleSpCreate}
+                        >
+                          {spNewSaving ? "\u2026" : "Create"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-deactivate"
+                          onClick={() => setSpShowNew(false)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {!spShowNew && !spLoading && (
+            <div className="sp-add-row">
+              <button type="button" className="sp-add-btn" onClick={() => setSpShowNew(true)}>
+                + Add Preset
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -807,6 +1252,139 @@ export default function BurdenSettingsPage() {
 
         .rules-list li strong {
           color: #fff;
+        }
+
+        /* Selling Presets */
+        .section-subtitle {
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.45);
+          margin: 4px 0 0;
+          line-height: 1.4;
+        }
+
+        .sp-error {
+          padding: 10px 14px;
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid rgba(239, 68, 68, 0.25);
+          border-radius: 8px;
+          color: #ef4444;
+          font-size: 13px;
+          margin-bottom: 12px;
+        }
+
+        .sp-table .rate-input {
+          width: 80px;
+        }
+
+        .sp-input-sm {
+          width: 56px !important;
+        }
+
+        .sp-input-label {
+          width: 120px !important;
+          text-align: left !important;
+        }
+
+        .sp-derived {
+          font-family: var(--font-geist-mono), monospace;
+          font-weight: 500;
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 13px;
+        }
+
+        .sp-derived-label {
+          display: block;
+          font-size: 10px;
+          color: rgba(255, 255, 255, 0.3);
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+          margin-top: 2px;
+        }
+
+        .sp-actions {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .btn-deactivate {
+          padding: 5px 10px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid rgba(239, 68, 68, 0.25);
+          border-radius: 5px;
+          cursor: pointer;
+          white-space: nowrap;
+          transition: all 0.15s ease;
+        }
+
+        .btn-deactivate:hover:not(:disabled) {
+          background: rgba(239, 68, 68, 0.2);
+          border-color: rgba(239, 68, 68, 0.4);
+        }
+
+        .btn-deactivate:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+
+        .btn-reactivate {
+          padding: 5px 10px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #22c55e;
+          background: rgba(34, 197, 94, 0.1);
+          border: 1px solid rgba(34, 197, 94, 0.25);
+          border-radius: 5px;
+          cursor: pointer;
+          white-space: nowrap;
+          transition: all 0.15s ease;
+        }
+
+        .btn-reactivate:hover:not(:disabled) {
+          background: rgba(34, 197, 94, 0.2);
+          border-color: rgba(34, 197, 94, 0.4);
+        }
+
+        .btn-reactivate:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+
+        .sp-row-inactive td {
+          opacity: 0.5;
+        }
+
+        .sp-row-inactive td:last-child {
+          opacity: 1;
+        }
+
+        .sp-row-new {
+          background: rgba(59, 130, 246, 0.06);
+        }
+
+        .sp-add-row {
+          padding: 12px 16px;
+          border-top: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .sp-add-btn {
+          padding: 8px 16px;
+          font-size: 13px;
+          font-weight: 600;
+          color: #3b82f6;
+          background: rgba(59, 130, 246, 0.08);
+          border: 1px dashed rgba(59, 130, 246, 0.3);
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .sp-add-btn:hover {
+          background: rgba(59, 130, 246, 0.15);
+          border-color: rgba(59, 130, 246, 0.5);
         }
       `}</style>
     </div>
