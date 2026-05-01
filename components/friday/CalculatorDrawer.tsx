@@ -10,6 +10,8 @@ interface CalculatorDrawerProps {
 }
 
 type CostCalcType = 'standard' | 'ocip' | 'prevailing' | 'prevailing-ocip';
+type SellingTab = 'presets' | 'custom-margin' | 'profit-hr';
+type MarginHealthStatus = 'RED' | 'YELLOW' | 'GREEN';
 
 interface Trade {
   id: string;
@@ -35,6 +37,27 @@ interface BurdenPreviewResult {
   regMultiplier: number;
   otMultiplier: number;
   dtMultiplier: number;
+}
+
+interface SellingRateResult {
+  regSellRate: number;
+  otSellRate: number;
+  dtSellRate: number;
+  grossMarginPct: number;
+  marginHealth: MarginHealthStatus;
+}
+
+interface PresetComputeResult extends SellingRateResult {
+  presetId: string;
+  marginPct: number;
+  otMultiplier: number;
+  label: string | null;
+}
+
+interface SellingComputeResponse {
+  presets: PresetComputeResult[];
+  customMargin: SellingRateResult | null;
+  customProfit: SellingRateResult | null;
 }
 
 const STATES = [
@@ -65,7 +88,20 @@ const BURDEN_CATEGORY_LABELS: Record<string, string> = {
   INT_PD: 'Internal (PD)',
 };
 
+const SELLING_TABS: { value: SellingTab; label: string }[] = [
+  { value: 'presets', label: 'Presets' },
+  { value: 'custom-margin', label: 'Custom Margin' },
+  { value: 'profit-hr', label: 'Profit $/hr' },
+];
+
+const HEALTH_COLORS: Record<MarginHealthStatus, { color: string; bg: string }> = {
+  GREEN: { color: FC.accentGreen, bg: FC.accentGreenDim },
+  YELLOW: { color: FC.accentAmber, bg: FC.accentAmberDim },
+  RED: { color: FC.accentRed, bg: FC.accentRedDim },
+};
+
 export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
+  // -- Burden inputs --
   const [costType, setCostType] = useState<CostCalcType>('standard');
   const [stateCode, setStateCode] = useState('');
   const [tradeId, setTradeId] = useState('');
@@ -80,6 +116,18 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
   const [error, setError] = useState('');
   const [result, setResult] = useState<BurdenPreviewResult | null>(null);
 
+  // -- Selling state --
+  const [sellingTab, setSellingTab] = useState<SellingTab>('presets');
+  const [sellingResult, setSellingResult] = useState<SellingComputeResponse | null>(null);
+  const [sellingComputing, setSellingComputing] = useState(false);
+  const [sellingError, setSellingError] = useState('');
+
+  const [cmMarginPct, setCmMarginPct] = useState('');
+  const [cmOtMult, setCmOtMult] = useState('1.5');
+  const [cpProfitPerHour, setCpProfitPerHour] = useState('');
+  const [cpOtMult, setCpOtMult] = useState('1.5');
+
+  // -- Escape close --
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -88,45 +136,72 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // -- Load trades on mount --
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const res = await fridayFetch<Trade[]>('/trades?activeOnly=true');
       if (cancelled) return;
-      if (res.ok) {
-        setTrades(res.data);
-      }
+      if (res.ok) setTrades(res.data);
       setTradesLoading(false);
     })();
     return () => { cancelled = true; };
   }, []);
 
+  // -- Auto-compute selling when burden result changes --
+  useEffect(() => {
+    if (!result) {
+      setSellingResult(null);
+      setSellingError('');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setSellingComputing(true);
+      setSellingError('');
+      const res = await fridayFetch<SellingComputeResponse>(
+        '/friday/calculator/selling-compute',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            regCost: result.regCost,
+            otCost: result.otCost,
+            dtCost: result.dtCost,
+          }),
+        },
+      );
+      if (cancelled) return;
+      setSellingComputing(false);
+      if (res.ok) {
+        setSellingResult(res.data);
+      } else {
+        setSellingError(res.error || 'Selling compute failed');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [result]);
+
   const isPw = costType === 'prevailing' || costType === 'prevailing-ocip';
 
   const canCalculate = useCallback(() => {
     if (!stateCode || !tradeId) return false;
-    if (isPw) {
-      const bw = parseFloat(baseWage);
-      return bw > 0;
-    }
-    const pr = parseFloat(payRate);
-    return pr > 0;
+    if (isPw) return parseFloat(baseWage) > 0;
+    return parseFloat(payRate) > 0;
   }, [stateCode, tradeId, isPw, baseWage, payRate]);
 
   const handleCalculate = async () => {
     if (!canCalculate()) return;
     setComputing(true);
     setError('');
+    setSellingResult(null);
 
     const body: Record<string, unknown> = { stateCode, tradeId };
-
     if (isPw) {
       body.baseWage = parseFloat(baseWage);
       body.fringeAmount = parseFloat(fringeAmount) || 0;
     } else {
       body.payRate = parseFloat(payRate);
     }
-
     if (costType === 'ocip' || costType === 'prevailing-ocip') {
       body.isOsep = true;
     }
@@ -135,9 +210,7 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
       '/friday/calculator/burden-preview',
       { method: 'POST', body: JSON.stringify(body) },
     );
-
     setComputing(false);
-
     if (res.ok) {
       setResult(res.data);
     } else {
@@ -146,7 +219,66 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
     }
   };
 
-  const selectedTrade = trades.find(t => t.id === tradeId);
+  const handleCustomMarginCompute = async () => {
+    if (!result) return;
+    const margin = parseFloat(cmMarginPct);
+    if (isNaN(margin) || margin < 0 || margin >= 100) return;
+    setSellingComputing(true);
+    setSellingError('');
+    const res = await fridayFetch<SellingComputeResponse>(
+      '/friday/calculator/selling-compute',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          regCost: result.regCost,
+          otCost: result.otCost,
+          dtCost: result.dtCost,
+          customMarginPct: margin,
+          customOtMultiplier: parseFloat(cmOtMult) || 1.5,
+        }),
+      },
+    );
+    setSellingComputing(false);
+    if (res.ok) {
+      setSellingResult(res.data);
+    } else {
+      setSellingError(res.error || 'Selling compute failed');
+    }
+  };
+
+  const handleCustomProfitCompute = async () => {
+    if (!result) return;
+    const profit = parseFloat(cpProfitPerHour);
+    if (isNaN(profit) || profit < 0) return;
+    setSellingComputing(true);
+    setSellingError('');
+    const res = await fridayFetch<SellingComputeResponse>(
+      '/friday/calculator/selling-compute',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          regCost: result.regCost,
+          otCost: result.otCost,
+          dtCost: result.dtCost,
+          customProfitPerHour: profit,
+          customOtMultiplier: parseFloat(cpOtMult) || 1.5,
+        }),
+      },
+    );
+    setSellingComputing(false);
+    if (res.ok) {
+      setSellingResult(res.data);
+    } else {
+      setSellingError(res.error || 'Selling compute failed');
+    }
+  };
+
+  const clearBurdenResults = () => {
+    setResult(null);
+    setError('');
+    setSellingResult(null);
+    setSellingError('');
+  };
 
   return (
     <>
@@ -168,6 +300,8 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
 
         {/* Body */}
         <div style={drawerBody}>
+          {/* ── BURDEN INPUTS ──────────────────────────────── */}
+
           {/* Cost Calculation Type */}
           <div style={fieldGroup}>
             <div style={labelStyle}>Cost Calculation Type</div>
@@ -176,7 +310,7 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
                 <button
                   key={opt.value}
                   style={costType === opt.value ? segmentBtnActive : segmentBtn}
-                  onClick={() => { setCostType(opt.value); setResult(null); setError(''); }}
+                  onClick={() => { setCostType(opt.value); clearBurdenResults(); }}
                 >
                   {opt.label}
                 </button>
@@ -184,14 +318,14 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
             </div>
           </div>
 
-          {/* State + Trade row */}
+          {/* State + Trade */}
           <div style={twoColRow}>
             <div>
               <div style={labelStyle}>State</div>
               <select
                 style={selectStyle}
                 value={stateCode}
-                onChange={e => { setStateCode(e.target.value); setResult(null); }}
+                onChange={e => { setStateCode(e.target.value); clearBurdenResults(); }}
               >
                 <option value="">Select state...</option>
                 {STATES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -202,7 +336,7 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
               <select
                 style={selectStyle}
                 value={tradeId}
-                onChange={e => { setTradeId(e.target.value); setResult(null); }}
+                onChange={e => { setTradeId(e.target.value); clearBurdenResults(); }}
                 disabled={tradesLoading}
               >
                 <option value="">{tradesLoading ? 'Loading...' : 'Select trade...'}</option>
@@ -222,12 +356,12 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
                 step="0.01"
                 placeholder="e.g. 32.00"
                 value={payRate}
-                onChange={e => { setPayRate(e.target.value); setResult(null); }}
+                onChange={e => { setPayRate(e.target.value); clearBurdenResults(); }}
               />
             </div>
           )}
 
-          {/* Base Wage + Fringe (Prevailing Wage modes) */}
+          {/* Base Wage + Fringe (Prevailing Wage) */}
           {isPw && (
             <div style={twoColRow}>
               <div>
@@ -239,7 +373,7 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
                   step="0.01"
                   placeholder="e.g. 35.00"
                   value={baseWage}
-                  onChange={e => { setBaseWage(e.target.value); setResult(null); }}
+                  onChange={e => { setBaseWage(e.target.value); clearBurdenResults(); }}
                 />
               </div>
               <div>
@@ -251,13 +385,13 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
                   step="0.01"
                   placeholder="e.g. 12.50"
                   value={fringeAmount}
-                  onChange={e => { setFringeAmount(e.target.value); setResult(null); }}
+                  onChange={e => { setFringeAmount(e.target.value); clearBurdenResults(); }}
                 />
               </div>
             </div>
           )}
 
-          {/* Calculate button */}
+          {/* Calculate */}
           <button
             style={canCalculate() && !computing ? calcBtn : calcBtnDisabled}
             onClick={handleCalculate}
@@ -266,15 +400,12 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
             {computing ? 'Calculating...' : 'Calculate'}
           </button>
 
-          {/* Error */}
-          {error && (
-            <div style={errorBanner}>{error}</div>
-          )}
+          {/* Burden Error */}
+          {error && <div style={errorBanner}>{error}</div>}
 
-          {/* Results */}
+          {/* ── BURDEN RESULTS ─────────────────────────────── */}
           {result && (
             <div style={{ marginTop: 24 }}>
-              {/* Context badge */}
               <div style={contextRow}>
                 <span style={contextBadge}>{result.stateCode}</span>
                 <span style={contextBadge}>{result.tradeName}</span>
@@ -283,7 +414,6 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
                 </span>
               </div>
 
-              {/* True Labor Cost Cards */}
               <div style={sectionLabel}>True Labor Cost</div>
               <div style={costCardsRow}>
                 <CostCard label="REG" value={result.regCost} multiplier={result.regMultiplier} />
@@ -291,9 +421,8 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
                 <CostCard label="DT" value={result.dtCost} multiplier={result.dtMultiplier} />
               </div>
 
-              {/* Burden Summary */}
               <div style={sectionLabel}>Burden Summary</div>
-              <div style={summaryCard}>
+              <div style={summaryCardStyle}>
                 <SummaryRow label="Total Burden" value={`${result.totalBurdenPercent}%`} />
                 <SummaryRow label="Base Burden" value={`${result.fullBaseBurdenPercent}%`} />
                 <SummaryRow label="Premium Burden (OT/DT)" value={`${result.premiumBurdenPercent}%`} />
@@ -306,7 +435,6 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
                 <SummaryRow label="Effective Pay Rate" value={`$${result.payRate.toFixed(2)}`} />
               </div>
 
-              {/* Burden Breakdown */}
               <div style={sectionLabel}>Burden Breakdown</div>
               <table style={breakdownTable}>
                 <thead>
@@ -326,6 +454,174 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
                   ))}
                 </tbody>
               </table>
+
+              {/* ── SELLING SECTION ──────────────────────────── */}
+              <div style={sellingDivider} />
+              <div style={sectionLabel}>Selling Price</div>
+
+              {sellingComputing && !sellingResult && (
+                <div style={loadingText}>Computing sell rates...</div>
+              )}
+
+              {sellingError && <div style={errorBanner}>{sellingError}</div>}
+
+              {sellingResult && (
+                <>
+                  {/* Tab bar */}
+                  <div style={sellingTabBar}>
+                    {SELLING_TABS.map(t => (
+                      <button
+                        key={t.value}
+                        style={sellingTab === t.value ? sellingTabActive : sellingTabBtn}
+                        onClick={() => setSellingTab(t.value)}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Presets tab */}
+                  {sellingTab === 'presets' && (
+                    <div>
+                      {sellingResult.presets.length === 0 ? (
+                        <div style={loadingText}>No active presets configured.</div>
+                      ) : (
+                        <table style={breakdownTable}>
+                          <thead>
+                            <tr>
+                              <th style={thCell}>Preset</th>
+                              <th style={thCell}>Margin</th>
+                              <th style={{ ...thCell, textAlign: 'right' }}>REG</th>
+                              <th style={{ ...thCell, textAlign: 'right' }}>OT</th>
+                              <th style={{ ...thCell, textAlign: 'right' }}>DT</th>
+                              <th style={{ ...thCell, textAlign: 'center' }}>Health</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sellingResult.presets.map(p => (
+                              <tr key={p.presetId}>
+                                <td style={tdCell}>{p.label || `${p.marginPct}%`}</td>
+                                <td style={tdCell}>{p.grossMarginPct.toFixed(1)}%</td>
+                                <td style={{ ...tdCell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                                  ${p.regSellRate.toFixed(2)}
+                                </td>
+                                <td style={{ ...tdCell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                                  ${p.otSellRate.toFixed(2)}
+                                </td>
+                                <td style={{ ...tdCell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                                  ${p.dtSellRate.toFixed(2)}
+                                </td>
+                                <td style={{ ...tdCell, textAlign: 'center' }}>
+                                  <HealthBadge status={p.marginHealth} />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Custom Margin tab */}
+                  {sellingTab === 'custom-margin' && (
+                    <div>
+                      <div style={twoColRow}>
+                        <div>
+                          <div style={labelStyle}>Target Margin %</div>
+                          <input
+                            style={inputStyle}
+                            type="number"
+                            min="0"
+                            max="99.99"
+                            step="0.5"
+                            placeholder="e.g. 25"
+                            value={cmMarginPct}
+                            onChange={e => setCmMarginPct(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <div style={labelStyle}>OT Multiplier</div>
+                          <input
+                            style={inputStyle}
+                            type="number"
+                            min="1"
+                            step="0.1"
+                            value={cmOtMult}
+                            onChange={e => setCmOtMult(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <button
+                        style={
+                          cmMarginPct && parseFloat(cmMarginPct) >= 0 && parseFloat(cmMarginPct) < 100 && !sellingComputing
+                            ? computeSellingBtn
+                            : computeSellingBtnDisabled
+                        }
+                        onClick={handleCustomMarginCompute}
+                        disabled={!cmMarginPct || parseFloat(cmMarginPct) < 0 || parseFloat(cmMarginPct) >= 100 || sellingComputing}
+                      >
+                        {sellingComputing ? 'Computing...' : 'Compute Sell Rates'}
+                      </button>
+                      {sellingResult.customMargin && (
+                        <SellingResultCard
+                          label={`Custom ${parseFloat(cmMarginPct).toFixed(1)}% Margin`}
+                          rates={sellingResult.customMargin}
+                          regCost={result.regCost}
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Profit $/hr tab */}
+                  {sellingTab === 'profit-hr' && (
+                    <div>
+                      <div style={twoColRow}>
+                        <div>
+                          <div style={labelStyle}>Profit $/hr</div>
+                          <input
+                            style={inputStyle}
+                            type="number"
+                            min="0"
+                            step="0.50"
+                            placeholder="e.g. 8.00"
+                            value={cpProfitPerHour}
+                            onChange={e => setCpProfitPerHour(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <div style={labelStyle}>OT Multiplier</div>
+                          <input
+                            style={inputStyle}
+                            type="number"
+                            min="1"
+                            step="0.1"
+                            value={cpOtMult}
+                            onChange={e => setCpOtMult(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <button
+                        style={
+                          cpProfitPerHour && parseFloat(cpProfitPerHour) >= 0 && !sellingComputing
+                            ? computeSellingBtn
+                            : computeSellingBtnDisabled
+                        }
+                        onClick={handleCustomProfitCompute}
+                        disabled={!cpProfitPerHour || parseFloat(cpProfitPerHour) < 0 || sellingComputing}
+                      >
+                        {sellingComputing ? 'Computing...' : 'Compute Sell Rates'}
+                      </button>
+                      {sellingResult.customProfit && (
+                        <SellingResultCard
+                          label={`$${parseFloat(cpProfitPerHour).toFixed(2)}/hr Profit`}
+                          rates={sellingResult.customProfit}
+                          regCost={result.regCost}
+                        />
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -334,7 +630,7 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
   );
 }
 
-/* ── Inline sub-components ─────────────────────────────────────────── */
+/* ── Sub-components ────────────────────────────────────────────────── */
 
 function CostCard({ label, value, multiplier }: { label: string; value: number; multiplier: number }) {
   return (
@@ -351,6 +647,62 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
     <div style={summaryRow}>
       <span style={summaryRowLabel}>{label}</span>
       <span style={summaryRowValue}>{value}</span>
+    </div>
+  );
+}
+
+function HealthBadge({ status }: { status: MarginHealthStatus }) {
+  const scheme = HEALTH_COLORS[status] ?? HEALTH_COLORS.RED;
+  const style: CSSProperties = {
+    display: 'inline-block',
+    padding: '2px 8px',
+    borderRadius: 4,
+    fontSize: '0.625rem',
+    fontWeight: 700,
+    color: scheme.color,
+    background: scheme.bg,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+  };
+  return <span style={style}>{status}</span>;
+}
+
+function SellingResultCard({
+  label,
+  rates,
+  regCost,
+}: {
+  label: string;
+  rates: SellingRateResult;
+  regCost: number;
+}) {
+  const profitPerHour = rates.regSellRate - regCost;
+  const markupPct = regCost > 0 ? ((rates.regSellRate - regCost) / regCost) * 100 : 0;
+  return (
+    <div style={sellingResultCard}>
+      <div style={sellingResultHeader}>
+        <span style={sellingResultLabel}>{label}</span>
+        <HealthBadge status={rates.marginHealth} />
+      </div>
+      <div style={costCardsRow}>
+        <div style={costCard}>
+          <div style={costCardLabel}>REG Sell</div>
+          <div style={costCardValue}>${rates.regSellRate.toFixed(2)}</div>
+        </div>
+        <div style={costCard}>
+          <div style={costCardLabel}>OT Sell</div>
+          <div style={costCardValue}>${rates.otSellRate.toFixed(2)}</div>
+        </div>
+        <div style={costCard}>
+          <div style={costCardLabel}>DT Sell</div>
+          <div style={costCardValue}>${rates.dtSellRate.toFixed(2)}</div>
+        </div>
+      </div>
+      <div style={sellingMetaRow}>
+        <span>Margin: <strong>{rates.grossMarginPct.toFixed(1)}%</strong></span>
+        <span>Markup: <strong>{markupPct.toFixed(1)}%</strong></span>
+        <span>Profit: <strong>${profitPerHour.toFixed(2)}/hr</strong></span>
+      </div>
     </div>
   );
 }
@@ -428,9 +780,7 @@ const drawerBody: CSSProperties = {
   padding: 24,
 };
 
-const fieldGroup: CSSProperties = {
-  marginBottom: 16,
-};
+const fieldGroup: CSSProperties = { marginBottom: 16 };
 
 const labelStyle: CSSProperties = {
   display: 'block',
@@ -588,7 +938,7 @@ const costCardMult: CSSProperties = {
   marginTop: 2,
 };
 
-const summaryCard: CSSProperties = {
+const summaryCardStyle: CSSProperties = {
   background: FC.surface,
   border: `1px solid ${FC.border}`,
   borderRadius: 8,
@@ -641,4 +991,88 @@ const tdCell: CSSProperties = {
   fontSize: '0.8125rem',
   color: FC.textSecondary,
   borderBottom: `1px solid rgba(255, 255, 255, 0.04)`,
+};
+
+const sellingDivider: CSSProperties = {
+  height: 1,
+  background: FC.borderStrong,
+  margin: '28px 0 20px',
+};
+
+const sellingTabBar: CSSProperties = {
+  display: 'flex',
+  gap: 0,
+  borderBottom: `1px solid ${FC.border}`,
+  marginBottom: 16,
+};
+
+const sellingTabBtn: CSSProperties = {
+  padding: '8px 16px',
+  fontSize: '0.75rem',
+  fontWeight: 600,
+  color: FC.textMuted,
+  background: 'transparent',
+  border: 'none',
+  borderBottom: '2px solid transparent',
+  cursor: 'pointer',
+  transition: 'color 0.15s',
+};
+
+const sellingTabActive: CSSProperties = {
+  ...sellingTabBtn,
+  color: FC.textPrimary,
+  borderBottomColor: FC.accentPurple,
+};
+
+const computeSellingBtn: CSSProperties = {
+  width: '100%',
+  padding: '9px 16px',
+  fontSize: '0.8125rem',
+  fontWeight: 600,
+  border: `1px solid rgba(139, 92, 246, 0.3)`,
+  borderRadius: 6,
+  background: 'rgba(139, 92, 246, 0.12)',
+  color: '#a78bfa',
+  cursor: 'pointer',
+  marginBottom: 16,
+};
+
+const computeSellingBtnDisabled: CSSProperties = {
+  ...computeSellingBtn,
+  opacity: 0.4,
+  cursor: 'not-allowed',
+};
+
+const sellingResultCard: CSSProperties = {
+  background: FC.surface,
+  border: `1px solid ${FC.border}`,
+  borderRadius: 8,
+  padding: 16,
+};
+
+const sellingResultHeader: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: 14,
+};
+
+const sellingResultLabel: CSSProperties = {
+  fontSize: '0.8125rem',
+  fontWeight: 700,
+  color: FC.textPrimary,
+};
+
+const sellingMetaRow: CSSProperties = {
+  display: 'flex',
+  gap: 16,
+  fontSize: '0.75rem',
+  color: FC.textMuted,
+};
+
+const loadingText: CSSProperties = {
+  color: FC.textMuted,
+  fontSize: '0.8125rem',
+  textAlign: 'center',
+  padding: '24px 0',
 };
