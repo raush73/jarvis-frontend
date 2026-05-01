@@ -10,6 +10,7 @@ import CallCompletionGate from "../../components/friday/CallCompletionGate";
 import { fridayFetch } from "../../components/friday/fridayFetch";
 import type { CallTarget, CompanyContact, FollowUp } from "../../components/friday/types";
 import CompanyDrawer from "../../components/company/CompanyDrawer";
+import CalculatorDrawer from "../../components/friday/CalculatorDrawer";
 
 export default function FridayPage() {
   return (
@@ -41,6 +42,9 @@ function FridayPageInner() {
 
   // Company Detail Drawer state
   const [drawerCustomerId, setDrawerCustomerId] = useState<string | null>(null);
+
+  // Calculator Drawer state
+  const [calculatorDrawerOpen, setCalculatorDrawerOpen] = useState(false);
 
   const handleOpenCompanyDetail = useCallback((customerId: string) => {
     setDrawerCustomerId(customerId);
@@ -123,9 +127,13 @@ function FridayPageInner() {
           <Link href="/friday/intelligence" className="sidebar-link">
             Intelligence Queue
           </Link>
-          <Link href="/friday/labor-cost-calculator" className="sidebar-link">
+          <button
+            className="sidebar-link"
+            onClick={() => setCalculatorDrawerOpen(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', font: 'inherit' }}
+          >
             Labor Cost Calculator
-          </Link>
+          </button>
           <Link href="/friday/control-panel" className="sidebar-link">
             Control Panel
           </Link>
@@ -183,6 +191,11 @@ function FridayPageInner() {
           customerId={drawerCustomerId}
           onClose={handleCloseDrawer}
         />
+      )}
+
+      {/* Calculator Drawer */}
+      {calculatorDrawerOpen && (
+        <CalculatorDrawer onClose={() => setCalculatorDrawerOpen(false)} />
       )}
 
       <style jsx>{`
