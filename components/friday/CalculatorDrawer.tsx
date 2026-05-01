@@ -75,19 +75,6 @@ const COST_TYPE_OPTIONS: { value: CostCalcType; label: string }[] = [
   { value: 'prevailing-ocip', label: 'Prevailing Wage + OCIP' },
 ];
 
-const BURDEN_CATEGORY_LABELS: Record<string, string> = {
-  WC: 'Workers\' Comp',
-  GL: 'General Liability',
-  FICA: 'FICA',
-  SUTA: 'SUTA',
-  FUTA: 'FUTA',
-  PEO: 'PEO / Admin Fee',
-  OVERHEAD: 'Overhead',
-  ADMIN: 'Admin',
-  INT_W: 'Internal (W)',
-  INT_PD: 'Internal (PD)',
-};
-
 const SELLING_TABS: { value: SellingTab; label: string }[] = [
   { value: 'presets', label: 'Presets' },
   { value: 'custom-margin', label: 'Custom Margin' },
@@ -405,7 +392,7 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
 
           {/* ── BURDEN RESULTS ─────────────────────────────── */}
           {result && (
-            <div style={{ marginTop: 24 }}>
+            <div style={{ marginTop: 20 }}>
               <div style={contextRow}>
                 <span style={contextBadge}>{result.stateCode}</span>
                 <span style={contextBadge}>{result.tradeName}</span>
@@ -421,39 +408,13 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
                 <CostCard label="DT" value={result.dtCost} multiplier={result.dtMultiplier} />
               </div>
 
-              <div style={sectionLabel}>Burden Summary</div>
-              <div style={summaryCardStyle}>
-                <SummaryRow label="Total Burden" value={`${result.totalBurdenPercent}%`} />
-                <SummaryRow label="Base Burden" value={`${result.fullBaseBurdenPercent}%`} />
-                <SummaryRow label="Premium Burden (OT/DT)" value={`${result.premiumBurdenPercent}%`} />
-                <SummaryRow label="WC Rate" value={`${result.wcPercent}%`} />
-                <SummaryRow label="WC Class Code" value={result.wcClassCode} />
-                <SummaryRow
-                  label="WC Source"
-                  value={result.wcSource === 'CLASS_CODE_RATE' ? 'Class Code Rate Set' : 'Payroll Burden Rate'}
-                />
-                <SummaryRow label="Effective Pay Rate" value={`$${result.payRate.toFixed(2)}`} />
+              <div style={burdenMetaRow}>
+                <span style={burdenMetaItem}>Burden: <strong>{result.totalBurdenPercent}%</strong></span>
+                <span style={burdenMetaItem}>WC: <strong>{result.wcClassCode}</strong></span>
+                <span style={burdenMetaItem}>
+                  {result.wcSource === 'CLASS_CODE_RATE' ? 'Class Code Rate' : 'Payroll Burden Rate'}
+                </span>
               </div>
-
-              <div style={sectionLabel}>Burden Breakdown</div>
-              <table style={breakdownTable}>
-                <thead>
-                  <tr>
-                    <th style={thCell}>Category</th>
-                    <th style={{ ...thCell, textAlign: 'right' }}>Rate %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(result.burdenBreakdown).map(([cat, pct]) => (
-                    <tr key={cat}>
-                      <td style={tdCell}>{BURDEN_CATEGORY_LABELS[cat] ?? cat}</td>
-                      <td style={{ ...tdCell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                        {(pct as number).toFixed(2)}%
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
 
               {/* ── SELLING SECTION ──────────────────────────── */}
               <div style={sellingDivider} />
@@ -642,15 +603,6 @@ function CostCard({ label, value, multiplier }: { label: string; value: number; 
   );
 }
 
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={summaryRow}>
-      <span style={summaryRowLabel}>{label}</span>
-      <span style={summaryRowValue}>{value}</span>
-    </div>
-  );
-}
-
 function HealthBadge({ status }: { status: MarginHealthStatus }) {
   const scheme = HEALTH_COLORS[status] ?? HEALTH_COLORS.RED;
   const style: CSSProperties = {
@@ -794,10 +746,10 @@ const selectStyle: CSSProperties = {
   width: '100%',
   padding: '8px 10px',
   fontSize: '0.8125rem',
-  background: 'rgba(255, 255, 255, 0.06)',
+  backgroundColor: '#2a2d35',
   border: `1px solid ${FC.borderStrong}`,
   borderRadius: 6,
-  color: FC.textPrimary,
+  color: '#f0f0f0',
   outline: 'none',
   colorScheme: 'dark',
 };
@@ -905,7 +857,7 @@ const costCardsRow: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: '1fr 1fr 1fr',
   gap: 10,
-  marginBottom: 20,
+  marginBottom: 12,
 };
 
 const costCard: CSSProperties = {
@@ -938,32 +890,18 @@ const costCardMult: CSSProperties = {
   marginTop: 2,
 };
 
-const summaryCardStyle: CSSProperties = {
-  background: FC.surface,
-  border: `1px solid ${FC.border}`,
-  borderRadius: 8,
-  padding: '4px 0',
-  marginBottom: 20,
-};
-
-const summaryRow: CSSProperties = {
+const burdenMetaRow: CSSProperties = {
   display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  padding: '8px 14px',
-  borderBottom: `1px solid rgba(255, 255, 255, 0.04)`,
-};
-
-const summaryRowLabel: CSSProperties = {
-  fontSize: '0.8125rem',
+  gap: 16,
+  fontSize: '0.75rem',
   color: FC.textMuted,
+  marginBottom: 4,
 };
 
-const summaryRowValue: CSSProperties = {
-  fontSize: '0.8125rem',
-  fontWeight: 600,
-  color: FC.textPrimary,
-  fontVariantNumeric: 'tabular-nums',
+const burdenMetaItem: CSSProperties = {
+  display: 'inline-flex',
+  gap: 4,
+  alignItems: 'center',
 };
 
 const breakdownTable: CSSProperties = {
@@ -996,7 +934,7 @@ const tdCell: CSSProperties = {
 const sellingDivider: CSSProperties = {
   height: 1,
   background: FC.borderStrong,
-  margin: '28px 0 20px',
+  margin: '20px 0 16px',
 };
 
 const sellingTabBar: CSSProperties = {
@@ -1013,7 +951,9 @@ const sellingTabBtn: CSSProperties = {
   color: FC.textMuted,
   background: 'transparent',
   border: 'none',
-  borderBottom: '2px solid transparent',
+  borderBottomWidth: 2,
+  borderBottomStyle: 'solid',
+  borderBottomColor: 'transparent',
   cursor: 'pointer',
   transition: 'color 0.15s',
 };
