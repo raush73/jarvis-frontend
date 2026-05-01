@@ -65,7 +65,17 @@ export default function WorkCompRatesPage() {
   const [addWcRate, setAddWcRate] = useState("");
   const [addEffectiveFrom, setAddEffectiveFrom] = useState("");
 
-    const distinctStates = useMemo(() => { const set = new Set(rates.map((r) => r.state)); return Array.from(set).sort(); }, [rates]);
+    const ALL_STATES = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
+  "HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+  "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
+  "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"
+];
+
+const distinctStates = useMemo(() => {
+  return ALL_STATES;
+}, []);
 
   const distinctTradeCodes = useMemo(() => {
     const set = new Set(rates.map((r) => r.tradeCode));
@@ -226,93 +236,47 @@ export default function WorkCompRatesPage() {
   return (
     <div className="wc-container">
       {/* Header */}
-      <div className="page-header">
-        <div className="header-left">
-          <Link href="/admin" className="back-link">
+      <div className="page-header"><div className="header-left"><Link href="/admin" className="back-link">
             &larr; Back to Admin
-          </Link>
-          <h1>Work Comp Rates</h1>
-          <p className="subtitle">
+          </Link><h1>Work Comp Rates</h1><p className="subtitle">
             Configure workers&apos; compensation rates by State and WC Class Code. These rates are used for burden and margin calculations.
-          </p>
-        </div>
-        <div className="header-actions">
-          <button className="btn-add" onClick={openAddModal}>
+          </p></div><div className="header-actions"><button className="btn-add" onClick={openAddModal}>
             + Add Rate
-          </button>
-        </div>
-      </div>
+          </button></div></div>
 
       {/* Filters */}
-      <div className="filters-section">
-        <div className="filter-group">
-          <label htmlFor="stateFilter">State</label>
-          <select
+      <div className="filters-section"><div className="filter-group"><label htmlFor="stateFilter">State</label><select
             id="stateFilter"
             value={stateFilter}
             onChange={(e) => setStateFilter(e.target.value)}
-          >
-            <option value="All">All States</option>
+          ><option value="All">All States</option>
             {distinctStates.map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
-          </select>
-        </div>
-
-        <div className="filter-group">
-          <label htmlFor="tradeFilter">WC Class Code</label>
-          <select
+          </select></div><div className="filter-group"><label htmlFor="tradeFilter">WC Class Code</label><select
             id="tradeFilter"
             value={tradeFilter}
             onChange={(e) => setTradeFilter(e.target.value)}
-          >
-            <option value="All">All Codes</option>
+          ><option value="All">All Codes</option>
             {distinctTradeCodes.map((tc) => (
               <option key={tc} value={tc}>
                 {tc}
               </option>
             ))}
-          </select>
-        </div>
-
-        <div className="filter-group">
-          <label htmlFor="statusFilter">Status</label>
-          <select
+          </select></div><div className="filter-group"><label htmlFor="statusFilter">Status</label><select
             id="statusFilter"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="All">All Statuses</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-        </div>
-
-        <div className="filter-results">
+          ><option value="All">All Statuses</option><option value="Active">Active</option><option value="Inactive">Inactive</option></select></div><div className="filter-results">
           {isLoading ? "Loading..." : `${filteredRates.length} rate${filteredRates.length !== 1 ? "s" : ""}`}
-        </div>
-      </div>
+        </div></div>
 
       {/* Rates Table */}
-      <div className="table-section">
-        <div className="table-wrap">
-          <table className="rates-table">
-            <thead>
-              <tr>
-                <th>State</th>
-                <th>Code</th>                <th>Trades</th>                <th>WC Rate (%)</th>
-                <th>Status</th>
-                <th>Effective From</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+      <div className="table-section"><div className="table-wrap"><table className="rates-table"><thead><tr><th>State</th><th>Code</th><th>Trades</th><th>WC Rate (%)</th><th>Status</th><th>Effective From</th><th>Actions</th></tr></thead><tbody>
               {filteredRates.map((row) => {
                 const status = deriveStatus(row);
                 return (
-                  <tr key={row.id}>
-                    <td className="cell-state">
-                      <span
+                  <tr key={row.id}><td className="cell-state"><span
                         className="state-badge"
                         style={{
                           backgroundColor: getStateBadgeStyle(row.state).bg,
@@ -321,11 +285,7 @@ export default function WorkCompRatesPage() {
                         }}
                       >
                         {row.state}
-                      </span>
-                    </td>
-                    <td className="cell-trade">{row.tradeCode}</td>                    <td className="cell-trades">{(codeToTrades[row.tradeCode] || []).join(", ") || "-"}</td>                    <td className="cell-rate">{row.wcRate != null ? row.wcRate.toFixed(2) + "%" : "-"}</td>
-                    <td className="cell-status">
-                      <span
+                      </span></td><td className="cell-trade">{row.tradeCode}</td><td className="cell-trades">{(codeToTrades[row.tradeCode] || []).join(", ") || "-"}</td><td className="cell-rate">{row.wcRate != null ? row.wcRate.toFixed(2) + "%" : "-"}</td><td className="cell-status"><span
                         className="status-badge"
                         style={{
                           backgroundColor: getStatusStyle(status).bg,
@@ -334,149 +294,58 @@ export default function WorkCompRatesPage() {
                         }}
                       >
                         {status}
-                      </span>
-                    </td>
-                    <td className="cell-date">{fmtDate(row.effectiveFrom)}</td>
-                    <td className="cell-actions">
-                      <button className="action-btn" onClick={() => openEditModal(row)}>
+                      </span></td><td className="cell-date">{fmtDate(row.effectiveFrom)}</td><td className="cell-actions"><button className="action-btn" onClick={() => openEditModal(row)}>
                         Edit
-                      </button>
-                    </td>
-                  </tr>
+                      </button></td></tr>
                 );
               })}
               {!isLoading && filteredRates.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="empty-row">
+                <tr><td colSpan={7} className="empty-row">
                     {rates.length === 0 ? "No Work Comp rates yet. Click \"+ Add Rate\" to create one." : "No rates match your filters"}
-                  </td>
-                </tr>
+                  </td></tr>
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </tbody></table></div></div>
 
       {/* Edit Modal */}
       {isEditModalOpen && selectedRate && (
-        <div className="modal-overlay" onClick={closeEditModal}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Edit Work Comp Rate</h2>
-              <button className="modal-close" onClick={closeEditModal}>
+        <div className="modal-overlay" onClick={closeEditModal}><div className="modal" onClick={(e) => e.stopPropagation()}><div className="modal-header"><h2>Edit Work Comp Rate</h2><button className="modal-close" onClick={closeEditModal}>
                 &times;
-              </button>
-            </div>
-
-            <div className="modal-body">
-              <div className="form-row">
-                <div className="form-field">
-                  <label>State</label>
-                  <input type="text" value={selectedRate.state} readOnly className="readonly" />
-                </div>
-                <div className="form-field">
-                  <label>WC Class Code</label>
-                  <input
+              </button></div><div className="modal-body"><div className="form-row"><div className="form-field"><label>State</label><input type="text" value={selectedRate.state} readOnly className="readonly" /></div><div className="form-field"><label>WC Class Code</label><input
                     type="text"
                     value={selectedRate.tradeCode}
                     readOnly
                     className="readonly"
-                  />
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-field">
-                  <label>WC Rate (%)</label>
-                  <input
+                  /></div></div><div className="form-row"><div className="form-field"><label>WC Rate (%)</label><input
                     type="number"
                     step="0.01"
                     min="0"
                     max="100"
                     value={editWcRate}
                     onChange={(e) => setEditWcRate(e.target.value)}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Effective From</label>
-                  <input type="text" value={fmtDate(selectedRate.effectiveFrom)} readOnly className="readonly" />
-                </div>
-              </div>
-
-              <div className="form-field">
-                <label>Effective To (leave empty for active)</label>
-                <input
+                  /></div><div className="form-field"><label>Effective From</label><input type="text" value={fmtDate(selectedRate.effectiveFrom)} readOnly className="readonly" /></div></div><div className="form-field"><label>Effective To (leave empty for active)</label><input
                   type="date"
                   value={editEffectiveTo}
                   onChange={(e) => setEditEffectiveTo(e.target.value)}
-                />
-              </div>
-
-              <div className="audit-section">
-                <div className="audit-title">Audit Information</div>
-                <div className="audit-grid">
-                  <div className="audit-item">
-                    <span className="audit-label">Created</span>
-                    <span className="audit-value">{fmtDate(selectedRate.createdAt)}</span>
-                  </div>
-                  <div className="audit-item">
-                    <span className="audit-label">Updated</span>
-                    <span className="audit-value">{fmtDate(selectedRate.updatedAt)}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button className="btn-cancel" onClick={closeEditModal}>
+                /></div><div className="audit-section"><div className="audit-title">Audit Information</div><div className="audit-grid"><div className="audit-item"><span className="audit-label">Created</span><span className="audit-value">{fmtDate(selectedRate.createdAt)}</span></div><div className="audit-item"><span className="audit-label">Updated</span><span className="audit-value">{fmtDate(selectedRate.updatedAt)}</span></div></div></div></div><div className="modal-footer"><button className="btn-cancel" onClick={closeEditModal}>
                 Cancel
-              </button>
-              <button className="btn-save" onClick={handleSaveEdit} disabled={saving}>
+              </button><button className="btn-save" onClick={handleSaveEdit} disabled={saving}>
                 {saving ? "Saving..." : "Save Changes"}
-              </button>
-            </div>
-          </div>
-        </div>
+              </button></div></div></div>
       )}
 
       {/* Add Rate Modal */}
       {isAddModalOpen && (
-        <div className="modal-overlay" onClick={closeAddModal}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Add Work Comp Rate</h2>
-              <button className="modal-close" onClick={closeAddModal}>
+        <div className="modal-overlay" onClick={closeAddModal}><div className="modal" onClick={(e) => e.stopPropagation()}><div className="modal-header"><h2>Add Work Comp Rate</h2><button className="modal-close" onClick={closeAddModal}>
                 &times;
-              </button>
-            </div>
-
-            <div className="modal-body">
-              <div className="form-row">
-                <div className="form-field">
-                  <label>State</label>
-                  <select value={addState} onChange={(e) => setAddState(e.target.value)}>
-                    <option value="" disabled>Select State</option>
+              </button></div><div className="modal-body"><div className="form-row"><div className="form-field"><label>State</label><select value={addState} onChange={(e) => setAddState(e.target.value)}><option value="" disabled>Select State</option>
                     {distinctStates.map((s) => (<option key={s} value={s}>{s}</option>))}
-                  </select>
-                </div>
-
-                <div className="form-field">
-                  <label>WC Class Code</label>
-                  <select value={addTradeCode} onChange={(e) => setAddTradeCode(e.target.value)}>
-                    <option value="" disabled>Select Code</option>
+                  </select></div><div className="form-field"><label>WC Class Code</label><select value={addTradeCode} onChange={(e) => setAddTradeCode(e.target.value)}><option value="" disabled>Select Code</option>
                     {activeTrades.map((t) => (
                       <option key={t.id} value={t.wcClassCode}>
                         {t.wcClassCode}
                       </option>
                     ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-field">
-                  <label>WC Rate (%)</label>
-                  <input
+                  </select></div></div><div className="form-row"><div className="form-field"><label>WC Rate (%)</label><input
                     type="number"
                     step="0.01"
                     min="0"
@@ -484,34 +353,19 @@ export default function WorkCompRatesPage() {
                     placeholder="e.g. 4.50"
                     value={addWcRate}
                     onChange={(e) => setAddWcRate(e.target.value)}
-                  />
-                </div>
-
-                <div className="form-field">
-                  <label>Effective From</label>
-                  <input
+                  /></div><div className="form-field"><label>Effective From</label><input
                     type="date"
                     value={addEffectiveFrom}
                     onChange={(e) => setAddEffectiveFrom(e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button className="btn-cancel" onClick={closeAddModal}>
+                  /></div></div></div><div className="modal-footer"><button className="btn-cancel" onClick={closeAddModal}>
                 Cancel
-              </button>
-              <button
+              </button><button
                 className="btn-save"
                 onClick={handleSaveAdd}
                 disabled={saving || !addState || !addTradeCode || !addWcRate || !addEffectiveFrom}
               >
                 {saving ? "Saving..." : "Add Rate"}
-              </button>
-            </div>
-          </div>
-        </div>
+              </button></div></div></div>
       )}
 
       <style jsx>{`
@@ -966,10 +820,12 @@ export default function WorkCompRatesPage() {
           opacity: 0.5;
           cursor: not-allowed;
         }
-      `}</style>
-    </div>
+      `}</style></div>
   );
 }
+
+
+
 
 
 
