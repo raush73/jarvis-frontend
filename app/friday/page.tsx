@@ -148,16 +148,18 @@ function FridayPageInner() {
         />
       )}
 
-      {/* Manual Call In-Call overlay */}
+      {/* Manual Call In-Call floating panel (non-blocking) */}
       {manualPhase === 'in_call' && manualCall && (
-        <div className="manual-call-overlay">
-          <div className="manual-call-card">
+        <div className="manual-call-panel">
+          <div className="manual-call-panel-header">
             <div className="manual-call-indicator" />
-            <span className="manual-call-status">Manual Call In Progress</span>
-            <div className="manual-call-info">
-              <div className="manual-call-name">{manualCall.companyName}</div>
-              {manualCall.phone && <div className="manual-call-phone">{manualCall.phone}</div>}
-            </div>
+            <span className="manual-call-status">Manual Call Active</span>
+          </div>
+          <div className="manual-call-info">
+            <div className="manual-call-name">{manualCall.companyName}</div>
+            {manualCall.phone && <div className="manual-call-phone">{manualCall.phone}</div>}
+          </div>
+          <div className="manual-call-actions">
             <button className="manual-call-end-btn" onClick={handleManualEndCall}>
               End Call &amp; Complete
             </button>
@@ -165,7 +167,7 @@ function FridayPageInner() {
               className="manual-call-detail-btn"
               onClick={() => handleOpenCompanyDetail(manualCall.customerId)}
             >
-              Open Company Detail
+              Company Detail
             </button>
           </div>
         </div>
@@ -195,7 +197,11 @@ function FridayPageInner() {
 
       {/* Calculator Drawer */}
       {calculatorDrawerOpen && (
-        <CalculatorDrawer onClose={() => setCalculatorDrawerOpen(false)} />
+        <CalculatorDrawer
+          onClose={() => setCalculatorDrawerOpen(false)}
+          customerId={activeTarget?.customerId ?? manualCall?.customerId ?? null}
+          customerName={activeTarget?.customerName ?? manualCall?.companyName ?? null}
+        />
       )}
 
       <style jsx>{`
@@ -281,69 +287,78 @@ function FridayPageInner() {
           color: #a78bfa;
         }
 
-        .manual-call-overlay {
+        .manual-call-panel {
           position: fixed;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.7);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          backdrop-filter: blur(4px);
+          bottom: 24px;
+          right: 24px;
+          z-index: 900;
+          background: #1a1d24;
+          border: 1px solid rgba(34, 197, 94, 0.5);
+          border-radius: 12px;
+          padding: 16px 20px;
+          width: 280px;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(34, 197, 94, 0.1);
+          pointer-events: auto;
         }
 
-        .manual-call-card {
-          background: #1a1d24;
-          border: 1px solid rgba(34, 197, 94, 0.4);
-          border-radius: 12px;
-          padding: 32px;
-          width: 100%;
-          max-width: 400px;
-          text-align: center;
+        .manual-call-panel-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 12px;
         }
 
         .manual-call-indicator {
-          width: 12px;
-          height: 12px;
+          width: 10px;
+          height: 10px;
           border-radius: 50%;
           background: #22c55e;
-          box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15);
-          margin: 0 auto 12px;
+          box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15);
           animation: pulse-green 2s infinite;
+          flex-shrink: 0;
         }
 
         @keyframes pulse-green {
-          0%, 100% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15); }
-          50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.08); }
+          0%, 100% { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15); }
+          50% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.08); }
         }
 
         .manual-call-status {
-          display: block;
-          font-size: 0.875rem;
+          font-size: 0.75rem;
           font-weight: 700;
           color: #22c55e;
-          margin-bottom: 16px;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
         }
 
         .manual-call-info {
-          margin-bottom: 24px;
+          margin-bottom: 14px;
         }
 
         .manual-call-name {
-          font-size: 1.125rem;
+          font-size: 0.9375rem;
           font-weight: 700;
           color: #ffffff;
-          margin-bottom: 4px;
+          margin-bottom: 2px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .manual-call-phone {
-          font-size: 0.8125rem;
-          color: rgba(255, 255, 255, 0.6);
+          font-size: 0.75rem;
+          color: rgba(255, 255, 255, 0.55);
+        }
+
+        .manual-call-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
         }
 
         .manual-call-end-btn {
-          padding: 12px 24px;
-          font-size: 0.9375rem;
+          padding: 9px 16px;
+          font-size: 0.8125rem;
           font-weight: 600;
           border: none;
           border-radius: 6px;
@@ -351,6 +366,7 @@ function FridayPageInner() {
           color: #ffffff;
           cursor: pointer;
           transition: background 0.15s;
+          width: 100%;
         }
 
         .manual-call-end-btn:hover {
@@ -358,22 +374,20 @@ function FridayPageInner() {
         }
 
         .manual-call-detail-btn {
-          display: block;
-          width: 100%;
-          margin-top: 10px;
-          padding: 10px 24px;
-          font-size: 0.8125rem;
+          padding: 7px 16px;
+          font-size: 0.75rem;
           font-weight: 600;
           border: 1px solid rgba(139, 92, 246, 0.3);
           border-radius: 6px;
-          background: rgba(139, 92, 246, 0.1);
+          background: rgba(139, 92, 246, 0.08);
           color: #a78bfa;
           cursor: pointer;
           transition: background 0.15s, border-color 0.15s;
+          width: 100%;
         }
 
         .manual-call-detail-btn:hover {
-          background: rgba(139, 92, 246, 0.2);
+          background: rgba(139, 92, 246, 0.18);
           border-color: rgba(139, 92, 246, 0.45);
         }
 

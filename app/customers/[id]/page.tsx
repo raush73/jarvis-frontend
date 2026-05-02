@@ -11,6 +11,7 @@ import { HEALTH_STATUS_COLORS } from "@/lib/constants/margin-health";
 import AccountCallTimeline from "@/components/customers/AccountCallTimeline";
 import CustomerActivitySection from "@/components/activity/CustomerActivitySection";
 import CallCompletionGate from "@/components/friday/CallCompletionGate";
+import CommercialSection from "@/components/customers/CommercialSection";
 import { fridayFetch } from "@/components/friday/fridayFetch";
 import type { CompanyContact as FridayContact, FollowUp, ConflictResponse } from "@/components/friday/types";
 
@@ -83,7 +84,7 @@ const AVAILABLE_TRADES = [
 const OT_MULTIPLIER_MIN = 1.47;
 const OT_MULTIPLIER_DEFAULT = 1.5;
 
-type TabKey = "contacts" | "tools" | "toolsByTrade" | "ppe" | "orders" | "quotes" | "invoices" | "calls" | "activity";
+type TabKey = "contacts" | "tools" | "toolsByTrade" | "ppe" | "orders" | "quotes" | "commercial" | "invoices" | "calls" | "activity";
 
 // Tool list item shape (UI-only, trade-scoped)
 type ToolLike = { id: string; name: string; notes: string };
@@ -641,6 +642,7 @@ export default function CustomerDetailPage() {
     { key: "ppe", label: "PPE" },
     { key: "orders", label: "Orders" },
     { key: "quotes", label: "Quotes" },
+    { key: "commercial", label: "Commercial" },
     { key: "invoices", label: "Invoices" },
   ];
 
@@ -2195,6 +2197,11 @@ export default function CustomerDetailPage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* Commercial Tab */}
+        {activeTab === "commercial" && (
+          <CommercialSection customerId={customerId} />
         )}
 
       </div>
@@ -3942,6 +3949,92 @@ export default function CustomerDetailPage() {
           font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
           font-size: 13px;
         }
+
+        /* --- Commercial Section --- */
+        .commercial-section { }
+        .commercial-panel { margin-bottom: 8px; }
+        .commercial-panel-header {
+          display: flex; align-items: center; justify-content: space-between;
+          margin-bottom: 12px; gap: 12px;
+        }
+        .commercial-panel-header h2 {
+          margin: 0; font-size: 16px; font-weight: 700; color: #111827;
+        }
+        .commercial-badge-internal {
+          display: inline-block; padding: 2px 8px; border-radius: 4px;
+          font-size: 11px; font-weight: 600; color: #6b7280; background: #f3f4f6;
+          border: 1px solid #e5e7eb;
+        }
+        .commercial-btn {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 7px 14px; border-radius: 7px; font-size: 13px; font-weight: 600;
+          cursor: pointer; transition: background 0.12s, border-color 0.12s;
+          white-space: nowrap; border: 1px solid #e5e7eb; background: #fff; color: #374151;
+        }
+        .commercial-btn.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+        .commercial-btn.primary:hover { background: #1d4ed8; }
+        .commercial-btn.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .commercial-btn.secondary:hover { background: #f1f5f9; border-color: #d1d5db; }
+        .commercial-btn.danger { color: #dc2626; border-color: #fecaca; }
+        .commercial-btn.danger:hover { background: #fef2f2; }
+        .commercial-btn.danger:disabled { opacity: 0.5; cursor: not-allowed; }
+        .commercial-btn.small { padding: 5px 10px; font-size: 12px; }
+        .commercial-btn-link { background: none; border: none; padding: 0; font-size: 13px; font-weight: 500; color: #2563eb; cursor: pointer; }
+        .commercial-btn-link:hover { text-decoration: underline; }
+        .commercial-btn-link.danger { color: #dc2626; }
+        .commercial-btn-link.danger:hover { color: #b91c1c; }
+        .commercial-loading { padding: 24px 0; text-align: center; color: #6b7280; font-size: 14px; }
+        .commercial-error { padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: #dc2626; font-size: 13px; }
+        .commercial-empty { padding: 24px 0; text-align: center; color: #9ca3af; font-size: 14px; font-style: italic; }
+
+        /* Pricing Snapshots */
+        .snapshot-list { display: flex; flex-direction: column; gap: 8px; }
+        .snapshot-card { border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; overflow: hidden; }
+        .snapshot-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; cursor: pointer; }
+        .snapshot-header:hover { background: #f8fafc; }
+        .snapshot-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .snapshot-date { font-size: 13px; font-weight: 600; color: #111827; }
+        .snapshot-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #4b5563; background: #f3f4f6; border: 1px solid #e5e7eb; }
+        .snapshot-badge-internal { color: #9ca3af; }
+        .snapshot-expand-btn { background: none; border: none; font-size: 14px; color: #9ca3af; cursor: pointer; }
+        .snapshot-notes { padding: 4px 14px 8px; font-size: 13px; color: #4b5563; }
+        .snapshot-payload { padding: 8px 14px 12px; background: #f8fafc; border-top: 1px solid #e5e7eb; }
+        .snapshot-payload pre { margin: 0; font-size: 11px; color: #374151; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; }
+
+        /* Rate Sheet List */
+        .rs-list { }
+        .rs-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+        .rs-table th { padding: 8px 12px; font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; text-align: left; border-bottom: 1px solid #e5e7eb; background: #f8fafc; }
+        .rs-table td { padding: 8px 12px; font-size: 13px; color: #374151; border-bottom: 1px solid #f1f5f9; }
+        .rs-row { cursor: pointer; transition: background 0.1s; }
+        .rs-row:hover { background: #f0f5ff; }
+        .rs-number { font-weight: 600; color: #1d4ed8; }
+        .rs-status-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+        .rs-title { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rs-date { color: #6b7280; font-size: 12px; }
+        .rs-lines { text-align: center; }
+
+        /* Rate Sheet Detail */
+        .rsd { }
+        .rsd-header { margin-bottom: 16px; }
+        .rsd-back { background: none; border: none; padding: 0; font-size: 13px; font-weight: 500; color: #2563eb; cursor: pointer; margin-bottom: 8px; display: block; }
+        .rsd-back:hover { text-decoration: underline; }
+        .rsd-title-row { display: flex; align-items: center; gap: 12px; }
+        .rsd-number { margin: 0; font-size: 20px; font-weight: 700; color: #111827; }
+        .rsd-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; padding: 14px 16px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; }
+        .rsd-meta-item { display: flex; flex-direction: column; gap: 2px; }
+        .rsd-meta-label { font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
+        .rsd-notes { grid-column: 1 / -1; }
+        .rsd-notes p { margin: 4px 0 0; font-size: 13px; color: #374151; }
+        .rsd-actions { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+        .rsd-lines-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .rsd-lines-header h4 { margin: 0; font-size: 14px; font-weight: 700; color: #111827; }
+        .rsd-table-wrap { overflow-x: auto; }
+        .rsd-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+        .rsd-table th { padding: 7px 10px; font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; text-align: left; border-bottom: 1px solid #e5e7eb; background: #f8fafc; }
+        .rsd-table td { padding: 7px 10px; font-size: 13px; color: #374151; border-bottom: 1px solid #f1f5f9; }
+        .rsd-trade { font-weight: 600; }
+        .rsd-num { font-variant-numeric: tabular-nums; text-align: right; }
 
         /* --- Operational Call Buttons --- */
         .op-call-btn {

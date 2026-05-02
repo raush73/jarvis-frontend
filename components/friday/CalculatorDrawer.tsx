@@ -7,6 +7,8 @@ import { fridayFetch } from './fridayFetch';
 
 interface CalculatorDrawerProps {
   onClose: () => void;
+  customerId?: string | null;
+  customerName?: string | null;
 }
 
 type CostCalcType = 'standard' | 'ocip' | 'prevailing' | 'prevailing-ocip';
@@ -87,7 +89,15 @@ const HEALTH_COLORS: Record<MarginHealthStatus, { color: string; bg: string }> =
   RED: { color: FC.accentRed, bg: FC.accentRedDim },
 };
 
-export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
+export default function CalculatorDrawer({ onClose, customerId, customerName }: CalculatorDrawerProps) {
+  // -- Commercial actions --
+  const [snapshotSaving, setSnapshotSaving] = useState(false);
+  const [snapshotMsg, setSnapshotMsg] = useState('');
+  const [showRsModal, setShowRsModal] = useState(false);
+  const [draftSheets, setDraftSheets] = useState<Array<{ id: string; rateSheetNumber: string | null; title: string | null }>>([]);
+  const [rsLoading, setRsLoading] = useState(false);
+  const [rsActionMsg, setRsActionMsg] = useState('');
+
   // -- Burden inputs --
   const [costType, setCostType] = useState<CostCalcType>('standard');
   const [stateCode, setStateCode] = useState('');
@@ -585,8 +595,217 @@ export default function CalculatorDrawer({ onClose }: CalculatorDrawerProps) {
               )}
             </div>
           )}
+
+          {/* Commercial Actions */}
+          {result && customerId && (
+            <div style={commercialDivider}>
+              <div style={sectionLabel}>Commercial Actions</div>
+              {!customerId && (
+                <div style={{ fontSize: '0.75rem', color: FC.textMuted, marginBottom: 8 }}>
+                  No customer context — start a call to enable commercial actions.
+                </div>
+              )}
+              {customerName && (
+                <div style={{ fontSize: '0.75rem', color: FC.textSecondary, marginBottom: 10 }}>
+                  Customer: <strong>{customerName}</strong>
+                </div>
+              )}
+
+              {snapshotMsg && (
+                <div style={{
+                  padding: '8px 12px', borderRadius: 6, marginBottom: 10,
+                  fontSize: '0.75rem', fontWeight: 600,
+                  color: snapshotMsg.startsWith('Error') ? FC.accentRed : FC.accentGreen,
+                  background: snapshotMsg.startsWith('Error') ? FC.accentRedDim : FC.accentGreenDim,
+                }}>
+                  {snapshotMsg}
+                </div>
+              )}
+
+              <button
+                style={snapshotSaving ? { ...commercialBtn, opacity: 0.5 } : commercialBtn}
+                disabled={snapshotSaving}
+                onClick={async () => {
+                  if (!result || !customerId) return;
+                  setSnapshotSaving(true);
+                  setSnapshotMsg('');
+                  const tradeName = trades.find(t => t.id === tradeId)?.name ?? '';
+                  const payload = {
+                    payloadJson: {
+                      costType,
+                      stateCode,
+                      tradeId,
+                      tradeName,
+                      payRate: payRate ? parseFloat(payRate) : null,
+                      baseWage: baseWage ? parseFloat(baseWage) : null,
+                      burden: result,
+                      selling: sellingResult,
+                    },
+                    notes: `Calculator snapshot: ${tradeName} in ${stateCode}`,
+                    state: stateCode || undefined,
+                    tradeCode: tradeName || undefined,
+                  };
+                  const res = await fridayFetch<any>(
+                    `/commercial/customers/${customerId}/pricing-snapshots`,
+                    { method: 'POST', body: JSON.stringify(payload) },
+                  );
+                  setSnapshotSaving(false);
+                  setSnapshotMsg(res.ok ? 'Pricing snapshot saved' : `Error: ${res.error}`);
+                  if (res.ok) setTimeout(() => setSnapshotMsg(''), 4000);
+                }}
+              >
+                {snapshotSaving ? 'Saving...' : 'Save Pricing Snapshot'}
+              </button>
+
+              <button
+                style={{ ...commercialBtn, marginTop: 8 }}
+                onClick={async () => {
+                  setShowRsModal(true);
+                  setRsActionMsg('');
+                  setRsLoading(true);
+                  const res = await fridayFetch<any[]>(
+                    `/commercial/customers/${customerId}/rate-sheets`,
+                  );
+                  setRsLoading(false);
+                  if (res.ok) {
+                    setDraftSheets((res.data ?? []).filter((s: any) => s.status === 'DRAFT'));
+                  } else {
+                    setDraftSheets([]);
+                  }
+                }}
+              >
+                Add to Rate Sheet
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Add to Rate Sheet Modal */}
+      {showRsModal && customerId && (
+        <>
+          <div style={{ ...rsModalBackdrop }} onClick={() => setShowRsModal(false)} />
+          <div style={rsModalPanel}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: '0.9375rem', fontWeight: 700, color: FC.textPrimary }}>Add to Rate Sheet</div>
+              <button style={closeBtn} onClick={() => setShowRsModal(false)}>✕</button>
+            </div>
+
+            {rsActionMsg && (
+              <div style={{
+                padding: '8px 12px', borderRadius: 6, marginBottom: 10,
+                fontSize: '0.75rem', fontWeight: 600,
+                color: rsActionMsg.startsWith('Error') ? FC.accentRed : FC.accentGreen,
+                background: rsActionMsg.startsWith('Error') ? FC.accentRedDim : FC.accentGreenDim,
+              }}>
+                {rsActionMsg}
+              </div>
+            )}
+
+            {rsLoading && <div style={{ color: FC.textMuted, fontSize: '0.8125rem', textAlign: 'center', padding: '16px 0' }}>Loading...</div>}
+
+            {!rsLoading && (
+              <>
+                {draftSheets.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: FC.textSecondary, marginBottom: 8 }}>
+                      Add to existing DRAFT:
+                    </div>
+                    {draftSheets.map((ds) => (
+                      <button
+                        key={ds.id}
+                        style={rsSheetBtn}
+                        onClick={async () => {
+                          if (!result) return;
+                          setRsActionMsg('');
+                          const tradeName = trades.find(t => t.id === tradeId)?.name ?? '';
+                          const line: Record<string, any> = {
+                            tradeCode: tradeName || tradeId,
+                            tradeName: tradeName || 'Unknown',
+                            state: stateCode || undefined,
+                            basePayRate: result.payRate,
+                            baseBillRate: sellingResult?.presets?.[0]?.regSellRate ?? undefined,
+                            otPayRate: result.otCost,
+                            otBillRate: sellingResult?.presets?.[0]?.otSellRate ?? undefined,
+                            dtPayRate: result.dtCost,
+                            dtBillRate: sellingResult?.presets?.[0]?.dtSellRate ?? undefined,
+                            burdenPct: result.totalBurdenPercent,
+                            marginPct: sellingResult?.presets?.[0]?.grossMarginPct ?? undefined,
+                          };
+                          const res = await fridayFetch<any>(
+                            `/commercial/rate-sheets/${ds.id}/lines`,
+                            { method: 'POST', body: JSON.stringify(line) },
+                          );
+                          setRsActionMsg(res.ok ? `Line added to ${ds.rateSheetNumber ?? 'Rate Sheet'}` : `Error: ${res.error}`);
+                          if (res.ok) setTimeout(() => { setShowRsModal(false); setRsActionMsg(''); }, 2000);
+                        }}
+                      >
+                        <span style={{ fontWeight: 600 }}>{ds.rateSheetNumber ?? 'Draft'}</span>
+                        {ds.title && <span style={{ color: FC.textMuted, marginLeft: 8 }}>{ds.title}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: FC.textSecondary, marginBottom: 8 }}>
+                    Or create new DRAFT Rate Sheet:
+                  </div>
+                  <button
+                    style={rsCreateBtn}
+                    onClick={async () => {
+                      if (!result || !customerId) return;
+                      setRsActionMsg('');
+                      const expDate = new Date();
+                      expDate.setDate(expDate.getDate() + 30);
+                      const tradeName = trades.find(t => t.id === tradeId)?.name ?? '';
+                      const createRes = await fridayFetch<{ id: string; rateSheetNumber: string }>(
+                        `/commercial/customers/${customerId}/rate-sheets`,
+                        {
+                          method: 'POST',
+                          body: JSON.stringify({
+                            title: `Rate Sheet — ${tradeName || 'New'}`,
+                            expiresAt: expDate.toISOString(),
+                          }),
+                        },
+                      );
+                      if (!createRes.ok) {
+                        setRsActionMsg(`Error: ${createRes.error}`);
+                        return;
+                      }
+                      const line: Record<string, any> = {
+                        tradeCode: tradeName || tradeId,
+                        tradeName: tradeName || 'Unknown',
+                        state: stateCode || undefined,
+                        basePayRate: result.payRate,
+                        baseBillRate: sellingResult?.presets?.[0]?.regSellRate ?? undefined,
+                        otPayRate: result.otCost,
+                        otBillRate: sellingResult?.presets?.[0]?.otSellRate ?? undefined,
+                        dtPayRate: result.dtCost,
+                        dtBillRate: sellingResult?.presets?.[0]?.dtSellRate ?? undefined,
+                        burdenPct: result.totalBurdenPercent,
+                        marginPct: sellingResult?.presets?.[0]?.grossMarginPct ?? undefined,
+                      };
+                      const lineRes = await fridayFetch<any>(
+                        `/commercial/rate-sheets/${createRes.data.id}/lines`,
+                        { method: 'POST', body: JSON.stringify(line) },
+                      );
+                      if (lineRes.ok) {
+                        setRsActionMsg(`Created ${createRes.data.rateSheetNumber} with line`);
+                        setTimeout(() => { setShowRsModal(false); setRsActionMsg(''); }, 2000);
+                      } else {
+                        setRsActionMsg(`Sheet created but line failed: ${lineRes.error}`);
+                      }
+                    }}
+                  >
+                    + Create New Rate Sheet
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
     </>
   );
 }
@@ -1015,4 +1234,71 @@ const loadingText: CSSProperties = {
   fontSize: '0.8125rem',
   textAlign: 'center',
   padding: '24px 0',
+};
+
+const commercialDivider: CSSProperties = {
+  marginTop: 20,
+  paddingTop: 16,
+  borderTop: `1px solid ${FC.borderStrong}`,
+};
+
+const commercialBtn: CSSProperties = {
+  width: '100%',
+  padding: '9px 16px',
+  fontSize: '0.8125rem',
+  fontWeight: 600,
+  border: `1px solid rgba(139, 92, 246, 0.3)`,
+  borderRadius: 6,
+  background: 'rgba(139, 92, 246, 0.12)',
+  color: '#a78bfa',
+  cursor: 'pointer',
+};
+
+const rsModalBackdrop: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(0, 0, 0, 0.5)',
+  zIndex: DRAWER_Z + 5,
+};
+
+const rsModalPanel: CSSProperties = {
+  position: 'fixed',
+  top: '50%',
+  left: '50%',
+  transform: 'translate(-50%, -50%)',
+  width: 420,
+  maxHeight: '70vh',
+  overflowY: 'auto',
+  background: '#1a1d24',
+  border: `1px solid ${FC.borderStrong}`,
+  borderRadius: 12,
+  padding: 24,
+  zIndex: DRAWER_Z + 6,
+  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
+};
+
+const rsSheetBtn: CSSProperties = {
+  display: 'block',
+  width: '100%',
+  padding: '10px 14px',
+  fontSize: '0.8125rem',
+  color: FC.textPrimary,
+  background: FC.surface,
+  border: `1px solid ${FC.border}`,
+  borderRadius: 6,
+  cursor: 'pointer',
+  textAlign: 'left',
+  marginBottom: 6,
+};
+
+const rsCreateBtn: CSSProperties = {
+  width: '100%',
+  padding: '10px 14px',
+  fontSize: '0.8125rem',
+  fontWeight: 600,
+  color: FC.accentGreen,
+  background: FC.accentGreenDim,
+  border: `1px solid rgba(34, 197, 94, 0.3)`,
+  borderRadius: 6,
+  cursor: 'pointer',
 };
