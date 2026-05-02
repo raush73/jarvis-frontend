@@ -134,14 +134,24 @@ export default function CustomersPage() {
     };
   }, []);
 
+  /*
+   * Alpha-mode fetch intentionally bypasses normal pageSize and requests up to
+   * ALPHA_MODE_TAKE records.  Governance requires the full filtered-letter set
+   * to be rendered in a single scrollable container (see
+   * CUSTOMER_HUB_AND_DETAIL_SYSTEM.md — Phase 16B Alphabet Filter Architecture).
+   */
+  const ALPHA_MODE_TAKE = 1000;
+
   useEffect(() => {
     let alive = true;
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const skip = (page - 1) * pageSize;
-        const res = await fetchCustomersPage(skip, pageSize);
+        const isAlphaMode = !!alphaFilter;
+        const skip = isAlphaMode ? 0 : (page - 1) * pageSize;
+        const take = isAlphaMode ? ALPHA_MODE_TAKE : pageSize;
+        const res = await fetchCustomersPage(skip, take);
         if (!alive) return;
         setCustomers(Array.isArray(res.data) ? res.data : []);
         setTotalCount(res.meta?.total ?? 0);
@@ -279,37 +289,41 @@ export default function CustomersPage() {
           <option value="asc">Asc</option>
           <option value="desc">Desc</option>
         </select>
-        <select
-          value={pageSize}
-          onChange={(e) => {
-            setPageSize(Number(e.target.value));
-            setPage(1);
-          }}
-          className="control-select"
-        >
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-          <option value={100}>100</option>
-        </select>
-        <div className="pagination-controls">
-          <button
-            type="button"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            className="control-btn"
-          >
-            Prev
-          </button>
-          <span className="page-display">Page {page} of {totalPages}</span>
-          <button
-            type="button"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-            className="control-btn"
-          >
-            Next
-          </button>
-        </div>
+        {!alphaFilter && (
+          <>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+              className="control-select"
+            >
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+            <div className="pagination-controls">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="control-btn"
+              >
+                Prev
+              </button>
+              <span className="page-display">Page {page} of {totalPages}</span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="control-btn"
+              >
+                Next
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Alphabet Filter Strip */}
@@ -347,7 +361,53 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {!loading && customers.length > 0 && (
+      {!loading && customers.length > 0 && alphaFilter && (
+        <div className="alpha-result-card">
+          <div className="alpha-result-header">
+            <span className="alpha-result-title">Companies starting with {alphaFilter}</span>
+            <span className="alpha-result-count">{totalCount} {totalCount === 1 ? "result" : "results"}</span>
+          </div>
+          <div className="alpha-result-scroll">
+            <table className="customers-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Location</th>
+                  <th>Main Phone</th>
+                  <th>Customer Owner</th>
+                  <th>Last Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers.map((customer) => (
+                  <tr
+                    key={customer.id}
+                    onClick={() => router.push(`/customers/${customer.id}`)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <td>
+                      <div className="cell-primary">{customer.name}</div>
+                      {customer.websiteUrl ? (
+                        <div className="cell-sub">{customer.websiteUrl}</div>
+                      ) : null}
+                    </td>
+                    <td>{customer.locationCity && customer.locationState ? `${customer.locationCity}, ${customer.locationState}` : customer.locationCity ?? customer.locationState ?? "\u2014"}</td>
+                    <td>{customer.mainPhone ?? "\u2014"}</td>
+                    <td>
+                      {customer.registrySalesperson
+                        ? `${customer.registrySalesperson.firstName} ${customer.registrySalesperson.lastName}`
+                        : "\u2014"}
+                    </td>
+                    <td>{formatUpdatedAt(customer.updatedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {!loading && customers.length > 0 && !alphaFilter && (
         <div className="customers-table-wrap">
           <table className="customers-table">
             <thead>
@@ -366,7 +426,7 @@ export default function CustomersPage() {
 
                 return (
                   <Fragment key={customer.id}>
-                    {isFirstForBucket && !alphaFilter ? (
+                    {isFirstForBucket ? (
                       <tr id={azAnchorId(bucket)} className="az-anchor-row">
                         <td colSpan={5}>
                           <span className="az-anchor-label">{bucket}</span>
@@ -578,6 +638,42 @@ export default function CustomersPage() {
           font-size: 12.5px;
           color: #2563eb;
           font-weight: 600;
+        }
+
+        .alpha-result-card {
+          background: #ffffff;
+          border: 1px solid #bfdbfe;
+          border-radius: 12px;
+          overflow: hidden;
+        }
+
+        .alpha-result-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 14px 20px;
+          background: #eff6ff;
+          border-bottom: 1px solid #bfdbfe;
+        }
+
+        .alpha-result-title {
+          font-size: 14px;
+          font-weight: 700;
+          color: #1d4ed8;
+        }
+
+        .alpha-result-count {
+          font-size: 12px;
+          font-weight: 600;
+          color: #2563eb;
+          background: #dbeafe;
+          padding: 3px 10px;
+          border-radius: 12px;
+        }
+
+        .alpha-result-scroll {
+          max-height: 70vh;
+          overflow-y: auto;
         }
 
         .customers-table-wrap {
