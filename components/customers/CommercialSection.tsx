@@ -5,6 +5,9 @@ import { apiFetch } from '@/lib/api';
 import PricingSnapshotList from './PricingSnapshotList';
 import RateSheetList from './RateSheetList';
 import RateSheetDetail from './RateSheetDetail';
+import ExhibitAList from './ExhibitAList';
+import ExhibitADetail from './ExhibitADetail';
+import MsaList from './MsaList';
 
 interface Props {
   customerId: string;
@@ -17,6 +20,17 @@ export default function CommercialSection({ customerId }: Props) {
   const [createError, setCreateError] = useState('');
   const [creating, setCreating] = useState(false);
 
+  const [selectedEaId, setSelectedEaId] = useState<string | null>(null);
+  const [eaRefreshKey, setEaRefreshKey] = useState(0);
+  const [showCreateEa, setShowCreateEa] = useState(false);
+  const [createEaError, setCreateEaError] = useState('');
+  const [creatingEa, setCreatingEa] = useState(false);
+
+  const [msaRefreshKey, setMsaRefreshKey] = useState(0);
+  const [showCreateMsa, setShowCreateMsa] = useState(false);
+  const [createMsaError, setCreateMsaError] = useState('');
+  const [creatingMsa, setCreatingMsa] = useState(false);
+
   const [newRsTitle, setNewRsTitle] = useState('');
   const [newRsNotes, setNewRsNotes] = useState('');
   const [newRsExpiresAt, setNewRsExpiresAt] = useState(() => {
@@ -25,8 +39,28 @@ export default function CommercialSection({ customerId }: Props) {
     return d.toISOString().slice(0, 10);
   });
 
+  const [newEaTitle, setNewEaTitle] = useState('');
+  const [newEaProject, setNewEaProject] = useState('');
+  const [newEaSite, setNewEaSite] = useState('');
+  const [newEaNotes, setNewEaNotes] = useState('');
+  const [newEaExpiresAt, setNewEaExpiresAt] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 90);
+    return d.toISOString().slice(0, 10);
+  });
+
+  const [newMsaTitle, setNewMsaTitle] = useState('');
+  const [newMsaNotes, setNewMsaNotes] = useState('');
+  const [newMsaExpiresAt, setNewMsaExpiresAt] = useState('');
+
   const refreshList = useCallback(() => {
     setRsRefreshKey((k) => k + 1);
+  }, []);
+  const refreshEaList = useCallback(() => {
+    setEaRefreshKey((k) => k + 1);
+  }, []);
+  const refreshMsaList = useCallback(() => {
+    setMsaRefreshKey((k) => k + 1);
   }, []);
 
   const handleCreateRateSheet = async () => {
@@ -54,6 +88,60 @@ export default function CommercialSection({ customerId }: Props) {
     }
   };
 
+  const handleCreateExhibitA = async () => {
+    if (!newEaExpiresAt) return;
+    setCreatingEa(true);
+    setCreateEaError('');
+    try {
+      const ea = await apiFetch<{ id: string }>(`/commercial/customers/${customerId}/exhibit-as`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: newEaTitle.trim() || undefined,
+          projectName: newEaProject.trim() || undefined,
+          siteName: newEaSite.trim() || undefined,
+          notes: newEaNotes.trim() || undefined,
+          expiresAt: new Date(newEaExpiresAt).toISOString(),
+        }),
+      });
+      setShowCreateEa(false);
+      setNewEaTitle('');
+      setNewEaProject('');
+      setNewEaSite('');
+      setNewEaNotes('');
+      setSelectedEaId(ea.id);
+      refreshEaList();
+    } catch (e: any) {
+      setCreateEaError(e?.message ?? 'Failed to create Exhibit A');
+    } finally {
+      setCreatingEa(false);
+    }
+  };
+
+  const handleCreateMsa = async () => {
+    setCreatingMsa(true);
+    setCreateMsaError('');
+    try {
+      await apiFetch(`/commercial/customers/${customerId}/msas`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: newMsaTitle.trim() || undefined,
+          notes: newMsaNotes.trim() || undefined,
+          expiresAt: newMsaExpiresAt ? new Date(newMsaExpiresAt).toISOString() : undefined,
+        }),
+      });
+      setShowCreateMsa(false);
+      setNewMsaTitle('');
+      setNewMsaNotes('');
+      setNewMsaExpiresAt('');
+      refreshMsaList();
+    } catch (e: any) {
+      setCreateMsaError(e?.message ?? 'Failed to create MSA');
+    } finally {
+      setCreatingMsa(false);
+    }
+  };
+
+  // Detail drill-down views
   if (selectedRsId) {
     return (
       <RateSheetDetail
@@ -64,10 +152,31 @@ export default function CommercialSection({ customerId }: Props) {
     );
   }
 
+  if (selectedEaId) {
+    return (
+      <ExhibitADetail
+        exhibitAId={selectedEaId}
+        onBack={() => { setSelectedEaId(null); refreshEaList(); }}
+        onChanged={refreshEaList}
+      />
+    );
+  }
+
   return (
     <div style={{ color: '#111827' }}>
-      {/* Rate Sheets */}
+      {/* Exhibit As */}
       <div style={S.panel}>
+        <div style={S.panelHeader}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>Exhibit As</h2>
+          <button style={S.btnPrimarySmall} onClick={() => setShowCreateEa(true)}>
+            + New Exhibit A
+          </button>
+        </div>
+        <ExhibitAList customerId={customerId} onSelect={setSelectedEaId} refreshKey={eaRefreshKey} />
+      </div>
+
+      {/* Rate Sheets */}
+      <div style={{ ...S.panel, marginTop: 24 }}>
         <div style={S.panelHeader}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>Rate Sheets</h2>
           <button style={S.btnPrimarySmall} onClick={() => setShowCreateRs(true)}>
@@ -77,8 +186,19 @@ export default function CommercialSection({ customerId }: Props) {
         <RateSheetList customerId={customerId} onSelect={setSelectedRsId} refreshKey={rsRefreshKey} />
       </div>
 
+      {/* MSAs */}
+      <div style={{ ...S.panel, marginTop: 24 }}>
+        <div style={S.panelHeader}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>Master Service Agreements</h2>
+          <button style={S.btnPrimarySmall} onClick={() => setShowCreateMsa(true)}>
+            + New MSA
+          </button>
+        </div>
+        <MsaList customerId={customerId} refreshKey={msaRefreshKey} onCreateNew={() => setShowCreateMsa(true)} />
+      </div>
+
       {/* Pricing Snapshots */}
-      <div style={{ ...S.panel, marginTop: 28 }}>
+      <div style={{ ...S.panel, marginTop: 24 }}>
         <div style={S.panelHeader}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>Pricing Snapshots</h2>
           <span style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', padding: '2px 8px', border: '1px solid #e5e7eb', borderRadius: 4 }}>Internal Only</span>
@@ -113,6 +233,82 @@ export default function CommercialSection({ customerId }: Props) {
               <button style={S.btnSecondary} onClick={() => setShowCreateRs(false)}>Cancel</button>
               <button style={{ ...S.btnPrimary, opacity: (!newRsExpiresAt || creating) ? 0.5 : 1 }} disabled={!newRsExpiresAt || creating} onClick={handleCreateRateSheet}>
                 {creating ? 'Creating...' : 'Create Rate Sheet'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Exhibit A Modal */}
+      {showCreateEa && (
+        <div style={S.overlay} onClick={() => setShowCreateEa(false)}>
+          <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={S.modalHeader}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>New Exhibit A</h3>
+              <button style={S.modalClose} onClick={() => setShowCreateEa(false)}>×</button>
+            </div>
+            <div style={S.modalBody}>
+              {createEaError && <div style={S.error}>{createEaError}</div>}
+              <div style={S.formRow}>
+                <label style={S.formLabel}>Title (optional)</label>
+                <input style={S.formInput} value={newEaTitle} onChange={(e) => setNewEaTitle(e.target.value)} placeholder="e.g., Refinery Turnaround Q3" />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Project Name</label>
+                  <input style={S.formInput} value={newEaProject} onChange={(e) => setNewEaProject(e.target.value)} placeholder="e.g., Unit 5 Overhaul" />
+                </div>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Site Name</label>
+                  <input style={S.formInput} value={newEaSite} onChange={(e) => setNewEaSite(e.target.value)} placeholder="e.g., Houston Refinery" />
+                </div>
+              </div>
+              <div style={S.formRow}>
+                <label style={S.formLabel}>Valid Until *</label>
+                <input style={S.formInput} type="date" value={newEaExpiresAt} onChange={(e) => setNewEaExpiresAt(e.target.value)} />
+              </div>
+              <div style={S.formRow}>
+                <label style={S.formLabel}>Notes</label>
+                <textarea style={{ ...S.formInput, resize: 'vertical' as const, fontFamily: 'inherit' }} rows={2} value={newEaNotes} onChange={(e) => setNewEaNotes(e.target.value)} placeholder="Optional notes" />
+              </div>
+            </div>
+            <div style={S.modalFooter}>
+              <button style={S.btnSecondary} onClick={() => setShowCreateEa(false)}>Cancel</button>
+              <button style={{ ...S.btnPrimary, opacity: (!newEaExpiresAt || creatingEa) ? 0.5 : 1 }} disabled={!newEaExpiresAt || creatingEa} onClick={handleCreateExhibitA}>
+                {creatingEa ? 'Creating...' : 'Create Exhibit A'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create MSA Modal */}
+      {showCreateMsa && (
+        <div style={S.overlay} onClick={() => setShowCreateMsa(false)}>
+          <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={S.modalHeader}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>New Master Service Agreement</h3>
+              <button style={S.modalClose} onClick={() => setShowCreateMsa(false)}>×</button>
+            </div>
+            <div style={S.modalBody}>
+              {createMsaError && <div style={S.error}>{createMsaError}</div>}
+              <div style={S.formRow}>
+                <label style={S.formLabel}>Title (optional)</label>
+                <input style={S.formInput} value={newMsaTitle} onChange={(e) => setNewMsaTitle(e.target.value)} placeholder="e.g., Master Agreement 2026" />
+              </div>
+              <div style={S.formRow}>
+                <label style={S.formLabel}>Expires (optional)</label>
+                <input style={S.formInput} type="date" value={newMsaExpiresAt} onChange={(e) => setNewMsaExpiresAt(e.target.value)} />
+              </div>
+              <div style={S.formRow}>
+                <label style={S.formLabel}>Notes</label>
+                <textarea style={{ ...S.formInput, resize: 'vertical' as const, fontFamily: 'inherit' }} rows={2} value={newMsaNotes} onChange={(e) => setNewMsaNotes(e.target.value)} placeholder="Optional notes" />
+              </div>
+            </div>
+            <div style={S.modalFooter}>
+              <button style={S.btnSecondary} onClick={() => setShowCreateMsa(false)}>Cancel</button>
+              <button style={{ ...S.btnPrimary, opacity: creatingMsa ? 0.5 : 1 }} disabled={creatingMsa} onClick={handleCreateMsa}>
+                {creatingMsa ? 'Creating...' : 'Create MSA'}
               </button>
             </div>
           </div>
