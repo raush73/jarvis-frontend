@@ -10,6 +10,9 @@ interface ExhibitALine {
   tradeCode: string;
   tradeName: string;
   state: string | null;
+  costType: string | null;
+  baseWage: number | null;
+  fringeAmount: number | null;
   basePayRate: number | null;
   baseBillRate: number | null;
   otPayRate: number | null;
@@ -96,6 +99,7 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
   const [showAddLine, setShowAddLine] = useState(false);
+  const [editingLineId, setEditingLineId] = useState<string | null>(null);
   const [showEditMeta, setShowEditMeta] = useState(false);
   const [showApproval, setShowApproval] = useState(false);
   const [showImportRs, setShowImportRs] = useState(false);
@@ -115,7 +119,10 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
   // Calculator-driven line builder state
   const [calcTradeId, setCalcTradeId] = useState('');
   const [calcState, setCalcState] = useState('');
+  const [calcCostType, setCalcCostType] = useState<'standard' | 'ocip' | 'prevailing' | 'prevailing-ocip'>('standard');
   const [calcPayRate, setCalcPayRate] = useState('');
+  const [calcBaseWage, setCalcBaseWage] = useState('');
+  const [calcFringe, setCalcFringe] = useState('');
   const [calcPerDiem, setCalcPerDiem] = useState('');
   const [calcNotes, setCalcNotes] = useState('');
   const [burdenResult, setBurdenResult] = useState<BurdenResult | null>(null);
@@ -228,21 +235,54 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
 
   /* ───── Calculator-driven line builder ───── */
   const resetCalc = () => {
-    setCalcTradeId(''); setCalcState(''); setCalcPayRate(''); setCalcPerDiem(''); setCalcNotes('');
+    setEditingLineId(null);
+    setCalcTradeId(''); setCalcState(''); setCalcCostType('standard'); setCalcPayRate(''); setCalcBaseWage(''); setCalcFringe('');
+    setCalcPerDiem(''); setCalcNotes('');
     setBurdenResult(null); setSellingResult(null); setBurdenError('');
     setSelectedPresetId(''); setCmMarginPct(''); setCpProfitHr('');
     setSellingTab('presets');
   };
 
-  const canCalcBurden = calcTradeId && calcState && parseFloat(calcPayRate) > 0;
+  const openEditLine = (line: ExhibitALine) => {
+    resetCalc();
+    setEditingLineId(line.id);
+    const ct = (line.costType as any) || 'standard';
+    setCalcCostType(ct);
+    const trade = trades.find(t => t.name === line.tradeName || t.id === (line as any).tradeId);
+    setCalcTradeId(trade?.id ?? '');
+    setCalcState(line.state ?? '');
+    const pwMode = ct === 'prevailing' || ct === 'prevailing-ocip';
+    if (pwMode) {
+      setCalcBaseWage(line.baseWage != null ? String(line.baseWage) : '');
+      setCalcFringe(line.fringeAmount != null ? String(line.fringeAmount) : '');
+    } else {
+      setCalcPayRate(line.basePayRate != null ? String(line.basePayRate) : '');
+    }
+    setCalcPerDiem(line.perDiem != null ? String(line.perDiem) : '');
+    setCalcNotes(line.notes ?? '');
+    setShowAddLine(true);
+  };
+
+  const isPw = calcCostType === 'prevailing' || calcCostType === 'prevailing-ocip';
+  const canCalcBurden = calcTradeId && calcState && (isPw ? parseFloat(calcBaseWage) > 0 : parseFloat(calcPayRate) > 0);
 
   const handleCalcBurden = async () => {
     if (!canCalcBurden) return;
     setBurdenLoading(true); setBurdenError(''); setSellingResult(null); setSelectedPresetId('');
     try {
+      const body: Record<string, unknown> = { stateCode: calcState, tradeId: calcTradeId };
+      if (isPw) {
+        body.baseWage = parseFloat(calcBaseWage);
+        body.fringeAmount = parseFloat(calcFringe) || 0;
+      } else {
+        body.payRate = parseFloat(calcPayRate);
+      }
+      if (calcCostType === 'ocip' || calcCostType === 'prevailing-ocip') {
+        body.isOsep = true;
+      }
       const res = await apiFetch<BurdenResult>('/friday/calculator/burden-preview', {
         method: 'POST',
-        body: JSON.stringify({ stateCode: calcState, tradeId: calcTradeId, payRate: parseFloat(calcPayRate) }),
+        body: JSON.stringify(body),
       });
       setBurdenResult(res);
       // Auto-compute selling presets
@@ -299,6 +339,7 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
         tradeCode: trade?.name ?? calcTradeId,
         tradeName: trade?.name ?? calcTradeId,
         state: calcState,
+        costType: calcCostType,
         basePayRate: burdenResult.payRate,
         baseBillRate: selling.regSellRate,
         otPayRate: burdenResult.otCost,
@@ -308,12 +349,20 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
         burdenPct: burdenResult.totalBurdenPercent,
         markupPct: burdenResult.regCost > 0 ? ((selling.regSellRate - burdenResult.regCost) / burdenResult.regCost * 100) : 0,
       };
+      if (isPw) {
+        body.baseWage = parseFloat(calcBaseWage);
+        body.fringeAmount = parseFloat(calcFringe) || 0;
+      }
       if (calcPerDiem) body.perDiem = parseFloat(calcPerDiem);
       if (calcNotes) body.notes = calcNotes;
-      await apiFetch(`/commercial/exhibit-as/${exhibitAId}/lines`, { method: 'POST', body: JSON.stringify(body) });
+      if (editingLineId) {
+        await apiFetch(`/commercial/exhibit-as/${exhibitAId}/lines/${editingLineId}`, { method: 'PATCH', body: JSON.stringify(body) });
+      } else {
+        await apiFetch(`/commercial/exhibit-as/${exhibitAId}/lines`, { method: 'POST', body: JSON.stringify(body) });
+      }
       setShowAddLine(false); resetCalc();
       await loadEa(); onChanged?.();
-    } catch (e: any) { setActionError(e?.message ?? 'Failed to add line'); }
+    } catch (e: any) { setActionError(e?.message ?? `Failed to ${editingLineId ? 'update' : 'add'} line`); }
     finally { setActionLoading(false); }
   };
 
@@ -355,6 +404,15 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
   const fmtRate = (v: number | null) => v != null ? `$${Number(v).toFixed(2)}` : '—';
   const fmtPct = (v: number | null) => v != null ? `${Number(v).toFixed(1)}%` : '—';
   const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+  const fmtMargin = (line: ExhibitALine): string => {
+    const bill = line.baseBillRate != null ? Number(line.baseBillRate) : null;
+    const markup = line.markupPct != null ? Number(line.markupPct) : null;
+    if (bill == null || bill === 0 || markup == null) return '—';
+    const cost = bill / (1 + markup / 100);
+    const margin = ((bill - cost) / bill) * 100;
+    return `${margin.toFixed(1)}%`;
+  };
+  const COST_TYPE_LABELS: Record<string, string> = { standard: 'Standard', ocip: 'OCIP', prevailing: 'Prev. Wage', 'prevailing-ocip': 'PW + OCIP' };
 
   if (loading) return <div style={S.loading}>Loading Exhibit A...</div>;
   if (error) return <div style={S.error}>{error}<br /><button style={S.linkBtn} onClick={onBack}>Back</button></div>;
@@ -443,41 +501,48 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
           <div style={{ padding: '28px 0', textAlign: 'center', color: '#9ca3af', fontSize: 14, fontStyle: 'italic' }}>
             No labor categories defined. {isDraft ? 'Add lines using the calculator or import from a Rate Sheet.' : ''}
           </div>
-        ) : (
-          <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 8 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr>
-                  {['Trade / Category', 'State', 'Reg Bill', 'OT Bill', 'DT Bill', 'Per Diem', 'Burden%', 'Markup%'].concat(isDraft ? [''] : []).map(h => (
-                    <th key={h} style={S.th}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {ea.lines.map((line) => (
-                  <tr key={line.id}>
-                    <td style={{ ...S.td, fontWeight: 600, color: '#111827' }}>
-                      {line.tradeName || line.tradeCode}
-                      {line.notes && <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginTop: 1 }}>{line.notes}</div>}
-                    </td>
-                    <td style={S.td}>{line.state ?? '—'}</td>
-                    <td style={S.tdNum}>{fmtRate(line.baseBillRate)}</td>
-                    <td style={S.tdNum}>{fmtRate(line.otBillRate)}</td>
-                    <td style={S.tdNum}>{fmtRate(line.dtBillRate)}</td>
-                    <td style={S.tdNum}>{fmtRate(line.perDiem)}</td>
-                    <td style={S.tdNum}>{fmtPct(line.burdenPct)}</td>
-                    <td style={S.tdNum}>{fmtPct(line.markupPct)}</td>
-                    {isDraft && (
-                      <td style={S.td}>
-                        <button style={{ ...S.linkBtn, color: '#dc2626', fontSize: 12 }} disabled={actionLoading} onClick={() => handleRemoveLine(line.id)}>Remove</button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        ) : (() => {
+            const showBasis = ea.lines.some(l => l.costType && l.costType !== 'standard');
+            const headers = ['Trade / Category', 'State', ...(showBasis ? ['Basis'] : []), 'Base Pay', 'Reg Bill', 'OT Bill', 'DT Bill', 'Per Diem', 'Margin%'].concat(isDraft ? [''] : []);
+            return (
+              <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 8 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead><tr>{headers.map(h => {
+                    const leftCols = ['Trade / Category', 'State', 'Basis', ''];
+                    return <th key={h} style={leftCols.includes(h) ? S.thLeft : S.th}>{h}</th>;
+                  })}</tr></thead>
+                  <tbody>
+                    {ea.lines.map((line) => (
+                      <tr key={line.id}>
+                        <td style={{ ...S.td, fontWeight: 600, color: '#111827' }}>
+                          {line.tradeName || line.tradeCode}
+                          {line.notes && <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginTop: 1 }}>{line.notes}</div>}
+                        </td>
+                        <td style={S.td}>{line.state ?? '—'}</td>
+                        {showBasis && <td style={S.tdCenter}>{COST_TYPE_LABELS[line.costType ?? 'standard'] ?? 'Standard'}</td>}
+                        <td style={S.tdNum}>
+                          {(line.costType === 'prevailing' || line.costType === 'prevailing-ocip') && line.baseWage != null
+                            ? <><span>{fmtRate(line.baseWage)}</span><span style={{ fontSize: 10, color: '#6b7280' }}>{` +${fmtRate(line.fringeAmount ?? 0)}`}</span></>
+                            : fmtRate(line.basePayRate)}
+                        </td>
+                        <td style={S.tdNum}>{fmtRate(line.baseBillRate)}</td>
+                        <td style={S.tdNum}>{fmtRate(line.otBillRate)}</td>
+                        <td style={S.tdNum}>{fmtRate(line.dtBillRate)}</td>
+                        <td style={S.tdNum}>{fmtRate(line.perDiem)}</td>
+                        <td style={S.tdNum}>{fmtMargin(line)}</td>
+                        {isDraft && (
+                          <td style={{ ...S.td, whiteSpace: 'nowrap' }}>
+                            <button style={{ ...S.linkBtn, fontSize: 12, marginRight: 8 }} disabled={actionLoading} onClick={() => openEditLine(line)}>Edit</button>
+                            <button style={{ ...S.linkBtn, color: '#dc2626', fontSize: 12 }} disabled={actionLoading} onClick={() => handleRemoveLine(line.id)}>Remove</button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
       </div>
 
       {/* Commercial Terms */}
@@ -567,12 +632,12 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
       {showAddLine && (
         <div style={S.overlay} onClick={() => setShowAddLine(false)}>
           <div style={{ ...S.modal, maxWidth: 720 }} onClick={e => e.stopPropagation()}>
-            <div style={S.modalHeader}><h3 style={S.modalTitle}>Add Labor Category — Calculator-Driven Pricing</h3><button style={S.modalClose} onClick={() => setShowAddLine(false)}>×</button></div>
+            <div style={S.modalHeader}><h3 style={S.modalTitle}>{editingLineId ? 'Edit Labor Category — Calculator-Driven Pricing' : 'Add Labor Category — Calculator-Driven Pricing'}</h3><button style={S.modalClose} onClick={() => setShowAddLine(false)}>×</button></div>
             <div style={{ ...S.modalBody, maxHeight: '70vh', overflowY: 'auto' }}>
 
-              {/* Step 1: Trade + State + Pay Rate */}
-              <div style={S.editSectionLabel}>1. Select Trade, State & Pay Rate</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+              {/* Step 1: Trade + State + Cost Type + Wage Inputs */}
+              <div style={S.editSectionLabel}>1. Select Trade, State & Cost Type</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div style={S.formRow}>
                   <label style={S.formLabel}>Trade *</label>
                   <select style={S.formInput} value={calcTradeId} onChange={e => { setCalcTradeId(e.target.value); setBurdenResult(null); setSellingResult(null); }}>
@@ -587,10 +652,50 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
                     {STATES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
-                <div style={S.formRow}>
-                  <label style={S.formLabel}>Pay Rate ($/hr) *</label>
-                  <input style={S.formInput} type="number" step="0.01" min="0" value={calcPayRate} onChange={e => { setCalcPayRate(e.target.value); setBurdenResult(null); setSellingResult(null); }} placeholder="0.00" />
+              </div>
+
+              {/* Cost Type Selector */}
+              <div style={{ marginTop: 10 }}>
+                <label style={S.formLabel}>Cost Type *</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, marginTop: 4 }}>
+                  {([
+                    { val: 'standard', label: 'Standard' },
+                    { val: 'ocip', label: 'OCIP' },
+                    { val: 'prevailing', label: 'Prevailing Wage' },
+                    { val: 'prevailing-ocip', label: 'PW + OCIP' },
+                  ] as const).map(ct => (
+                    <button key={ct.val} type="button" onClick={() => { setCalcCostType(ct.val); setBurdenResult(null); setSellingResult(null); }}
+                      style={{
+                        padding: '8px 6px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
+                        border: calcCostType === ct.val ? '2px solid #2563eb' : '1px solid #d1d5db',
+                        background: calcCostType === ct.val ? '#eff6ff' : '#fff',
+                        color: calcCostType === ct.val ? '#1d4ed8' : '#374151',
+                      }}>
+                      {ct.label}
+                    </button>
+                  ))}
                 </div>
+              </div>
+
+              {/* Wage Inputs - conditional on cost type */}
+              <div style={{ display: 'grid', gridTemplateColumns: isPw ? '1fr 1fr' : '1fr', gap: 12, marginTop: 10 }}>
+                {isPw ? (
+                  <>
+                    <div style={S.formRow}>
+                      <label style={S.formLabel}>Base Wage ($/hr) *</label>
+                      <input style={S.formInput} type="number" step="0.01" min="0" value={calcBaseWage} onChange={e => { setCalcBaseWage(e.target.value); setBurdenResult(null); setSellingResult(null); }} placeholder="0.00" />
+                    </div>
+                    <div style={S.formRow}>
+                      <label style={S.formLabel}>Fringe Amount ($/hr)</label>
+                      <input style={S.formInput} type="number" step="0.01" min="0" value={calcFringe} onChange={e => { setCalcFringe(e.target.value); setBurdenResult(null); setSellingResult(null); }} placeholder="0.00" />
+                    </div>
+                  </>
+                ) : (
+                  <div style={S.formRow}>
+                    <label style={S.formLabel}>Pay Rate ($/hr) *</label>
+                    <input style={S.formInput} type="number" step="0.01" min="0" value={calcPayRate} onChange={e => { setCalcPayRate(e.target.value); setBurdenResult(null); setSellingResult(null); }} placeholder="0.00" />
+                  </div>
+                )}
               </div>
               <button
                 style={{ ...S.btnPrimary, marginTop: 8, opacity: canCalcBurden && !burdenLoading ? 1 : 0.5 }}
@@ -603,7 +708,7 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
               {/* Step 2: Burden Results */}
               {burdenResult && (
                 <>
-                  <div style={{ ...S.editSectionLabel, marginTop: 16 }}>2. Burden & Cost Results</div>
+                  <div style={{ ...S.editSectionLabel, marginTop: 16 }}>2. Burden & Cost Results <span style={{ fontWeight: 400, color: '#6b7280', textTransform: 'none' as const }}>({COST_TYPE_LABELS[calcCostType] ?? 'Standard'})</span></div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
                     <div style={S.calcCard}><span style={S.calcCardLabel}>Total Burden</span><span style={S.calcCardValue}>{burdenResult.totalBurdenPercent.toFixed(1)}%</span></div>
                     <div style={S.calcCard}><span style={S.calcCardLabel}>REG Cost</span><span style={S.calcCardValue}>${burdenResult.regCost.toFixed(2)}</span></div>
@@ -713,7 +818,7 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
                 style={{ ...S.btnPrimary, opacity: getSelectedSelling() && !actionLoading ? 1 : 0.5 }}
                 disabled={!getSelectedSelling() || actionLoading}
                 onClick={handleAddCalcLine}>
-                {actionLoading ? 'Adding...' : 'Freeze & Add Labor Category'}
+                {actionLoading ? 'Saving...' : editingLineId ? 'Save Labor Category' : 'Freeze & Add Labor Category'}
               </button>
             </div>
           </div>
@@ -801,8 +906,10 @@ const S = {
   fieldGroup: { display: 'flex' as const, flexDirection: 'column' as const, gap: 2 },
   fieldLabel: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#6b7280' } as React.CSSProperties,
   fieldValue: { fontSize: 14, color: '#111827', fontWeight: 500 } as React.CSSProperties,
-  th: { textAlign: 'left' as const, padding: '10px 8px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#6b7280', borderBottom: '2px solid #e5e7eb', background: '#f9fafb' },
+  th: { padding: '10px 8px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#6b7280', borderBottom: '2px solid #e5e7eb', background: '#f9fafb', textAlign: 'right' as const, whiteSpace: 'nowrap' as const } as React.CSSProperties,
+  thLeft: { padding: '10px 8px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#6b7280', borderBottom: '2px solid #e5e7eb', background: '#f9fafb', textAlign: 'left' as const } as React.CSSProperties,
   td: { padding: '9px 8px', borderBottom: '1px solid #f3f4f6', color: '#374151', fontSize: 13 },
+  tdCenter: { padding: '9px 8px', borderBottom: '1px solid #f3f4f6', color: '#374151', fontSize: 11, fontWeight: 600, textAlign: 'center' as const } as React.CSSProperties,
   tdNum: { padding: '9px 8px', borderBottom: '1px solid #f3f4f6', color: '#111827', fontSize: 13, fontVariantNumeric: 'tabular-nums' as const, textAlign: 'right' as const },
   btnPrimary: { padding: '7px 16px', fontSize: 13, fontWeight: 600, color: '#fff', background: '#2563eb', border: 'none', borderRadius: 6, cursor: 'pointer' } as React.CSSProperties,
   btnSecondary: { padding: '7px 16px', fontSize: 13, fontWeight: 500, color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer' } as React.CSSProperties,
