@@ -399,7 +399,27 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
     finally { setActionLoading(false); }
   };
 
-  const handlePdf = () => { window.open(`/api/commercial/exhibit-as/${exhibitAId}/pdf`, '_blank'); };
+  const handlePdf = async () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('jp_accessToken') : null;
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/commercial/exhibit-as/${exhibitAId}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`PDF download failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${ea?.exhibitANumber ?? 'exhibit-a'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setActionError(e?.message ?? 'PDF download failed');
+    }
+  };
 
   const fmtRate = (v: number | null) => v != null ? `$${Number(v).toFixed(2)}` : '—';
   const fmtPct = (v: number | null) => v != null ? `${Number(v).toFixed(1)}%` : '—';

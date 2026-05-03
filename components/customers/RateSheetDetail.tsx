@@ -185,11 +185,26 @@ export default function RateSheetDetail({ rateSheetId, onBack, onChanged }: Prop
     }
   };
 
-  const handlePdf = () => {
+  const handlePdf = async () => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('jp_accessToken') : null;
     if (!token) return;
-    const url = `/api/commercial/rate-sheets/${rateSheetId}/pdf`;
-    window.open(url, '_blank');
+    try {
+      const res = await fetch(`/api/commercial/rate-sheets/${rateSheetId}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`PDF download failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${rs?.rateSheetNumber ?? 'rate-sheet'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setActionError(e?.message ?? 'PDF download failed');
+    }
   };
 
   const fmtRate = (v: number | null) => v != null ? `$${Number(v).toFixed(2)}` : '—';
