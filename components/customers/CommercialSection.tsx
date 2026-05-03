@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/api';
 import PricingSnapshotList from './PricingSnapshotList';
 import RateSheetList from './RateSheetList';
@@ -8,6 +8,8 @@ import RateSheetDetail from './RateSheetDetail';
 import ExhibitAList from './ExhibitAList';
 import ExhibitADetail from './ExhibitADetail';
 import MsaList from './MsaList';
+
+interface ContactOption { id: string; firstName: string; lastName: string; email: string | null; officePhone: string | null; cellPhone: string | null; jobTitle: string | null }
 
 interface Props {
   customerId: string;
@@ -42,16 +44,34 @@ export default function CommercialSection({ customerId }: Props) {
   const [newEaTitle, setNewEaTitle] = useState('');
   const [newEaProject, setNewEaProject] = useState('');
   const [newEaSite, setNewEaSite] = useState('');
+  const [newEaSiteAddress, setNewEaSiteAddress] = useState('');
   const [newEaNotes, setNewEaNotes] = useState('');
+  const [newEaContactId, setNewEaContactId] = useState('');
+  const [newEaContactName, setNewEaContactName] = useState('');
+  const [newEaContactPhone, setNewEaContactPhone] = useState('');
+  const [newEaContactEmail, setNewEaContactEmail] = useState('');
+  const [newEaEffectiveDate, setNewEaEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [newEaExpiresAt, setNewEaExpiresAt] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 90);
     return d.toISOString().slice(0, 10);
   });
 
+  const [contacts, setContacts] = useState<ContactOption[]>([]);
+
   const [newMsaTitle, setNewMsaTitle] = useState('');
   const [newMsaNotes, setNewMsaNotes] = useState('');
   const [newMsaExpiresAt, setNewMsaExpiresAt] = useState('');
+
+  // Load contacts
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiFetch<ContactOption[]>(`/customer-contacts/customer/${customerId}`);
+        setContacts(data.filter(c => (c as any).isActive !== false));
+      } catch { /* ignore */ }
+    })();
+  }, [customerId]);
 
   const refreshList = useCallback(() => {
     setRsRefreshKey((k) => k + 1);
@@ -99,7 +119,13 @@ export default function CommercialSection({ customerId }: Props) {
           title: newEaTitle.trim() || undefined,
           projectName: newEaProject.trim() || undefined,
           siteName: newEaSite.trim() || undefined,
+          siteAddress: newEaSiteAddress.trim() || undefined,
           notes: newEaNotes.trim() || undefined,
+          customerContactId: newEaContactId || undefined,
+          customerContactName: newEaContactName.trim() || undefined,
+          customerContactPhone: newEaContactPhone.trim() || undefined,
+          customerContactEmail: newEaContactEmail.trim() || undefined,
+          effectiveDate: newEaEffectiveDate ? new Date(newEaEffectiveDate).toISOString() : undefined,
           expiresAt: new Date(newEaExpiresAt).toISOString(),
         }),
       });
@@ -107,7 +133,12 @@ export default function CommercialSection({ customerId }: Props) {
       setNewEaTitle('');
       setNewEaProject('');
       setNewEaSite('');
+      setNewEaSiteAddress('');
       setNewEaNotes('');
+      setNewEaContactId('');
+      setNewEaContactName('');
+      setNewEaContactPhone('');
+      setNewEaContactEmail('');
       setSelectedEaId(ea.id);
       refreshEaList();
     } catch (e: any) {
@@ -156,6 +187,7 @@ export default function CommercialSection({ customerId }: Props) {
     return (
       <ExhibitADetail
         exhibitAId={selectedEaId}
+        customerId={customerId}
         onBack={() => { setSelectedEaId(null); refreshEaList(); }}
         onChanged={refreshEaList}
       />
@@ -242,17 +274,31 @@ export default function CommercialSection({ customerId }: Props) {
       {/* Create Exhibit A Modal */}
       {showCreateEa && (
         <div style={S.overlay} onClick={() => setShowCreateEa(false)}>
-          <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+          <div style={{ ...S.modal, maxWidth: 600 }} onClick={(e) => e.stopPropagation()}>
             <div style={S.modalHeader}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>New Exhibit A</h3>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>New Exhibit A — Staffing Rate & Scope Agreement</h3>
               <button style={S.modalClose} onClick={() => setShowCreateEa(false)}>×</button>
             </div>
-            <div style={S.modalBody}>
+            <div style={{ ...S.modalBody, maxHeight: '65vh', overflowY: 'auto' }}>
               {createEaError && <div style={S.error}>{createEaError}</div>}
+
+              <div style={S.editSectionLabel}>Agreement</div>
               <div style={S.formRow}>
-                <label style={S.formLabel}>Title (optional)</label>
-                <input style={S.formInput} value={newEaTitle} onChange={(e) => setNewEaTitle(e.target.value)} placeholder="e.g., Refinery Turnaround Q3" />
+                <label style={S.formLabel}>Title / Description</label>
+                <input style={S.formInput} value={newEaTitle} onChange={(e) => setNewEaTitle(e.target.value)} placeholder="e.g., Refinery Turnaround Q3 2026" />
               </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Effective Date</label>
+                  <input style={S.formInput} type="date" value={newEaEffectiveDate} onChange={(e) => setNewEaEffectiveDate(e.target.value)} />
+                </div>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Expiration Date *</label>
+                  <input style={S.formInput} type="date" value={newEaExpiresAt} onChange={(e) => setNewEaExpiresAt(e.target.value)} />
+                </div>
+              </div>
+
+              <div style={S.editSectionLabel}>Project / Site</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div style={S.formRow}>
                   <label style={S.formLabel}>Project Name</label>
@@ -264,13 +310,50 @@ export default function CommercialSection({ customerId }: Props) {
                 </div>
               </div>
               <div style={S.formRow}>
-                <label style={S.formLabel}>Valid Until *</label>
-                <input style={S.formInput} type="date" value={newEaExpiresAt} onChange={(e) => setNewEaExpiresAt(e.target.value)} />
+                <label style={S.formLabel}>Site Address</label>
+                <input style={S.formInput} value={newEaSiteAddress} onChange={(e) => setNewEaSiteAddress(e.target.value)} placeholder="Full street address" />
               </div>
+
+              <div style={S.editSectionLabel}>Customer Contact</div>
+              {contacts.length > 0 && (
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Select from Customer Contacts</label>
+                  <select style={S.formInput} value={newEaContactId} onChange={(e) => {
+                    const c = contacts.find(x => x.id === e.target.value);
+                    setNewEaContactId(e.target.value);
+                    if (c) {
+                      setNewEaContactName(`${c.firstName} ${c.lastName}`.trim());
+                      setNewEaContactPhone(c.officePhone || c.cellPhone || '');
+                      setNewEaContactEmail(c.email || '');
+                    }
+                  }}>
+                    <option value="">— Manual entry —</option>
+                    {contacts.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}{c.jobTitle ? ` (${c.jobTitle})` : ''}</option>)}
+                  </select>
+                </div>
+              )}
+              <div style={S.formRow}>
+                <label style={S.formLabel}>Contact Name</label>
+                <input style={S.formInput} value={newEaContactName} onChange={(e) => setNewEaContactName(e.target.value)} placeholder="e.g., John Smith" />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Phone</label>
+                  <input style={S.formInput} value={newEaContactPhone} onChange={(e) => setNewEaContactPhone(e.target.value)} placeholder="(555) 123-4567" />
+                </div>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Email</label>
+                  <input style={S.formInput} type="email" value={newEaContactEmail} onChange={(e) => setNewEaContactEmail(e.target.value)} placeholder="contact@company.com" />
+                </div>
+              </div>
+
               <div style={S.formRow}>
                 <label style={S.formLabel}>Notes</label>
                 <textarea style={{ ...S.formInput, resize: 'vertical' as const, fontFamily: 'inherit' }} rows={2} value={newEaNotes} onChange={(e) => setNewEaNotes(e.target.value)} placeholder="Optional notes" />
               </div>
+              <p style={{ margin: '4px 0 0', fontSize: 11, color: '#9ca3af' }}>
+                Commercial terms, labor categories, and rates can be added after creation.
+              </p>
             </div>
             <div style={S.modalFooter}>
               <button style={S.btnSecondary} onClick={() => setShowCreateEa(false)}>Cancel</button>
@@ -334,4 +417,8 @@ const S = {
   formRow: { display: 'flex' as const, flexDirection: 'column' as const, gap: 4 },
   formLabel: { fontSize: 12, fontWeight: 600, color: '#374151' } as React.CSSProperties,
   formInput: { padding: '7px 10px', fontSize: 13, color: '#111827', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, outline: 'none' } as React.CSSProperties,
+  editSectionLabel: {
+    fontSize: 12, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase' as const, letterSpacing: '0.8px',
+    borderBottom: '1px solid #dbeafe', paddingBottom: 4, marginTop: 8,
+  } as React.CSSProperties,
 };
