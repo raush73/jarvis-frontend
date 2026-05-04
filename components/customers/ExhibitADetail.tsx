@@ -52,6 +52,13 @@ interface ExhibitA {
   shiftDifferentialNotes: string | null;
   reportingRequirements: string | null;
   specialConditions: string | null;
+  paymentTermsPolicy: string | null;
+  invoiceCadencePolicy: string | null;
+  perDiemCadence: string | null;
+  lodgingResponsibility: string | null;
+  ppeResponsibility: string | null;
+  toolResponsibility: string | null;
+  travelTermsPolicy: string | null;
   approvalMethod: string | null;
   approvalNote: string | null;
   approvedAt: string | null;
@@ -90,6 +97,60 @@ const HEALTH_COLORS: Record<string, { color: string; bg: string }> = {
   GREEN: { color: '#16a34a', bg: '#dcfce7' },
   YELLOW: { color: '#d97706', bg: '#fef3c7' },
   RED: { color: '#dc2626', bg: '#fee2e2' },
+};
+
+const PAYMENT_TERMS_OPTIONS = [
+  { value: 'NET_10', label: 'Net 10' },
+  { value: 'NET_15', label: 'Net 15' },
+  { value: 'NET_30', label: 'Net 30' },
+  { value: 'NET_45', label: 'Net 45' },
+  { value: 'NET_60', label: 'Net 60' },
+] as const;
+
+const INVOICE_CADENCE_OPTIONS = [
+  { value: 'WEEKLY', label: 'Weekly' },
+  { value: 'BI_WEEKLY', label: 'Bi-Weekly' },
+  { value: 'MONTHLY', label: 'Monthly' },
+] as const;
+
+const PER_DIEM_CADENCE_OPTIONS = [
+  { value: 'DAYS_WORKED', label: 'Days Worked' },
+  { value: 'SEVEN_DAYS_PER_WEEK', label: 'Seven Days Per Week' },
+] as const;
+
+const LODGING_OPTIONS = [
+  { value: 'EMPLOYEE_RESPONSIBLE', label: 'Employee Responsible' },
+  { value: 'CUSTOMER_PROVIDED', label: 'Customer Provided' },
+  { value: 'MW4H_PROVIDED', label: 'MW4H Provided' },
+] as const;
+
+const PPE_RESPONSIBILITY_OPTIONS = [
+  { value: 'MW4H_STANDARD', label: 'MW4H Standard PPE' },
+  { value: 'CUSTOMER_REQUIRED', label: 'Customer Required PPE List' },
+  { value: 'CUSTOMER_PROVIDED', label: 'Customer Provided PPE' },
+] as const;
+
+const TOOL_RESPONSIBILITY_OPTIONS = [
+  { value: 'MW4H_STANDARD', label: 'MW4H Standard Tool List' },
+  { value: 'CUSTOMER_REQUIRED', label: 'Customer Required Tool List' },
+  { value: 'CUSTOMER_PROVIDED', label: 'Customer Provided Tools' },
+] as const;
+
+const TRAVEL_TERMS_OPTIONS = [
+  { value: 'NO_TRAVEL_PAY', label: 'No Travel Pay' },
+  { value: 'CUSTOMER_PROVIDED_TRAVEL_PAY', label: 'Customer Provided Travel Pay' },
+  { value: 'MW4H_PROVIDED_TRAVEL_PAY', label: 'MW4H Provided Travel Pay' },
+  { value: 'SEE_TRAVEL_NOTES', label: 'See Travel Notes' },
+] as const;
+
+const DROPDOWN_LABEL_MAP: Record<string, string> = {
+  ...Object.fromEntries(PAYMENT_TERMS_OPTIONS.map(o => [o.value, o.label])),
+  ...Object.fromEntries(INVOICE_CADENCE_OPTIONS.map(o => [o.value, o.label])),
+  ...Object.fromEntries(PER_DIEM_CADENCE_OPTIONS.map(o => [o.value, o.label])),
+  ...Object.fromEntries(LODGING_OPTIONS.map(o => [o.value, o.label])),
+  ...Object.fromEntries(PPE_RESPONSIBILITY_OPTIONS.map(o => [o.value, o.label])),
+  ...Object.fromEntries(TOOL_RESPONSIBILITY_OPTIONS.map(o => [o.value, o.label])),
+  ...Object.fromEntries(TRAVEL_TERMS_OPTIONS.map(o => [o.value, o.label])),
 };
 
 export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChanged }: Props) {
@@ -188,7 +249,8 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
     const f: Record<string, string> = {};
     const keys = ['title','projectName','siteName','siteAddress','notes','customerContactName','customerContactEmail','customerContactPhone',
       'invoicingTerms','paymentTerms','overtimeRules','perDiemRules','travelAssumptions','ppeAssumptions','safetyRequirements',
-      'prevailingWageNotes','shiftDifferentialNotes','reportingRequirements','specialConditions'];
+      'prevailingWageNotes','shiftDifferentialNotes','reportingRequirements','specialConditions',
+      'paymentTermsPolicy','invoiceCadencePolicy','perDiemCadence','lodgingResponsibility','ppeResponsibility','toolResponsibility','travelTermsPolicy'];
     for (const k of keys) f[k] = (ea as any)[k] ?? '';
     f.expiresAt = ea.expiresAt ? ea.expiresAt.slice(0, 10) : '';
     f.effectiveDate = ea.effectiveDate ? ea.effectiveDate.slice(0, 10) : '';
@@ -218,7 +280,8 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
       const body: Record<string, any> = {};
       const stringFields = ['title','projectName','siteName','siteAddress','notes','customerContactName','customerContactEmail','customerContactPhone',
         'invoicingTerms','paymentTerms','overtimeRules','perDiemRules','travelAssumptions','ppeAssumptions','safetyRequirements',
-        'prevailingWageNotes','shiftDifferentialNotes','reportingRequirements','specialConditions'];
+        'prevailingWageNotes','shiftDifferentialNotes','reportingRequirements','specialConditions',
+        'paymentTermsPolicy','invoiceCadencePolicy','perDiemCadence','lodgingResponsibility','ppeResponsibility','toolResponsibility','travelTermsPolicy'];
       for (const f of stringFields) {
         const cur = (ea as any)?.[f] ?? '';
         if (editForm[f] !== cur) body[f] = editForm[f] || null;
@@ -421,6 +484,46 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
     }
   };
 
+  const handleInlineDropdownSave = async (field: string, value: string) => {
+    if (!ea || ea.status !== 'DRAFT') return;
+    const prev = (ea as any)[field];
+    setEa({ ...ea, [field]: value || null } as ExhibitA);
+    setActionLoading(true); setActionError('');
+    try {
+      await apiFetch(`/commercial/exhibit-as/${exhibitAId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ [field]: value || null }),
+      });
+      onChanged?.();
+    } catch (e: any) {
+      setEa({ ...ea, [field]: prev } as ExhibitA);
+      setActionError(e?.message ?? 'Failed to update');
+    } finally { setActionLoading(false); }
+  };
+
+  const [travelNotesLocal, setTravelNotesLocal] = useState(ea?.travelAssumptions ?? '');
+  useEffect(() => { setTravelNotesLocal(ea?.travelAssumptions ?? ''); }, [ea?.travelAssumptions]);
+
+  const handleTravelNotesBlur = async () => {
+    if (!ea || ea.status !== 'DRAFT') return;
+    const trimmed = travelNotesLocal.trim() || null;
+    if (trimmed === (ea.travelAssumptions ?? null)) return;
+    const prev = ea.travelAssumptions;
+    setEa({ ...ea, travelAssumptions: trimmed } as ExhibitA);
+    setActionLoading(true); setActionError('');
+    try {
+      await apiFetch(`/commercial/exhibit-as/${exhibitAId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ travelAssumptions: trimmed }),
+      });
+      onChanged?.();
+    } catch (e: any) {
+      setEa({ ...ea, travelAssumptions: prev } as ExhibitA);
+      setTravelNotesLocal(prev ?? '');
+      setActionError(e?.message ?? 'Failed to update');
+    } finally { setActionLoading(false); }
+  };
+
   const fmtRate = (v: number | null) => v != null ? `$${Number(v).toFixed(2)}` : '—';
   const fmtPct = (v: number | null) => v != null ? `${Number(v).toFixed(1)}%` : '—';
   const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
@@ -565,28 +668,206 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
           })()}
       </div>
 
-      {/* Commercial Terms */}
+      {/* 5. COMMERCIAL TERMS & CONDITIONS */}
       <div style={S.sectionCard}>
         <h4 style={S.sectionTitle}>Commercial Terms & Conditions</h4>
-        {hasAnyTerms ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
-            {commercialTerms.map(([label, value]) => value ? (
-              <div key={label} style={S.fieldGroup}><span style={S.fieldLabel}>{label}</span><span style={{ ...S.fieldValue, whiteSpace: 'pre-wrap' }}>{value}</span></div>
-            ) : null)}
+
+        {/* 5A. MW4H Responsibilities */}
+        <div style={S.subsectionBlock}>
+          <div style={S.subsectionTitle}>MW4H Responsibilities</div>
+          <p style={S.proseText}>
+            MW4H shall be responsible for employee wages, payroll processing and handling, state unemployment insurance (SUI), federal unemployment insurance (FUTA), Social Security and Medicare employer obligations, and workers&apos; compensation coverage
+            {ea.lines.some(l => l.costType === 'ocip' || l.costType === 'prevailing-ocip')
+              ? ' (except where Owner-Controlled Insurance Program applies)'
+              : ''}
+            .
+          </p>
+        </div>
+
+        {/* 5B. Customer Responsibilities */}
+        <div style={S.subsectionBlock}>
+          <div style={S.subsectionTitle}>Customer Responsibilities</div>
+          <div style={S.proseText}>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {ea.safetyRequirements && <li>Site-specific safety requirements and instructions as provided by Customer.</li>}
+              {!ea.safetyRequirements && <li>Customer shall communicate any site-specific safety requirements prior to work commencement.</li>}
+              <li>Weekly toolbox safety meetings where applicable.</li>
+              {ea.reportingRequirements
+                ? <li>Time reporting and approval per Customer requirements.</li>
+                : <li>Timely review and approval of submitted time reports.</li>}
+              {ea.ppeResponsibility === 'CUSTOMER_REQUIRED' && <li>Customer shall provide required PPE list prior to mobilization.</li>}
+              {ea.ppeResponsibility === 'CUSTOMER_PROVIDED' && <li>Customer shall furnish all required PPE to MW4H personnel on-site.</li>}
+              {ea.toolResponsibility === 'CUSTOMER_REQUIRED' && <li>Customer shall provide required tool list prior to mobilization.</li>}
+              {ea.toolResponsibility === 'CUSTOMER_PROVIDED' && <li>Customer shall furnish all required tools and equipment to MW4H personnel on-site.</li>}
+            </ul>
           </div>
-        ) : (
-          <div style={{ color: '#9ca3af', fontSize: 13, fontStyle: 'italic' }}>
-            {isDraft ? 'Click Edit Details to add commercial terms.' : 'Standard MW4H terms apply.'}
+        </div>
+
+        {/* 5C. Commercial Term Controls */}
+        <div style={S.subsectionBlock}>
+          <div style={S.subsectionTitle}>Commercial Terms</div>
+          {isDraft ? (<>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px 20px' }}>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Payment Terms</span>
+                <select style={S.inlineSelect} value={ea.paymentTermsPolicy ?? ''} disabled={actionLoading}
+                  onChange={e => handleInlineDropdownSave('paymentTermsPolicy', e.target.value)}>
+                  <option value="">— Select —</option>
+                  {PAYMENT_TERMS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Invoice Cadence</span>
+                <select style={S.inlineSelect} value={ea.invoiceCadencePolicy ?? ''} disabled={actionLoading}
+                  onChange={e => handleInlineDropdownSave('invoiceCadencePolicy', e.target.value)}>
+                  <option value="">— Select —</option>
+                  {INVOICE_CADENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Late Fees</span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: '#6b7280', fontStyle: 'italic', paddingTop: 6 }}>Per Master Services Agreement</span>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Lodging Responsibility</span>
+                <select style={S.inlineSelect} value={ea.lodgingResponsibility ?? ''} disabled={actionLoading}
+                  onChange={e => handleInlineDropdownSave('lodgingResponsibility', e.target.value)}>
+                  <option value="">— Select —</option>
+                  {LODGING_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>PPE Responsibility</span>
+                <select style={S.inlineSelect} value={ea.ppeResponsibility ?? ''} disabled={actionLoading}
+                  onChange={e => handleInlineDropdownSave('ppeResponsibility', e.target.value)}>
+                  <option value="">— Select —</option>
+                  {PPE_RESPONSIBILITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Tool Responsibility</span>
+                <select style={S.inlineSelect} value={ea.toolResponsibility ?? ''} disabled={actionLoading}
+                  onChange={e => handleInlineDropdownSave('toolResponsibility', e.target.value)}>
+                  <option value="">— Select —</option>
+                  {TOOL_RESPONSIBILITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Travel Terms</span>
+                <select style={S.inlineSelect} value={ea.travelTermsPolicy ?? ''} disabled={actionLoading}
+                  onChange={e => handleInlineDropdownSave('travelTermsPolicy', e.target.value)}>
+                  <option value="">— Select —</option>
+                  {TRAVEL_TERMS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Per Diem Cadence</span>
+                <select style={S.inlineSelect} value={ea.perDiemCadence ?? ''} disabled={actionLoading}
+                  onChange={e => handleInlineDropdownSave('perDiemCadence', e.target.value)}>
+                  <option value="">— Select —</option>
+                  {PER_DIEM_CADENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                {(() => {
+                  const perDiems = ea.lines.map(l => l.perDiem != null ? Number(l.perDiem) : null).filter((v): v is number => v !== null);
+                  if (perDiems.length === 0) return null;
+                  const allSame = perDiems.every(v => v === perDiems[0]);
+                  return <span style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{allSame ? `Line per diem: $${perDiems[0].toFixed(2)}/day` : 'Per diem amounts vary by labor category line.'}</span>;
+                })()}
+              </div>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <span style={S.fieldLabel}>Travel Notes</span>
+              <textarea style={{ ...S.inlineSelect, minHeight: 48, resize: 'vertical', fontFamily: 'inherit', fontSize: 13, padding: '6px 8px' }}
+                value={travelNotesLocal} disabled={actionLoading} placeholder="e.g., mileage reimbursement, mobilization/demob, special travel instructions"
+                onChange={e => setTravelNotesLocal(e.target.value)} onBlur={handleTravelNotesBlur} />
+            </div>
+          </>) : (<>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px 20px' }}>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Payment Terms</span>
+                <span style={S.fieldValue}>
+                  {ea.paymentTermsPolicy ? DROPDOWN_LABEL_MAP[ea.paymentTermsPolicy] || ea.paymentTermsPolicy : ea.paymentTerms || '—'}
+                </span>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Invoice Cadence</span>
+                <span style={S.fieldValue}>
+                  {ea.invoiceCadencePolicy ? DROPDOWN_LABEL_MAP[ea.invoiceCadencePolicy] || ea.invoiceCadencePolicy : ea.invoicingTerms || '—'}
+                </span>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Late Fees</span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: '#6b7280', fontStyle: 'italic' }}>Per Master Services Agreement</span>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Lodging Responsibility</span>
+                <span style={S.fieldValue}>{ea.lodgingResponsibility ? DROPDOWN_LABEL_MAP[ea.lodgingResponsibility] || ea.lodgingResponsibility : '—'}</span>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>PPE Responsibility</span>
+                <span style={S.fieldValue}>{ea.ppeResponsibility ? DROPDOWN_LABEL_MAP[ea.ppeResponsibility] || ea.ppeResponsibility : ea.ppeAssumptions || '—'}</span>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Tool Responsibility</span>
+                <span style={S.fieldValue}>{ea.toolResponsibility ? DROPDOWN_LABEL_MAP[ea.toolResponsibility] || ea.toolResponsibility : '—'}</span>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Travel Terms</span>
+                <span style={S.fieldValue}>{ea.travelTermsPolicy ? DROPDOWN_LABEL_MAP[ea.travelTermsPolicy] || ea.travelTermsPolicy : ea.travelAssumptions || '—'}</span>
+              </div>
+              <div style={S.fieldGroup}>
+                <span style={S.fieldLabel}>Per Diem Cadence</span>
+                <span style={S.fieldValue}>
+                  {ea.perDiemCadence ? DROPDOWN_LABEL_MAP[ea.perDiemCadence] || ea.perDiemCadence : ea.perDiemRules || '—'}
+                </span>
+                {(() => {
+                  const perDiems = ea.lines.map(l => l.perDiem != null ? Number(l.perDiem) : null).filter((v): v is number => v !== null);
+                  if (perDiems.length === 0) return null;
+                  const allSame = perDiems.every(v => v === perDiems[0]);
+                  return <span style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{allSame ? `Line per diem: $${perDiems[0].toFixed(2)}/day` : 'Per diem amounts vary by labor category line.'}</span>;
+                })()}
+              </div>
+            </div>
+            {ea.travelAssumptions && (
+              <div style={{ marginTop: 10 }}>
+                <span style={S.fieldLabel}>Travel Notes</span>
+                <span style={{ ...S.fieldValue, whiteSpace: 'pre-wrap' }}>{ea.travelAssumptions}</span>
+              </div>
+            )}
+          </>)}
+        </div>
+
+        {/* 5D. Additional / Legacy Notes */}
+        {(() => {
+          const legacyNotes: [string, string | null][] = [
+            ['Overtime / Double-Time Rules', ea.overtimeRules],
+          ];
+          const filled = legacyNotes.filter(([, v]) => !!v);
+          if (filled.length === 0) return null;
+          return (
+            <div style={{ ...S.subsectionBlock, background: '#fff', borderStyle: 'dashed' }}>
+              <div style={{ ...S.subsectionTitle, color: '#6b7280' }}>Additional / Legacy Notes</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px' }}>
+                {filled.map(([label, value]) => (
+                  <div key={label} style={S.fieldGroup}>
+                    <span style={S.fieldLabel}>{label}</span>
+                    <span style={{ ...S.fieldValue, whiteSpace: 'pre-wrap', fontSize: 13, color: '#374151', fontWeight: 400 }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* 5E. Special Conditions / Additional Notes */}
+        {(ea.specialConditions || ea.notes) && (
+          <div style={S.subsectionBlock}>
+            <div style={S.subsectionTitle}>Special Conditions / Additional Notes</div>
+            {ea.specialConditions && <p style={S.proseText}>{ea.specialConditions}</p>}
+            {ea.notes && <p style={{ ...S.proseText, marginTop: ea.specialConditions ? 8 : 0 }}>{ea.notes}</p>}
           </div>
         )}
       </div>
-
-      {ea.notes && (
-        <div style={S.sectionCard}>
-          <h4 style={S.sectionTitle}>Additional Notes</h4>
-          <p style={{ margin: 0, fontSize: 13, color: '#374151', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{ea.notes}</p>
-        </div>
-      )}
 
       {/* Action Bar */}
       <div style={{ display: 'flex', gap: 8, marginTop: 20, flexWrap: 'wrap' }}>
@@ -881,17 +1162,79 @@ export default function ExhibitADetail({ exhibitAId, customerId, onBack, onChang
                 <div style={S.formRow}><label style={S.formLabel}>Email</label><input style={S.formInput} type="email" value={editForm.customerContactEmail} onChange={e => setEditForm({ ...editForm, customerContactEmail: e.target.value })} /></div>
               </div>
 
-              <div style={S.editSectionLabel}>Commercial Terms</div>
+              <div style={S.editSectionLabel}>Commercial Terms — Controlled</div>
               <div style={S.formRow2}>
-                <div style={S.formRow}><label style={S.formLabel}>Invoicing Terms</label><input style={S.formInput} value={editForm.invoicingTerms} onChange={e => setEditForm({ ...editForm, invoicingTerms: e.target.value })} placeholder="e.g., Weekly invoicing" /></div>
-                <div style={S.formRow}><label style={S.formLabel}>Payment Terms</label><input style={S.formInput} value={editForm.paymentTerms} onChange={e => setEditForm({ ...editForm, paymentTerms: e.target.value })} placeholder="e.g., Net 30" /></div>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Payment Terms</label>
+                  <select style={S.formInput} value={editForm.paymentTermsPolicy} onChange={e => setEditForm({ ...editForm, paymentTermsPolicy: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {PAYMENT_TERMS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Invoice Cadence</label>
+                  <select style={S.formInput} value={editForm.invoiceCadencePolicy} onChange={e => setEditForm({ ...editForm, invoiceCadencePolicy: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {INVOICE_CADENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={S.formRow2}>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Per Diem Cadence</label>
+                  <select style={S.formInput} value={editForm.perDiemCadence} onChange={e => setEditForm({ ...editForm, perDiemCadence: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {PER_DIEM_CADENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Lodging Responsibility</label>
+                  <select style={S.formInput} value={editForm.lodgingResponsibility} onChange={e => setEditForm({ ...editForm, lodgingResponsibility: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {LODGING_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={S.formRow2}>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>PPE Responsibility</label>
+                  <select style={S.formInput} value={editForm.ppeResponsibility} onChange={e => setEditForm({ ...editForm, ppeResponsibility: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {PPE_RESPONSIBILITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Tool Responsibility</label>
+                  <select style={S.formInput} value={editForm.toolResponsibility} onChange={e => setEditForm({ ...editForm, toolResponsibility: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {TOOL_RESPONSIBILITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={S.formRow2}>
+                <div style={S.formRow}>
+                  <label style={S.formLabel}>Travel Terms</label>
+                  <select style={S.formInput} value={editForm.travelTermsPolicy} onChange={e => setEditForm({ ...editForm, travelTermsPolicy: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {TRAVEL_TERMS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div style={{ ...S.formRow, justifyContent: 'center' }}>
+                  <span style={{ fontSize: 12, color: '#6b7280', fontStyle: 'italic', paddingTop: 22 }}>Late fees per Master Services Agreement</span>
+                </div>
+              </div>
+
+              <div style={S.editSectionLabel}>Additional Terms — Freeform</div>
+              <div style={S.formRow2}>
+                <div style={S.formRow}><label style={S.formLabel}>Payment Terms Notes</label><input style={S.formInput} value={editForm.paymentTerms} onChange={e => setEditForm({ ...editForm, paymentTerms: e.target.value })} placeholder="Additional payment details" /></div>
+                <div style={S.formRow}><label style={S.formLabel}>Invoicing Notes</label><input style={S.formInput} value={editForm.invoicingTerms} onChange={e => setEditForm({ ...editForm, invoicingTerms: e.target.value })} placeholder="Additional invoicing details" /></div>
               </div>
               <div style={S.formRow}><label style={S.formLabel}>Overtime / Double-Time Rules</label><textarea style={S.formTextarea} rows={2} value={editForm.overtimeRules} onChange={e => setEditForm({ ...editForm, overtimeRules: e.target.value })} placeholder="e.g., OT after 40hrs/week" /></div>
-              <div style={S.formRow}><label style={S.formLabel}>Per Diem Policy</label><textarea style={S.formTextarea} rows={2} value={editForm.perDiemRules} onChange={e => setEditForm({ ...editForm, perDiemRules: e.target.value })} /></div>
+              <div style={S.formRow}><label style={S.formLabel}>Per Diem Notes</label><textarea style={S.formTextarea} rows={2} value={editForm.perDiemRules} onChange={e => setEditForm({ ...editForm, perDiemRules: e.target.value })} placeholder="Additional per diem details" /></div>
               <div style={S.formRow}><label style={S.formLabel}>Shift Differential</label><input style={S.formInput} value={editForm.shiftDifferentialNotes} onChange={e => setEditForm({ ...editForm, shiftDifferentialNotes: e.target.value })} /></div>
               <div style={S.formRow2}>
-                <div style={S.formRow}><label style={S.formLabel}>Travel Assumptions</label><input style={S.formInput} value={editForm.travelAssumptions} onChange={e => setEditForm({ ...editForm, travelAssumptions: e.target.value })} /></div>
-                <div style={S.formRow}><label style={S.formLabel}>PPE / Tool Provisions</label><input style={S.formInput} value={editForm.ppeAssumptions} onChange={e => setEditForm({ ...editForm, ppeAssumptions: e.target.value })} /></div>
+                <div style={S.formRow}><label style={S.formLabel}>Travel Notes</label><input style={S.formInput} value={editForm.travelAssumptions} onChange={e => setEditForm({ ...editForm, travelAssumptions: e.target.value })} placeholder="Additional travel details" /></div>
+                <div style={S.formRow}><label style={S.formLabel}>PPE / Tool Notes</label><input style={S.formInput} value={editForm.ppeAssumptions} onChange={e => setEditForm({ ...editForm, ppeAssumptions: e.target.value })} placeholder="Additional PPE/tool details" /></div>
               </div>
               <div style={S.formRow}><label style={S.formLabel}>Safety Requirements</label><textarea style={S.formTextarea} rows={2} value={editForm.safetyRequirements} onChange={e => setEditForm({ ...editForm, safetyRequirements: e.target.value })} /></div>
               <div style={S.formRow}><label style={S.formLabel}>Reporting Requirements</label><input style={S.formInput} value={editForm.reportingRequirements} onChange={e => setEditForm({ ...editForm, reportingRequirements: e.target.value })} /></div>
@@ -950,4 +1293,8 @@ const S = {
   calcCard: { background: '#f0f4fa', border: '1px solid #dbeafe', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 2 } as React.CSSProperties,
   calcCardLabel: { fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: '0.5px' } as React.CSSProperties,
   calcCardValue: { fontSize: 16, fontWeight: 700, color: '#111827' } as React.CSSProperties,
+  inlineSelect: { padding: '5px 8px', fontSize: 13, color: '#111827', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, outline: 'none', fontWeight: 500, cursor: 'pointer', maxWidth: '100%' } as React.CSSProperties,
+  subsectionBlock: { marginTop: 14, padding: '12px 16px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8 } as React.CSSProperties,
+  subsectionTitle: { fontSize: 12, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: 8 } as React.CSSProperties,
+  proseText: { margin: 0, fontSize: 13, color: '#374151', lineHeight: 1.6 } as React.CSSProperties,
 };
