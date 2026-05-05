@@ -13,6 +13,16 @@ interface MsaVersionSummary {
   generatedBy: { id: string; fullName: string | null; email: string } | null;
 }
 
+interface MsaDocumentSummary {
+  id: string;
+  documentRole: string;
+  originalFilename: string;
+  mimeType: string;
+  uploadedAt: string;
+  notes: string | null;
+  uploadedBy: { id: string; fullName: string | null; email: string } | null;
+}
+
 interface MsaFull {
   id: string;
   msaNumber: string | null;
@@ -28,6 +38,9 @@ interface MsaFull {
   expiresAt: string | null;
   sentAt: string | null;
   signedAt: string | null;
+  sentToEmail: string | null;
+  sendNotes: string | null;
+  countersignedAt: string | null;
   reviewDueAt: string | null;
   lastReviewedAt: string | null;
   reviewCadenceMonths: number | null;
@@ -38,6 +51,7 @@ interface MsaFull {
   customer: { id: string; name: string };
   createdBy: { id: string; fullName: string | null; email: string } | null;
   approvedBy: { id: string; fullName: string | null; email: string } | null;
+  sentBy: { id: string; fullName: string | null; email: string } | null;
   exhibitAs: Array<{
     id: string;
     exhibitANumber: string | null;
@@ -45,6 +59,7 @@ interface MsaFull {
     status: string;
     createdAt: string;
   }>;
+  documents: MsaDocumentSummary[];
 }
 
 interface Props {
@@ -80,6 +95,27 @@ const AGREEMENT_TYPE_OPTIONS = [
   { value: 'CUSTOMER_PROVIDED', label: 'Customer Provided' },
 ];
 
+const ROLE_LABELS: Record<string, string> = {
+  CUSTOMER_SOURCE: 'Customer Source',
+  CUSTOMER_SIGNED: 'Customer Signed',
+  MW4H_COUNTERSIGNED: 'MW4H Countersigned',
+  SUPPORTING_ATTACHMENT: 'Attachment',
+};
+
+const ROLE_BADGE_STYLES: Record<string, { color: string; background: string }> = {
+  CUSTOMER_SOURCE: { color: '#6b21a8', background: '#f3e8ff' },
+  CUSTOMER_SIGNED: { color: '#16a34a', background: '#f0fdf4' },
+  MW4H_COUNTERSIGNED: { color: '#1e40af', background: '#dbeafe' },
+  SUPPORTING_ATTACHMENT: { color: '#6b7280', background: '#f3f4f6' },
+};
+
+const UPLOAD_ROLE_OPTIONS = [
+  { value: 'CUSTOMER_SOURCE', label: 'Customer Source Agreement' },
+  { value: 'CUSTOMER_SIGNED', label: 'Customer Signed Copy' },
+  { value: 'MW4H_COUNTERSIGNED', label: 'MW4H Countersigned Copy' },
+  { value: 'SUPPORTING_ATTACHMENT', label: 'Supporting Attachment' },
+];
+
 export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
   const [msa, setMsa] = useState<MsaFull | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,6 +124,8 @@ export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
   const [versions, setVersions] = useState<MsaVersionSummary[]>([]);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
+  const [showUpload, setShowUpload] = useState(false);
+  const [showSend, setShowSend] = useState(false);
 
   const loadMsa = useCallback(async () => {
     setLoading(true);
@@ -144,6 +182,36 @@ export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadDocument = async (docId: string, filename: string) => {
+    const token = getAccessToken();
+    const res = await fetch(`${API_BASE}/commercial/msa-documents/${docId}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleApprove = async () => {
+    try {
+      await apiFetch(`/commercial/msas/${msaId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      await loadMsa();
+      onChanged?.();
+    } catch (e: any) {
+      alert(e?.message ?? 'Failed to approve');
+    }
   };
 
   if (loading) return <div style={{ padding: 32, textAlign: 'center', color: '#6b7280' }}>Loading MSA...</div>;
@@ -212,7 +280,7 @@ export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
           <div style={{ marginTop: 12, padding: '10px 14px', background: '#f3e8ff', border: '1px solid #e9d5ff', borderRadius: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#6b21a8' }}>Customer-Provided Agreement</span>
             <p style={{ margin: '4px 0 0', fontSize: 12, color: '#7c3aed' }}>
-              Upload and lifecycle management will be available in a future phase.
+              Upload the customer&apos;s agreement using the Documents section below.
             </p>
           </div>
         )}
@@ -318,6 +386,123 @@ export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Agreement Documents */}
+      <div style={S.section}>
+        <div style={S.sectionHeader}>
+          <h3 style={S.sectionTitle}>Agreement Documents</h3>
+          <button style={S.btnSecondarySmall} onClick={() => setShowUpload(true)}>Upload Document</button>
+        </div>
+        {msa.documents.length === 0 ? (
+          <p style={{ color: '#9ca3af', fontSize: 13, fontStyle: 'italic', margin: '8px 0 0' }}>
+            No documents uploaded yet.
+          </p>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 8 }}>
+            <thead>
+              <tr>
+                {['Role', 'Filename', 'Uploaded', 'By', ''].map(h => (
+                  <th key={h} style={S.th}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {msa.documents.map(doc => (
+                <tr key={doc.id}>
+                  <td style={S.td}>
+                    <span style={{ ...S.badge, ...ROLE_BADGE_STYLES[doc.documentRole] }}>
+                      {ROLE_LABELS[doc.documentRole] ?? doc.documentRole}
+                    </span>
+                  </td>
+                  <td style={{ ...S.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {doc.originalFilename}
+                  </td>
+                  <td style={{ ...S.td, color: '#6b7280' }}>
+                    {new Date(doc.uploadedAt).toLocaleDateString('en-US')}
+                  </td>
+                  <td style={{ ...S.td, color: '#6b7280' }}>
+                    {doc.uploadedBy?.fullName ?? doc.uploadedBy?.email ?? '—'}
+                  </td>
+                  <td style={S.td}>
+                    <button
+                      style={S.btnSecondarySmall}
+                      onClick={() => handleDownloadDocument(doc.id, doc.originalFilename)}
+                    >
+                      Download
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Send Actions */}
+      <div style={S.section}>
+        <div style={S.sectionHeader}>
+          <h3 style={S.sectionTitle}>Send Agreement</h3>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {!msa.approvedAt && (msa.agreementType === 'MW4H_MODIFIED' || msa.agreementType === 'CUSTOMER_PROVIDED') && (
+              <button style={{ ...S.btnSecondarySmall, color: '#16a34a', borderColor: '#86efac' }} onClick={handleApprove}>
+                Approve
+              </button>
+            )}
+            <button
+              style={{ ...S.btnPrimary, opacity: (msa.status === 'EXPIRED' || msa.status === 'SUPERSEDED') ? 0.4 : 1 }}
+              disabled={msa.status === 'EXPIRED' || msa.status === 'SUPERSEDED'}
+              onClick={() => setShowSend(true)}
+            >
+              Send Agreement
+            </button>
+          </div>
+        </div>
+        {msa.sentAt && (
+          <div style={{ marginTop: 4, fontSize: 13, color: '#374151' }}>
+            <span style={S.fieldLabel}>Last Sent</span>
+            <p style={{ margin: '4px 0 0' }}>
+              {new Date(msa.sentAt).toLocaleDateString('en-US')}
+              {msa.sentBy && ` by ${msa.sentBy.fullName ?? msa.sentBy.email}`}
+              {msa.sentToEmail && ` to ${msa.sentToEmail}`}
+            </p>
+            {msa.sendNotes && (
+              <p style={{ margin: '4px 0 0', color: '#6b7280', fontStyle: 'italic' }}>{msa.sendNotes}</p>
+            )}
+          </div>
+        )}
+        {msa.countersignedAt && (
+          <div style={{ marginTop: 8, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#166534' }}>COUNTERSIGNED</span>
+            <span style={{ fontSize: 12, color: '#15803d', marginLeft: 8 }}>
+              {new Date(msa.countersignedAt).toLocaleDateString('en-US')}
+            </span>
+          </div>
+        )}
+        {!msa.approvedAt && (msa.agreementType === 'MW4H_MODIFIED' || msa.agreementType === 'CUSTOMER_PROVIDED') && (
+          <p style={{ margin: '8px 0 0', fontSize: 12, color: '#d97706' }}>
+            This agreement type requires approval before it can be sent.
+          </p>
+        )}
+      </div>
+
+      {/* Upload Modal */}
+      {showUpload && (
+        <UploadDocumentModal
+          msaId={msa.id}
+          agreementType={msa.agreementType}
+          onClose={() => setShowUpload(false)}
+          onUploaded={() => { setShowUpload(false); loadMsa(); onChanged?.(); }}
+        />
+      )}
+
+      {/* Send Modal */}
+      {showSend && (
+        <SendMsaModal
+          msaId={msa.id}
+          onClose={() => setShowSend(false)}
+          onSent={() => { setShowSend(false); loadMsa(); onChanged?.(); }}
+        />
       )}
 
       {/* Edit Modal */}
@@ -497,6 +682,188 @@ function EditMsaModal({ msa, onClose, onSaved }: EditModalProps) {
           <button style={S.btnSecondary} onClick={onClose}>Cancel</button>
           <button style={{ ...S.btnPrimary, opacity: saving ? 0.5 : 1 }} disabled={saving} onClick={handleSave}>
             {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ——— Upload Modal ———
+
+function UploadDocumentModal({ msaId, agreementType, onClose, onUploaded }: {
+  msaId: string;
+  agreementType: string | null;
+  onClose: () => void;
+  onUploaded: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [documentRole, setDocumentRole] = useState(
+    agreementType === 'CUSTOMER_PROVIDED' ? 'CUSTOMER_SOURCE' : 'CUSTOMER_SIGNED'
+  );
+  const [notes, setNotes] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleUpload = async () => {
+    if (!file) return;
+    setUploading(true);
+    setError('');
+    try {
+      const token = getAccessToken();
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('documentRole', documentRole);
+      if (notes.trim()) formData.append('notes', notes.trim());
+
+      const res = await fetch(`${API_BASE}/commercial/msas/${msaId}/documents`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `Upload failed (${res.status})`);
+      }
+      onUploaded();
+    } catch (e: any) {
+      setError(e?.message ?? 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div style={S.overlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div style={S.modalHeader}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Upload Document</h3>
+          <button style={S.modalClose} onClick={onClose}>×</button>
+        </div>
+        <div style={S.modalBody}>
+          {error && <div style={S.error}>{error}</div>}
+          <div style={S.formRow}>
+            <label style={S.formLabel}>Document Role</label>
+            <select style={S.formInput} value={documentRole} onChange={e => setDocumentRole(e.target.value)}>
+              {UPLOAD_ROLE_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          <div style={S.formRow}>
+            <label style={S.formLabel}>File (PDF or DOCX)</label>
+            <input
+              type="file"
+              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={e => setFile(e.target.files?.[0] ?? null)}
+              style={{ fontSize: 13 }}
+            />
+          </div>
+          <div style={S.formRow}>
+            <label style={S.formLabel}>Notes (optional)</label>
+            <input style={S.formInput} value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g., Received via email 5/5" />
+          </div>
+        </div>
+        <div style={S.modalFooter}>
+          <button style={S.btnSecondary} onClick={onClose}>Cancel</button>
+          <button
+            style={{ ...S.btnPrimary, opacity: (!file || uploading) ? 0.5 : 1 }}
+            disabled={!file || uploading}
+            onClick={handleUpload}
+          >
+            {uploading ? 'Uploading...' : 'Upload'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ——— Send Modal ———
+
+function SendMsaModal({ msaId, onClose, onSent }: {
+  msaId: string;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [ccEmail, setCcEmail] = useState('');
+  const [notes, setNotes] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSend = async () => {
+    if (!recipientEmail.trim()) return;
+    setSending(true);
+    setError('');
+    try {
+      await apiFetch(`/commercial/msas/${msaId}/send`, {
+        method: 'POST',
+        body: JSON.stringify({
+          recipientEmail: recipientEmail.trim(),
+          ccEmail: ccEmail.trim() || undefined,
+          notes: notes.trim() || undefined,
+        }),
+      });
+      onSent();
+    } catch (e: any) {
+      setError(e?.message ?? 'Send failed');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div style={S.overlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div style={S.modalHeader}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Send Agreement</h3>
+          <button style={S.modalClose} onClick={onClose}>×</button>
+        </div>
+        <div style={S.modalBody}>
+          {error && <div style={S.error}>{error}</div>}
+          <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>
+            This will mark the MSA as SENT and record the send details. Attach the latest generated PDF when emailing.
+          </p>
+          <div style={S.formRow}>
+            <label style={S.formLabel}>Recipient Email *</label>
+            <input
+              style={S.formInput}
+              type="email"
+              value={recipientEmail}
+              onChange={e => setRecipientEmail(e.target.value)}
+              placeholder="client@company.com"
+            />
+          </div>
+          <div style={S.formRow}>
+            <label style={S.formLabel}>CC Email (optional)</label>
+            <input
+              style={S.formInput}
+              type="email"
+              value={ccEmail}
+              onChange={e => setCcEmail(e.target.value)}
+              placeholder="cc@company.com"
+            />
+          </div>
+          <div style={S.formRow}>
+            <label style={S.formLabel}>Notes (optional)</label>
+            <textarea
+              style={{ ...S.formInput, resize: 'vertical', fontFamily: 'inherit' }}
+              rows={2}
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Internal notes about this send"
+            />
+          </div>
+        </div>
+        <div style={S.modalFooter}>
+          <button style={S.btnSecondary} onClick={onClose}>Cancel</button>
+          <button
+            style={{ ...S.btnPrimary, opacity: (!recipientEmail.trim() || sending) ? 0.5 : 1 }}
+            disabled={!recipientEmail.trim() || sending}
+            onClick={handleSend}
+          >
+            {sending ? 'Sending...' : 'Mark as Sent'}
           </button>
         </div>
       </div>
