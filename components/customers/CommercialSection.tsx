@@ -8,6 +8,7 @@ import RateSheetDetail from './RateSheetDetail';
 import ExhibitAList from './ExhibitAList';
 import ExhibitADetail from './ExhibitADetail';
 import MsaList from './MsaList';
+import MsaDetail from './MsaDetail';
 
 interface ContactOption { id: string; firstName: string; lastName: string; email: string | null; officePhone: string | null; cellPhone: string | null; jobTitle: string | null }
 
@@ -28,6 +29,7 @@ export default function CommercialSection({ customerId }: Props) {
   const [createEaError, setCreateEaError] = useState('');
   const [creatingEa, setCreatingEa] = useState(false);
 
+  const [selectedMsaId, setSelectedMsaId] = useState<string | null>(null);
   const [msaRefreshKey, setMsaRefreshKey] = useState(0);
   const [showCreateMsa, setShowCreateMsa] = useState(false);
   const [createMsaError, setCreateMsaError] = useState('');
@@ -62,6 +64,7 @@ export default function CommercialSection({ customerId }: Props) {
   const [newMsaTitle, setNewMsaTitle] = useState('');
   const [newMsaNotes, setNewMsaNotes] = useState('');
   const [newMsaExpiresAt, setNewMsaExpiresAt] = useState('');
+  const [newMsaType, setNewMsaType] = useState('MW4H_STANDARD');
 
   // Load contacts
   useEffect(() => {
@@ -152,18 +155,21 @@ export default function CommercialSection({ customerId }: Props) {
     setCreatingMsa(true);
     setCreateMsaError('');
     try {
-      await apiFetch(`/commercial/customers/${customerId}/msas`, {
+      const created = await apiFetch<{ id: string }>(`/commercial/customers/${customerId}/msas`, {
         method: 'POST',
         body: JSON.stringify({
           title: newMsaTitle.trim() || undefined,
           notes: newMsaNotes.trim() || undefined,
           expiresAt: newMsaExpiresAt ? new Date(newMsaExpiresAt).toISOString() : undefined,
+          agreementType: newMsaType,
         }),
       });
       setShowCreateMsa(false);
       setNewMsaTitle('');
       setNewMsaNotes('');
       setNewMsaExpiresAt('');
+      setNewMsaType('MW4H_STANDARD');
+      setSelectedMsaId(created.id);
       refreshMsaList();
     } catch (e: any) {
       setCreateMsaError(e?.message ?? 'Failed to create MSA');
@@ -190,6 +196,16 @@ export default function CommercialSection({ customerId }: Props) {
         customerId={customerId}
         onBack={() => { setSelectedEaId(null); refreshEaList(); }}
         onChanged={refreshEaList}
+      />
+    );
+  }
+
+  if (selectedMsaId) {
+    return (
+      <MsaDetail
+        msaId={selectedMsaId}
+        onBack={() => { setSelectedMsaId(null); refreshMsaList(); }}
+        onChanged={refreshMsaList}
       />
     );
   }
@@ -226,7 +242,7 @@ export default function CommercialSection({ customerId }: Props) {
             + New MSA
           </button>
         </div>
-        <MsaList customerId={customerId} refreshKey={msaRefreshKey} onCreateNew={() => setShowCreateMsa(true)} />
+        <MsaList customerId={customerId} refreshKey={msaRefreshKey} onCreateNew={() => setShowCreateMsa(true)} onSelect={setSelectedMsaId} />
       </div>
 
       {/* Pricing Snapshots */}
@@ -375,6 +391,14 @@ export default function CommercialSection({ customerId }: Props) {
             </div>
             <div style={S.modalBody}>
               {createMsaError && <div style={S.error}>{createMsaError}</div>}
+              <div style={S.formRow}>
+                <label style={S.formLabel}>Agreement Type</label>
+                <select style={S.formInput} value={newMsaType} onChange={(e) => setNewMsaType(e.target.value)}>
+                  <option value="MW4H_STANDARD">MW4H Standard</option>
+                  <option value="MW4H_MODIFIED">MW4H Modified</option>
+                  <option value="CUSTOMER_PROVIDED">Customer Provided</option>
+                </select>
+              </div>
               <div style={S.formRow}>
                 <label style={S.formLabel}>Title (optional)</label>
                 <input style={S.formInput} value={newMsaTitle} onChange={(e) => setNewMsaTitle(e.target.value)} placeholder="e.g., Master Agreement 2026" />

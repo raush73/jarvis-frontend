@@ -8,6 +8,7 @@ interface MsaSummary {
   msaNumber: string | null;
   status: string;
   title: string | null;
+  agreementType: string | null;
   notes: string | null;
   expiresAt: string | null;
   signedAt: string | null;
@@ -19,6 +20,7 @@ interface Props {
   customerId: string;
   refreshKey?: number;
   onCreateNew: () => void;
+  onSelect?: (id: string) => void;
 }
 
 const STATUS_STYLES: Record<string, { color: string; bg: string }> = {
@@ -27,9 +29,16 @@ const STATUS_STYLES: Record<string, { color: string; bg: string }> = {
   VIEWED: { color: '#7c3aed', bg: '#f5f3ff' },
   SIGNED: { color: '#16a34a', bg: '#f0fdf4' },
   EXPIRED: { color: '#6b7280', bg: '#f3f4f6' },
+  SUPERSEDED: { color: '#6b7280', bg: '#f3f4f6' },
 };
 
-export default function MsaList({ customerId, refreshKey, onCreateNew }: Props) {
+const TYPE_LABELS: Record<string, string> = {
+  MW4H_STANDARD: 'MW4H Standard',
+  MW4H_MODIFIED: 'MW4H Modified',
+  CUSTOMER_PROVIDED: 'Customer Provided',
+};
+
+export default function MsaList({ customerId, refreshKey, onCreateNew, onSelect }: Props) {
   const [msas, setMsas] = useState<MsaSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -69,7 +78,7 @@ export default function MsaList({ customerId, refreshKey, onCreateNew }: Props) 
       <table style={S.table}>
         <thead>
           <tr>
-            {['Number', 'Status', 'Title', 'Expires', 'Signed', 'Exhibit As', 'Created'].map(h => (
+            {['Number', 'Status', 'Type', 'Title', 'Expires', 'Exhibit As', 'Created'].map(h => (
               <th key={h} style={S.th}>{h}</th>
             ))}
           </tr>
@@ -78,19 +87,23 @@ export default function MsaList({ customerId, refreshKey, onCreateNew }: Props) 
           {msas.map((m) => {
             const st = STATUS_STYLES[m.status] ?? STATUS_STYLES.EXPIRED;
             return (
-              <tr key={m.id}>
+              <tr
+                key={m.id}
+                style={S.row}
+                onClick={() => onSelect?.(m.id)}
+              >
                 <td style={{ ...S.td, fontWeight: 600, color: '#111827' }}>{m.msaNumber ?? '—'}</td>
                 <td style={S.td}>
                   <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, color: st.color, background: st.bg }}>
                     {m.status}
                   </span>
                 </td>
+                <td style={{ ...S.td, color: '#6b7280', fontSize: 12 }}>
+                  {TYPE_LABELS[m.agreementType ?? ''] ?? '—'}
+                </td>
                 <td style={{ ...S.td, color: '#374151' }}>{m.title || '—'}</td>
                 <td style={{ ...S.td, color: '#6b7280' }}>
                   {m.expiresAt ? new Date(m.expiresAt).toLocaleDateString('en-US') : '—'}
-                </td>
-                <td style={{ ...S.td, color: '#6b7280' }}>
-                  {m.signedAt ? new Date(m.signedAt).toLocaleDateString('en-US') : '—'}
                 </td>
                 <td style={{ ...S.td, textAlign: 'center', color: '#374151' }}>{m._count?.exhibitAs ?? 0}</td>
                 <td style={{ ...S.td, color: '#6b7280' }}>
@@ -113,4 +126,5 @@ const S = {
   table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 13 },
   th: { textAlign: 'left' as const, padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: '#6b7280', borderBottom: '2px solid #e5e7eb', background: '#f9fafb' },
   td: { padding: '10px 12px', borderBottom: '1px solid #f3f4f6', color: '#374151', fontSize: 13 },
+  row: { cursor: 'pointer', transition: 'background 0.1s' } as React.CSSProperties,
 };
