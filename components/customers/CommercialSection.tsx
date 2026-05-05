@@ -10,6 +10,22 @@ import ExhibitADetail from './ExhibitADetail';
 import MsaList from './MsaList';
 import MsaDetail from './MsaDetail';
 
+interface CustomerMsaHealth {
+  health: string;
+  activeMsaCount: number;
+  totalMsaCount: number;
+}
+
+const HEALTH_SUMMARY_STYLES: Record<string, { color: string; bg: string; label: string }> = {
+  ACTIVE: { color: '#16a34a', bg: '#f0fdf4', label: 'Active' },
+  EXPIRING_SOON: { color: '#d97706', bg: '#fffbeb', label: 'Expiring Soon' },
+  NEEDS_REVIEW: { color: '#9333ea', bg: '#faf5ff', label: 'Needs Review' },
+  EXPIRED: { color: '#dc2626', bg: '#fef2f2', label: 'Expired' },
+  NO_MSA: { color: '#6b7280', bg: '#f3f4f6', label: 'No MSA' },
+  DRAFT_ONLY: { color: '#d97706', bg: '#fffbeb', label: 'Draft Only' },
+  SUPERSEDED: { color: '#6b7280', bg: '#f3f4f6', label: 'Superseded' },
+};
+
 interface ContactOption { id: string; firstName: string; lastName: string; email: string | null; officePhone: string | null; cellPhone: string | null; jobTitle: string | null }
 
 interface Props {
@@ -34,6 +50,7 @@ export default function CommercialSection({ customerId }: Props) {
   const [showCreateMsa, setShowCreateMsa] = useState(false);
   const [createMsaError, setCreateMsaError] = useState('');
   const [creatingMsa, setCreatingMsa] = useState(false);
+  const [customerHealth, setCustomerHealth] = useState<CustomerMsaHealth | null>(null);
 
   const [newRsTitle, setNewRsTitle] = useState('');
   const [newRsNotes, setNewRsNotes] = useState('');
@@ -76,6 +93,15 @@ export default function CommercialSection({ customerId }: Props) {
     })();
   }, [customerId]);
 
+  const loadCustomerHealth = useCallback(async () => {
+    try {
+      const data = await apiFetch<CustomerMsaHealth>(`/commercial/customers/${customerId}/msa-health`);
+      setCustomerHealth(data);
+    } catch { /* ignore */ }
+  }, [customerId]);
+
+  useEffect(() => { loadCustomerHealth(); }, [loadCustomerHealth]);
+
   const refreshList = useCallback(() => {
     setRsRefreshKey((k) => k + 1);
   }, []);
@@ -84,7 +110,8 @@ export default function CommercialSection({ customerId }: Props) {
   }, []);
   const refreshMsaList = useCallback(() => {
     setMsaRefreshKey((k) => k + 1);
-  }, []);
+    loadCustomerHealth();
+  }, [loadCustomerHealth]);
 
   const handleCreateRateSheet = async () => {
     if (!newRsExpiresAt) return;
@@ -237,7 +264,17 @@ export default function CommercialSection({ customerId }: Props) {
       {/* MSAs */}
       <div style={{ ...S.panel, marginTop: 24 }}>
         <div style={S.panelHeader}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>Master Service Agreements</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>Master Service Agreements</h2>
+            {customerHealth && (() => {
+              const hs = HEALTH_SUMMARY_STYLES[customerHealth.health];
+              return hs ? (
+                <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600, color: hs.color, background: hs.bg }}>
+                  {hs.label}
+                </span>
+              ) : null;
+            })()}
+          </div>
           <button style={S.btnPrimarySmall} onClick={() => setShowCreateMsa(true)}>
             + New MSA
           </button>

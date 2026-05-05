@@ -12,6 +12,8 @@ interface MsaSummary {
   notes: string | null;
   expiresAt: string | null;
   signedAt: string | null;
+  reviewDueAt: string | null;
+  lastReviewedAt: string | null;
   createdAt: string;
   _count?: { exhibitAs: number };
 }
@@ -37,6 +39,31 @@ const TYPE_LABELS: Record<string, string> = {
   MW4H_MODIFIED: 'MW4H Modified',
   CUSTOMER_PROVIDED: 'Customer Provided',
 };
+
+const HEALTH_BADGE: Record<string, { color: string; bg: string; label: string }> = {
+  ACTIVE: { color: '#16a34a', bg: '#f0fdf4', label: 'Active' },
+  EXPIRING_SOON: { color: '#d97706', bg: '#fffbeb', label: 'Expiring' },
+  NEEDS_REVIEW: { color: '#9333ea', bg: '#faf5ff', label: 'Review Due' },
+  EXPIRED: { color: '#dc2626', bg: '#fef2f2', label: 'Expired' },
+  DRAFT_ONLY: { color: '#d97706', bg: '#fffbeb', label: 'Draft' },
+  SUPERSEDED: { color: '#6b7280', bg: '#f3f4f6', label: 'Superseded' },
+};
+
+function computeListHealth(m: MsaSummary): string | null {
+  if (m.status === 'SUPERSEDED') return 'SUPERSEDED';
+  if (m.status === 'EXPIRED') return 'EXPIRED';
+  if (m.status === 'DRAFT') return null;
+  const now = new Date();
+  if (m.expiresAt) {
+    const expires = new Date(m.expiresAt);
+    if (expires <= now) return 'EXPIRED';
+    const days = Math.ceil((expires.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    if (days <= 90) return 'EXPIRING_SOON';
+  }
+  if (m.reviewDueAt && new Date(m.reviewDueAt) <= now) return 'NEEDS_REVIEW';
+  if (m.status === 'SIGNED' || m.status === 'SENT' || m.status === 'VIEWED') return 'ACTIVE';
+  return null;
+}
 
 export default function MsaList({ customerId, refreshKey, onCreateNew, onSelect }: Props) {
   const [msas, setMsas] = useState<MsaSummary[]>([]);
@@ -78,7 +105,7 @@ export default function MsaList({ customerId, refreshKey, onCreateNew, onSelect 
       <table style={S.table}>
         <thead>
           <tr>
-            {['Number', 'Status', 'Type', 'Title', 'Expires', 'Exhibit As', 'Created'].map(h => (
+            {['Number', 'Status', 'Health', 'Type', 'Title', 'Expires', 'Exhibit As', 'Created'].map(h => (
               <th key={h} style={S.th}>{h}</th>
             ))}
           </tr>
@@ -86,6 +113,8 @@ export default function MsaList({ customerId, refreshKey, onCreateNew, onSelect 
         <tbody>
           {msas.map((m) => {
             const st = STATUS_STYLES[m.status] ?? STATUS_STYLES.EXPIRED;
+            const hlth = computeListHealth(m);
+            const hb = hlth ? HEALTH_BADGE[hlth] : null;
             return (
               <tr
                 key={m.id}
@@ -97,6 +126,13 @@ export default function MsaList({ customerId, refreshKey, onCreateNew, onSelect 
                   <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, color: st.color, background: st.bg }}>
                     {m.status}
                   </span>
+                </td>
+                <td style={S.td}>
+                  {hb && (
+                    <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600, color: hb.color, background: hb.bg }}>
+                      {hb.label}
+                    </span>
+                  )}
                 </td>
                 <td style={{ ...S.td, color: '#6b7280', fontSize: 12 }}>
                   {TYPE_LABELS[m.agreementType ?? ''] ?? '—'}

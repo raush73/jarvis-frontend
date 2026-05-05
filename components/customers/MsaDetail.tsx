@@ -23,6 +23,14 @@ interface MsaDocumentSummary {
   uploadedBy: { id: string; fullName: string | null; email: string } | null;
 }
 
+interface MsaHealthResult {
+  health: string;
+  daysUntilExpiration: number | null;
+  reviewDueAt: string | null;
+  lastReviewedAt: string | null;
+  isReviewOverdue: boolean;
+}
+
 interface MsaFull {
   id: string;
   msaNumber: string | null;
@@ -41,6 +49,10 @@ interface MsaFull {
   sentToEmail: string | null;
   sendNotes: string | null;
   countersignedAt: string | null;
+  customerSignedAt: string | null;
+  fullyExecutedAt: string | null;
+  supersededAt: string | null;
+  supersededByMsaId: string | null;
   reviewDueAt: string | null;
   lastReviewedAt: string | null;
   reviewCadenceMonths: number | null;
@@ -52,6 +64,7 @@ interface MsaFull {
   createdBy: { id: string; fullName: string | null; email: string } | null;
   approvedBy: { id: string; fullName: string | null; email: string } | null;
   sentBy: { id: string; fullName: string | null; email: string } | null;
+  fullyExecutedBy: { id: string; fullName: string | null; email: string } | null;
   exhibitAs: Array<{
     id: string;
     exhibitANumber: string | null;
@@ -116,6 +129,16 @@ const UPLOAD_ROLE_OPTIONS = [
   { value: 'SUPPORTING_ATTACHMENT', label: 'Supporting Attachment' },
 ];
 
+const HEALTH_STYLES: Record<string, { color: string; bg: string; label: string }> = {
+  ACTIVE: { color: '#16a34a', bg: '#f0fdf4', label: 'Active' },
+  EXPIRING_SOON: { color: '#d97706', bg: '#fffbeb', label: 'Expiring Soon' },
+  NEEDS_REVIEW: { color: '#9333ea', bg: '#faf5ff', label: 'Needs Review' },
+  EXPIRED: { color: '#dc2626', bg: '#fef2f2', label: 'Expired' },
+  NO_MSA: { color: '#6b7280', bg: '#f3f4f6', label: 'No MSA' },
+  DRAFT_ONLY: { color: '#d97706', bg: '#fffbeb', label: 'Draft Only' },
+  SUPERSEDED: { color: '#6b7280', bg: '#f3f4f6', label: 'Superseded' },
+};
+
 export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
   const [msa, setMsa] = useState<MsaFull | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,6 +149,8 @@ export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
   const [genError, setGenError] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [showSend, setShowSend] = useState(false);
+  const [health, setHealth] = useState<MsaHealthResult | null>(null);
+  const [lifecycleModal, setLifecycleModal] = useState<{ action: string; title: string } | null>(null);
 
   const loadMsa = useCallback(async () => {
     setLoading(true);
@@ -149,7 +174,16 @@ export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
     }
   }, [msaId]);
 
-  useEffect(() => { loadMsa(); loadVersions(); }, [loadMsa, loadVersions]);
+  const loadHealth = useCallback(async () => {
+    try {
+      const data = await apiFetch<MsaHealthResult>(`/commercial/msas/${msaId}/health`);
+      setHealth(data);
+    } catch {
+      // non-critical
+    }
+  }, [msaId]);
+
+  useEffect(() => { loadMsa(); loadVersions(); loadHealth(); }, [loadMsa, loadVersions, loadHealth]);
 
   const handleGeneratePdf = async () => {
     setGenerating(true);
@@ -208,9 +242,24 @@ export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
         body: JSON.stringify({}),
       });
       await loadMsa();
+      await loadHealth();
       onChanged?.();
     } catch (e: any) {
       alert(e?.message ?? 'Failed to approve');
+    }
+  };
+
+  const handleLifecycleAction = async (action: string, note?: string, extra?: Record<string, any>) => {
+    try {
+      await apiFetch(`/commercial/msas/${msaId}/${action}`, {
+        method: 'POST',
+        body: JSON.stringify({ note, ...extra }),
+      });
+      await loadMsa();
+      await loadHealth();
+      onChanged?.();
+    } catch (e: any) {
+      throw new Error(e?.message ?? `Action failed`);
     }
   };
 
@@ -237,12 +286,27 @@ export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
           <span style={{ ...S.badge, color: typeBadge.color, background: typeBadge.bg }}>
             {TYPE_LABELS[msa.agreementType ?? ''] ?? 'Unknown Type'}
           </span>
+          {health && (
+            <span style={{ ...S.badge, color: HEALTH_STYLES[health.health]?.color ?? '#6b7280', background: HEALTH_STYLES[health.health]?.bg ?? '#f3f4f6' }}>
+              {HEALTH_STYLES[health.health]?.label ?? health.health}
+            </span>
+          )}
         </div>
         <div style={{ marginTop: 6, color: '#6b7280', fontSize: 13 }}>
           {msa.title && <span style={{ color: '#374151', fontWeight: 500 }}>{msa.title}</span>}
           {msa.title && ' — '}
           {msa.customer.name}
         </div>
+        {health && health.daysUntilExpiration !== null && health.daysUntilExpiration <= 90 && health.daysUntilExpiration > 0 && (
+          <div style={{ marginTop: 8, padding: '6px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, fontSize: 12, color: '#92400e' }}>
+            Expires in {health.daysUntilExpiration} day{health.daysUntilExpiration !== 1 ? 's' : ''}
+          </div>
+        )}
+        {health && health.isReviewOverdue && (
+          <div style={{ marginTop: 8, padding: '6px 12px', background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 6, fontSize: 12, color: '#7c3aed' }}>
+            Review overdue {health.reviewDueAt ? `(due ${new Date(health.reviewDueAt).toLocaleDateString('en-US')})` : ''}
+          </div>
+        )}
       </div>
 
       {/* Details Section */}
@@ -262,6 +326,9 @@ export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
           <DetailField label="MW4H Signer" value={formatSigner(msa.mw4hSignerName, msa.mw4hSignerTitle)} />
           {msa.sentAt && <DetailField label="Sent" value={new Date(msa.sentAt).toLocaleDateString('en-US')} />}
           {msa.signedAt && <DetailField label="Signed" value={new Date(msa.signedAt).toLocaleDateString('en-US')} />}
+          {msa.customerSignedAt && <DetailField label="Customer Signed" value={new Date(msa.customerSignedAt).toLocaleDateString('en-US')} />}
+          {msa.fullyExecutedAt && <DetailField label="Fully Executed" value={new Date(msa.fullyExecutedAt).toLocaleDateString('en-US')} />}
+          {msa.lastReviewedAt && <DetailField label="Last Reviewed" value={new Date(msa.lastReviewedAt).toLocaleDateString('en-US')} />}
           <DetailField label="Created By" value={msa.createdBy?.fullName ?? msa.createdBy?.email ?? '—'} />
         </div>
         {msa.notes && (
@@ -485,6 +552,77 @@ export default function MsaDetail({ msaId, onBack, onChanged }: Props) {
           </p>
         )}
       </div>
+
+      {/* Lifecycle Actions */}
+      <div style={S.section}>
+        <h3 style={S.sectionTitle}>Lifecycle Actions</h3>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+          {msa.status !== 'EXPIRED' && msa.status !== 'SUPERSEDED' && (
+            <button
+              style={S.btnSecondarySmall}
+              onClick={() => setLifecycleModal({ action: 'record-review', title: 'Record Review Complete' })}
+            >
+              Record Review Complete
+            </button>
+          )}
+          {(msa.status === 'SENT' || msa.status === 'SIGNED' || msa.status === 'VIEWED') && !msa.customerSignedAt && (
+            <button
+              style={S.btnSecondarySmall}
+              onClick={() => setLifecycleModal({ action: 'record-customer-signed', title: 'Record Customer Signed' })}
+            >
+              Record Customer Signed
+            </button>
+          )}
+          {msa.status !== 'EXPIRED' && msa.status !== 'SUPERSEDED' && msa.status !== 'DRAFT' && !msa.fullyExecutedAt && (
+            <button
+              style={{ ...S.btnSecondarySmall, color: '#16a34a', borderColor: '#86efac' }}
+              onClick={() => setLifecycleModal({ action: 'record-final-approval', title: 'Record Final Approval / Fully Executed' })}
+            >
+              Record Final Approval
+            </button>
+          )}
+          {msa.status !== 'EXPIRED' && msa.status !== 'SUPERSEDED' && (
+            <button
+              style={{ ...S.btnSecondarySmall, color: '#dc2626', borderColor: '#fecaca' }}
+              onClick={() => setLifecycleModal({ action: 'expire', title: 'Expire MSA' })}
+            >
+              Expire
+            </button>
+          )}
+          {msa.status !== 'EXPIRED' && msa.status !== 'SUPERSEDED' && (
+            <button
+              style={{ ...S.btnSecondarySmall, color: '#6b7280', borderColor: '#d1d5db' }}
+              onClick={() => setLifecycleModal({ action: 'supersede', title: 'Supersede MSA' })}
+            >
+              Supersede
+            </button>
+          )}
+        </div>
+        {msa.supersededAt && (
+          <div style={{ marginTop: 10, padding: '6px 12px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, color: '#6b7280' }}>
+            Superseded on {new Date(msa.supersededAt).toLocaleDateString('en-US')}
+            {msa.supersededByMsaId && ` (replacement MSA available)`}
+          </div>
+        )}
+        {msa.fullyExecutedAt && (
+          <div style={{ marginTop: 8, padding: '6px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534' }}>
+            Fully Executed on {new Date(msa.fullyExecutedAt).toLocaleDateString('en-US')}
+            {msa.fullyExecutedBy && ` by ${msa.fullyExecutedBy.fullName ?? msa.fullyExecutedBy.email}`}
+          </div>
+        )}
+      </div>
+
+      {/* Lifecycle Confirmation Modal */}
+      {lifecycleModal && (
+        <LifecycleModal
+          title={lifecycleModal.title}
+          action={lifecycleModal.action}
+          msaId={msa.id}
+          customerId={msa.customer.id}
+          onClose={() => setLifecycleModal(null)}
+          onExecute={handleLifecycleAction}
+        />
+      )}
 
       {/* Upload Modal */}
       {showUpload && (
@@ -864,6 +1002,98 @@ function SendMsaModal({ msaId, onClose, onSent }: {
             onClick={handleSend}
           >
             {sending ? 'Sending...' : 'Mark as Sent'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ——— Lifecycle Action Modal ———
+
+function LifecycleModal({ title, action, onClose, onExecute }: {
+  title: string;
+  action: string;
+  msaId: string;
+  customerId: string;
+  onClose: () => void;
+  onExecute: (action: string, note?: string, extra?: Record<string, any>) => Promise<void>;
+}) {
+  const [note, setNote] = useState('');
+  const [replacementMsaId, setReplacementMsaId] = useState('');
+  const [executing, setExecuting] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleExecute = async () => {
+    setExecuting(true);
+    setError('');
+    try {
+      const extra: Record<string, any> = {};
+      if (action === 'supersede' && replacementMsaId.trim()) {
+        extra.replacementMsaId = replacementMsaId.trim();
+      }
+      if (action === 'record-final-approval') {
+        extra.approvalNote = note.trim() || undefined;
+      }
+      await onExecute(action, note.trim() || undefined, extra);
+      onClose();
+    } catch (e: any) {
+      setError(e?.message ?? 'Action failed');
+    } finally {
+      setExecuting(false);
+    }
+  };
+
+  return (
+    <div style={S.overlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+        <div style={S.modalHeader}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{title}</h3>
+          <button style={S.modalClose} onClick={onClose}>×</button>
+        </div>
+        <div style={S.modalBody}>
+          {error && <div style={S.error}>{error}</div>}
+          <p style={{ margin: 0, fontSize: 13, color: '#374151' }}>
+            {action === 'expire' && 'This will mark the MSA as expired. This action cannot be undone.'}
+            {action === 'supersede' && 'This will mark the MSA as superseded (replaced by a new agreement).'}
+            {action === 'record-customer-signed' && 'Record that the customer has returned a signed copy of this agreement.'}
+            {action === 'record-final-approval' && 'Record final internal approval / fully executed status for this agreement.'}
+            {action === 'record-review' && 'Record that the commercial review has been completed for this agreement.'}
+          </p>
+          {action === 'supersede' && (
+            <div style={S.formRow}>
+              <label style={S.formLabel}>Replacement MSA ID (optional)</label>
+              <input
+                style={S.formInput}
+                value={replacementMsaId}
+                onChange={e => setReplacementMsaId(e.target.value)}
+                placeholder="ID of the replacement MSA"
+              />
+            </div>
+          )}
+          <div style={S.formRow}>
+            <label style={S.formLabel}>Note (optional)</label>
+            <textarea
+              style={{ ...S.formInput, resize: 'vertical', fontFamily: 'inherit' }}
+              rows={2}
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="Optional note for the audit trail"
+            />
+          </div>
+        </div>
+        <div style={S.modalFooter}>
+          <button style={S.btnSecondary} onClick={onClose}>Cancel</button>
+          <button
+            style={{
+              ...S.btnPrimary,
+              opacity: executing ? 0.5 : 1,
+              background: action === 'expire' ? '#dc2626' : action === 'supersede' ? '#6b7280' : '#2563eb',
+            }}
+            disabled={executing}
+            onClick={handleExecute}
+          >
+            {executing ? 'Processing...' : 'Confirm'}
           </button>
         </div>
       </div>
