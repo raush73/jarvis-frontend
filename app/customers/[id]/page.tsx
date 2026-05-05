@@ -228,6 +228,70 @@ export default function CustomerDetailPage() {
   // Customer-level approval toggle (UI-only, non-persistent)
   const [customerApprovalRequired, setCustomerApprovalRequired] = useState(true);
 
+  // Customer company edit state
+  const [editingCompany, setEditingCompany] = useState(false);
+  const [editCompanyFields, setEditCompanyFields] = useState({
+    name: "", websiteUrl: "", phone: "", street: "", city: "", state: "", zipCode: "", country: "",
+  });
+  const [editCompanySaving, setEditCompanySaving] = useState(false);
+  const [editCompanyError, setEditCompanyError] = useState("");
+
+  const startEditCompany = useCallback(() => {
+    if (!liveCustomer) return;
+    setEditCompanyFields({
+      name: liveCustomer.name ?? "",
+      websiteUrl: liveCustomer.websiteUrl ?? "",
+      phone: liveCustomer.phone ?? "",
+      street: liveCustomer.street ?? "",
+      city: liveCustomer.city ?? "",
+      state: liveCustomer.state ?? "",
+      zipCode: liveCustomer.zipCode ?? "",
+      country: liveCustomer.country ?? "",
+    });
+    setEditCompanyError("");
+    setEditingCompany(true);
+  }, [liveCustomer]);
+
+  const cancelEditCompany = useCallback(() => {
+    setEditingCompany(false);
+    setEditCompanyError("");
+  }, []);
+
+  const handleSaveCompany = useCallback(async () => {
+    if (editCompanySaving) return;
+    setEditCompanySaving(true);
+    setEditCompanyError("");
+    try {
+      const payload: Record<string, string | null> = {};
+      const f = editCompanyFields;
+      const c = liveCustomer;
+      if (f.name.trim() && f.name.trim() !== (c?.name ?? "")) payload.name = f.name.trim();
+      if (f.websiteUrl.trim() !== (c?.websiteUrl ?? "")) payload.websiteUrl = f.websiteUrl.trim();
+      if (f.phone.trim() !== (c?.phone ?? "")) payload.phone = f.phone.trim();
+      if (f.street.trim() !== (c?.street ?? "")) payload.street = f.street.trim();
+      if (f.city.trim() !== (c?.city ?? "")) payload.city = f.city.trim();
+      if (f.state !== (c?.state ?? "")) payload.state = f.state;
+      if (f.zipCode.trim() !== (c?.zipCode ?? "")) payload.zipCode = f.zipCode.trim();
+      if (f.country.trim() !== (c?.country ?? "")) payload.country = f.country.trim();
+
+      if (Object.keys(payload).length === 0) {
+        setEditingCompany(false);
+        return;
+      }
+
+      const updated = await apiFetch<any>(`/customers/${customerId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      setLiveCustomer((prev: any) => ({ ...prev, ...updated }));
+      setEditingCompany(false);
+    } catch (e: any) {
+      setEditCompanyError(e?.message ?? "Failed to save company details.");
+    } finally {
+      setEditCompanySaving(false);
+    }
+  }, [editCompanyFields, liveCustomer, customerId, editCompanySaving]);
+
   // In-memory quotes state
   const [quotes, setQuotes] = useState<Quote[]>([]);
 
@@ -1184,25 +1248,77 @@ export default function CustomerDetailPage() {
             )}
           </div>
         </div>
+        <button className="edit-company-btn" onClick={startEditCompany}>Edit Company</button>
       </div>
+
+      {/* Company Edit Modal */}
+      {editingCompany && (
+        <div className="edit-company-overlay" onClick={(e) => { if (e.target === e.currentTarget) cancelEditCompany(); }}>
+          <div className="edit-company-modal">
+            <div className="edit-company-header">
+              <h2>Edit Company Details</h2>
+              <button className="edit-company-close" onClick={cancelEditCompany}>&times;</button>
+            </div>
+            {editCompanyError && <div className="edit-company-error">{editCompanyError}</div>}
+            <div className="edit-company-form">
+              <div className="edit-company-row">
+                <label className="edit-company-label">Company Name</label>
+                <input className="edit-company-input" value={editCompanyFields.name} onChange={(e) => setEditCompanyFields((p) => ({ ...p, name: e.target.value }))} placeholder="Company name" />
+              </div>
+              <div className="edit-company-row">
+                <label className="edit-company-label">Website</label>
+                <input className="edit-company-input" value={editCompanyFields.websiteUrl} onChange={(e) => setEditCompanyFields((p) => ({ ...p, websiteUrl: e.target.value }))} placeholder="https://example.com" />
+              </div>
+              <div className="edit-company-row">
+                <label className="edit-company-label">Main Phone</label>
+                <input className="edit-company-input" value={editCompanyFields.phone} onChange={(e) => setEditCompanyFields((p) => ({ ...p, phone: e.target.value }))} placeholder="(555) 123-4567" />
+              </div>
+              <div className="edit-company-row">
+                <label className="edit-company-label">Street</label>
+                <input className="edit-company-input" value={editCompanyFields.street} onChange={(e) => setEditCompanyFields((p) => ({ ...p, street: e.target.value }))} placeholder="123 Main St" />
+              </div>
+              <div className="edit-company-row-group">
+                <div className="edit-company-row">
+                  <label className="edit-company-label">City</label>
+                  <input className="edit-company-input" value={editCompanyFields.city} onChange={(e) => setEditCompanyFields((p) => ({ ...p, city: e.target.value }))} placeholder="City" />
+                </div>
+                <div className="edit-company-row">
+                  <label className="edit-company-label">State</label>
+                  <input className="edit-company-input" value={editCompanyFields.state} onChange={(e) => setEditCompanyFields((p) => ({ ...p, state: e.target.value }))} placeholder="PA" maxLength={2} />
+                </div>
+              </div>
+              <div className="edit-company-row-group">
+                <div className="edit-company-row">
+                  <label className="edit-company-label">Zip Code</label>
+                  <input className="edit-company-input" value={editCompanyFields.zipCode} onChange={(e) => setEditCompanyFields((p) => ({ ...p, zipCode: e.target.value }))} placeholder="15201" />
+                </div>
+                <div className="edit-company-row">
+                  <label className="edit-company-label">Country</label>
+                  <input className="edit-company-input" value={editCompanyFields.country} onChange={(e) => setEditCompanyFields((p) => ({ ...p, country: e.target.value }))} placeholder="US" />
+                </div>
+              </div>
+            </div>
+            <div className="edit-company-actions">
+              <button className="edit-company-cancel" onClick={cancelEditCompany} disabled={editCompanySaving}>Cancel</button>
+              <button className="edit-company-save" onClick={handleSaveCompany} disabled={editCompanySaving}>{editCompanySaving ? "Saving..." : "Save Changes"}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary Row */}
       <div className="summary-row">
         <div className="summary-item">
           <span className="summary-label">Ownership</span>
           <div className="summary-value-row">
-            {headerSalesperson ? (
-              <Link
-                href={`/customers/${customerId}/ownership`}
-                className="ownership-link"
-                style={{ color: "#2563eb", fontWeight: 700, opacity: 1, textDecoration: "none" }}
-                aria-label="Edit customer ownership"
-              >
-                {headerSalesperson}
-              </Link>
-            ) : (
-              <span className="summary-value">—</span>
-            )}
+            <Link
+              href={`/customers/${customerId}/ownership`}
+              className="ownership-link"
+              style={{ color: "#2563eb", fontWeight: 700, opacity: 1, textDecoration: "none" }}
+              aria-label={headerSalesperson ? "Edit customer ownership" : "Assign customer owner"}
+            >
+              {headerSalesperson || "Manage Ownership"}
+            </Link>
           </div>
         </div>
         <div className="summary-item">
@@ -2766,6 +2882,144 @@ export default function CustomerDetailPage() {
           font-size: 12px;
           font-weight: 600;
         }
+
+        /* --- Edit Company Button --- */
+        .edit-company-btn {
+          padding: 7px 16px;
+          font-size: 13px;
+          font-weight: 600;
+          border: 1px solid #d1d5db;
+          border-radius: 7px;
+          background: #fff;
+          color: #374151;
+          cursor: pointer;
+          transition: background 0.12s, border-color 0.12s;
+          white-space: nowrap;
+          align-self: flex-start;
+          margin-top: 24px;
+        }
+        .edit-company-btn:hover {
+          background: #f1f5f9;
+          border-color: #9ca3af;
+        }
+
+        /* --- Edit Company Modal --- */
+        .edit-company-overlay {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0,0,0,0.45);
+          z-index: 9999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .edit-company-modal {
+          background: #fff;
+          border-radius: 12px;
+          width: 520px;
+          max-height: 90vh;
+          overflow-y: auto;
+          padding: 24px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+        }
+        .edit-company-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 20px;
+        }
+        .edit-company-header h2 {
+          margin: 0;
+          font-size: 18px;
+          font-weight: 700;
+          color: #111827;
+        }
+        .edit-company-close {
+          background: none;
+          border: none;
+          font-size: 22px;
+          color: #6b7280;
+          cursor: pointer;
+          padding: 4px;
+          line-height: 1;
+        }
+        .edit-company-close:hover { color: #111827; }
+        .edit-company-error {
+          padding: 10px 14px;
+          background: #fef2f2;
+          border: 1px solid #fecaca;
+          border-radius: 8px;
+          color: #dc2626;
+          font-size: 13px;
+          margin-bottom: 16px;
+        }
+        .edit-company-form {
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+          margin-bottom: 20px;
+        }
+        .edit-company-row {
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+        }
+        .edit-company-row-group {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 14px;
+        }
+        .edit-company-label {
+          font-size: 12px;
+          font-weight: 600;
+          color: #374151;
+        }
+        .edit-company-input {
+          width: 100%;
+          padding: 9px 11px;
+          border-radius: 7px;
+          border: 1px solid #d1d5db;
+          background: #fff;
+          color: #111827;
+          font-size: 13px;
+          outline: none;
+          transition: border-color 0.12s;
+          box-sizing: border-box;
+        }
+        .edit-company-input:focus {
+          border-color: #2563eb;
+          box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+        }
+        .edit-company-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+        }
+        .edit-company-cancel {
+          padding: 9px 18px;
+          font-size: 13px;
+          font-weight: 600;
+          border: 1px solid #d1d5db;
+          border-radius: 7px;
+          background: #fff;
+          color: #374151;
+          cursor: pointer;
+        }
+        .edit-company-cancel:hover { background: #f1f5f9; }
+        .edit-company-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+        .edit-company-save {
+          padding: 9px 18px;
+          font-size: 13px;
+          font-weight: 600;
+          border: none;
+          border-radius: 7px;
+          background: #2563eb;
+          color: #fff;
+          cursor: pointer;
+          transition: background 0.12s;
+        }
+        .edit-company-save:hover:not(:disabled) { background: #1d4ed8; }
+        .edit-company-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
         /* --- Summary Cards Row --- */
         .summary-row {

@@ -169,7 +169,7 @@ export default function CompanyHeader({ company, onRefresh }: CompanyHeaderProps
       {/* Non-editable limitations note */}
       {editing && (
         <div style={limitNote}>
-          Phone and address are read-only here. Update them in Customer Detail.
+          Only name and website can be edited here. Use the Edit Company button on Customer Detail for phone and address.
         </div>
       )}
     </div>
