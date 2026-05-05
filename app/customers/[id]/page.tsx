@@ -1179,24 +1179,37 @@ export default function CustomerDetailPage() {
   const headerName = liveCustomer?.name ?? "—";
   const headerId = liveCustomer?.id ?? customerId;
   const primaryLoc = liveCustomer?.locations?.[0] ?? null;
-  const headerLocation = primaryLoc
-    ? [
-        [primaryLoc.city, primaryLoc.state].filter(Boolean).join(", "),
-        primaryLoc.zip,
-      ].filter(Boolean).join(" ")
-    : (liveCustomer?.location ?? null);
   const firstContact = liveCustomer?.contacts?.[0] ?? null;
-  const headerPhone = liveCustomer?.mainPhone
+
+  const headerPhone = liveCustomer?.phone
+    ?? liveCustomer?.mainPhone
     ?? firstContact?.officePhone
     ?? firstContact?.cellPhone
     ?? null;
+
   const headerWebsite = liveCustomer?.websiteUrl ?? null;
   const headerSalesperson = effectiveOwnerName;
 
   const headerStreetAddress =
-    primaryLoc?.address1
+    liveCustomer?.street
+    ?? (primaryLoc?.address1
       ? [primaryLoc.address1, primaryLoc.address2].filter(Boolean).join(", ")
-      : (liveCustomer?.address ?? null);
+      : null)
+    ?? liveCustomer?.address
+    ?? null;
+
+  const headerLocation =
+    (liveCustomer?.city || liveCustomer?.state || liveCustomer?.zipCode)
+      ? [
+          [liveCustomer.city, liveCustomer.state].filter(Boolean).join(", "),
+          liveCustomer.zipCode,
+        ].filter(Boolean).join(" ")
+      : primaryLoc
+        ? [
+            [primaryLoc.city, primaryLoc.state].filter(Boolean).join(", "),
+            primaryLoc.zip,
+          ].filter(Boolean).join(" ")
+        : (liveCustomer?.location ?? null);
 
   if (headerLoading) {
     return (
