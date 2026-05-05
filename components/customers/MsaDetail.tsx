@@ -1011,7 +1011,7 @@ function SendMsaModal({ msaId, onClose, onSent }: {
 
 // ——— Lifecycle Action Modal ———
 
-function LifecycleModal({ title, action, onClose, onExecute }: {
+function LifecycleModal({ title, action, msaId, customerId, onClose, onExecute }: {
   title: string;
   action: string;
   msaId: string;
@@ -1023,14 +1023,32 @@ function LifecycleModal({ title, action, onClose, onExecute }: {
   const [replacementMsaId, setReplacementMsaId] = useState('');
   const [executing, setExecuting] = useState(false);
   const [error, setError] = useState('');
+  const [eligibleMsas, setEligibleMsas] = useState<Array<{ id: string; msaNumber: string | null; title: string | null; status: string }>>([]);
+  const [loadingMsas, setLoadingMsas] = useState(false);
+
+  useEffect(() => {
+    if (action !== 'supersede') return;
+    let alive = true;
+    setLoadingMsas(true);
+    (async () => {
+      try {
+        const all = await apiFetch<Array<{ id: string; msaNumber: string | null; title: string | null; status: string }>>(`/commercial/customers/${customerId}/msas`);
+        if (!alive) return;
+        const filtered = all.filter(m => m.id !== msaId && m.status !== 'SUPERSEDED');
+        setEligibleMsas(filtered);
+      } catch { /* ignore */ }
+      finally { if (alive) setLoadingMsas(false); }
+    })();
+    return () => { alive = false; };
+  }, [action, customerId, msaId]);
 
   const handleExecute = async () => {
     setExecuting(true);
     setError('');
     try {
       const extra: Record<string, any> = {};
-      if (action === 'supersede' && replacementMsaId.trim()) {
-        extra.replacementMsaId = replacementMsaId.trim();
+      if (action === 'supersede' && replacementMsaId) {
+        extra.replacementMsaId = replacementMsaId;
       }
       if (action === 'record-final-approval') {
         extra.approvalNote = note.trim() || undefined;
@@ -1043,6 +1061,8 @@ function LifecycleModal({ title, action, onClose, onExecute }: {
       setExecuting(false);
     }
   };
+
+  const noEligibleReplacements = action === 'supersede' && !loadingMsas && eligibleMsas.length === 0;
 
   return (
     <div style={S.overlay} onClick={onClose}>
@@ -1062,13 +1082,27 @@ function LifecycleModal({ title, action, onClose, onExecute }: {
           </p>
           {action === 'supersede' && (
             <div style={S.formRow}>
-              <label style={S.formLabel}>Replacement MSA ID (optional)</label>
-              <input
-                style={S.formInput}
-                value={replacementMsaId}
-                onChange={e => setReplacementMsaId(e.target.value)}
-                placeholder="ID of the replacement MSA"
-              />
+              <label style={S.formLabel}>Replacement Agreement (optional)</label>
+              {loadingMsas ? (
+                <span style={{ fontSize: 12, color: '#6b7280' }}>Loading agreements...</span>
+              ) : noEligibleReplacements ? (
+                <p style={{ margin: 0, fontSize: 12, color: '#d97706' }}>
+                  No eligible replacement agreements available. Create another MSA first.
+                </p>
+              ) : (
+                <select
+                  style={S.formInput}
+                  value={replacementMsaId}
+                  onChange={e => setReplacementMsaId(e.target.value)}
+                >
+                  <option value="">— None (supersede without linking) —</option>
+                  {eligibleMsas.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.msaNumber ?? m.id} {m.title ? `— ${m.title}` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
           <div style={S.formRow}>
@@ -1087,10 +1121,10 @@ function LifecycleModal({ title, action, onClose, onExecute }: {
           <button
             style={{
               ...S.btnPrimary,
-              opacity: executing ? 0.5 : 1,
+              opacity: (executing || noEligibleReplacements) ? 0.5 : 1,
               background: action === 'expire' ? '#dc2626' : action === 'supersede' ? '#6b7280' : '#2563eb',
             }}
-            disabled={executing}
+            disabled={executing || noEligibleReplacements}
             onClick={handleExecute}
           >
             {executing ? 'Processing...' : 'Confirm'}
