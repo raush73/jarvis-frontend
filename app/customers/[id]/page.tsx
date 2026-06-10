@@ -1319,6 +1319,51 @@ export default function CustomerDetailPage() {
         </div>
       )}
 
+      {/* Do Not Call Banner */}
+      {liveCustomer?.doNotCall && (
+        <div style={{
+          margin: '0 0 16px 0',
+          padding: '12px 18px',
+          background: 'rgba(239,68,68,0.08)',
+          border: '1px solid rgba(239,68,68,0.35)',
+          borderLeft: '4px solid #ef4444',
+          borderRadius: 7,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{
+              fontSize: '0.6875rem', fontWeight: 800, letterSpacing: '0.07em',
+              color: '#ef4444', textTransform: 'uppercase',
+            }}>
+              DO NOT CALL
+            </span>
+            {liveCustomer.doNotCallReason && (
+              <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: '#ef4444', opacity: 0.85 }}>
+                {({
+                  UNION: 'Union',
+                  OUT_OF_SCOPE_INDUSTRY: 'Out of Scope Industry',
+                  BAD_FIT: 'Bad Fit',
+                  COMPETITOR: 'Competitor',
+                  HOSTILE: 'Hostile',
+                } as Record<string, string>)[liveCustomer.doNotCallReason] ?? liveCustomer.doNotCallReason}
+              </span>
+            )}
+          </div>
+          {(liveCustomer.doNotCallSetAt || liveCustomer.doNotCallSetBy) && (
+            <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.45)' }}>
+              {liveCustomer.doNotCallSetAt && (
+                <span>Set {new Date(liveCustomer.doNotCallSetAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+              )}
+              {liveCustomer.doNotCallSetBy && (
+                <span> by {liveCustomer.doNotCallSetBy.fullName ?? liveCustomer.doNotCallSetBy.email}</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Summary Row */}
       <div className="summary-row">
         <div className="summary-item">

@@ -12,6 +12,11 @@ export interface CompanyRecord {
   } | null;
   locations?: LocationRecord[];
   contacts?: ContactRecord[];
+  doNotCall?: boolean | null;
+  doNotCallReason?: string | null;
+  doNotCallSetAt?: string | null;
+  doNotCallSetByUserId?: string | null;
+  doNotCallSetBy?: { fullName: string | null; email: string } | null;
   createdAt?: string;
   updatedAt?: string;
 }

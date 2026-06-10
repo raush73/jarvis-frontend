@@ -95,9 +95,31 @@ export default function CompanyHeader({ company, onRefresh }: CompanyHeaderProps
   }, [editName, editWebsite, company, onRefresh]);
 
   const hasAnyDetail = phone || website || ownerName || address;
+  const isDnc = !!company.doNotCall;
+  const dncReasonLabel = DNC_LABELS[company.doNotCallReason ?? ''] ?? company.doNotCallReason ?? null;
+  const dncSetAt = company.doNotCallSetAt
+    ? new Date(company.doNotCallSetAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
+  const dncSetBy = company.doNotCallSetBy?.fullName ?? company.doNotCallSetBy?.email ?? null;
 
   return (
     <div style={wrapper}>
+      {/* Do Not Call banner */}
+      {isDnc && (
+        <div style={dncBanner}>
+          <div style={dncBannerTop}>
+            <span style={dncBadge}>DO NOT CALL</span>
+            {dncReasonLabel && <span style={dncDetail}>{dncReasonLabel}</span>}
+          </div>
+          {(dncSetAt || dncSetBy) && (
+            <div style={dncMeta}>
+              {dncSetAt && <span>Set {dncSetAt}</span>}
+              {dncSetBy && <span> by {dncSetBy}</span>}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Name + lifecycle + edit toggle */}
       <div style={nameRow}>
         <div style={nameLeft}>
@@ -338,4 +360,50 @@ const limitNote: CSSProperties = {
   marginTop: 12,
   paddingTop: 10,
   borderTop: `1px solid ${FC.border}`,
+};
+
+// ─── Do Not Call ─────────────────────────────────────────────────────
+
+const DNC_LABELS: Record<string, string> = {
+  UNION: 'Union',
+  OUT_OF_SCOPE_INDUSTRY: 'Out of Scope Industry',
+  BAD_FIT: 'Bad Fit',
+  COMPETITOR: 'Competitor',
+  HOSTILE: 'Hostile',
+};
+
+const dncBanner: CSSProperties = {
+  background: 'rgba(239, 68, 68, 0.08)',
+  border: '1px solid rgba(239, 68, 68, 0.35)',
+  borderLeft: `4px solid ${FC.accentRed}`,
+  borderRadius: 6,
+  padding: '10px 14px',
+  marginBottom: 14,
+};
+
+const dncBannerTop: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  marginBottom: 4,
+};
+
+const dncBadge: CSSProperties = {
+  fontSize: '0.6875rem',
+  fontWeight: 800,
+  letterSpacing: '0.06em',
+  color: FC.accentRed,
+  textTransform: 'uppercase',
+};
+
+const dncDetail: CSSProperties = {
+  fontSize: '0.75rem',
+  fontWeight: 500,
+  color: FC.accentRed,
+  opacity: 0.85,
+};
+
+const dncMeta: CSSProperties = {
+  fontSize: '0.6875rem',
+  color: FC.textMuted,
 };
