@@ -23,6 +23,31 @@ interface BadgeCounts {
   tasks: { overdue: number; dueToday: number };
 }
 
+interface MyTask {
+  id: string;
+  title: string | null;
+  description: string;
+  dueDate: string | null;
+  status: string;
+  customerId: string | null;
+  customer?: { id: string; name: string } | null;
+}
+
+interface MyTasksResult {
+  items: MyTask[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+function isTaskOverdue(dueDate: string | null): boolean {
+  if (!dueDate) return false;
+  const due = new Date(dueDate);
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return due < startOfToday;
+}
+
 type WorkSection = {
   key: string;
   label: string;
@@ -144,6 +169,9 @@ export default function KPIPage() {
   const [items, setItems] = useState<TodaysWorkItem[]>([]);
   const [healthItems, setHealthItems] = useState<CustomerHealthItem[]>([]);
   const [badges, setBadges] = useState<BadgeCounts | null>(null);
+  const [tasks, setTasks] = useState<MyTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [healthLoading, setHealthLoading] = useState(true);
   const [badgesLoading, setBadgesLoading] = useState(true);
@@ -190,15 +218,40 @@ export default function KPIPage() {
     setBadgesLoading(false);
   }, []);
 
+  const loadTasks = useCallback(async () => {
+    setTasksLoading(true);
+    const res = await fridayFetch<MyTasksResult>(
+      "/activity/tasks/mine?status=PENDING"
+    );
+    if (res.ok) {
+      setTasks(res.data.items ?? []);
+    }
+    setTasksLoading(false);
+  }, []);
+
   useEffect(() => {
     if (!session.ready) return;
     load();
     loadHealth();
     loadBadges();
-  }, [load, loadHealth, loadBadges, session.ready]);
+    loadTasks();
+  }, [load, loadHealth, loadBadges, loadTasks, session.ready]);
 
   const handleStartCall = (customerId: string) => {
     router.push(`/friday?directTarget=${customerId}`);
+  };
+
+  const handleCompleteTask = async (taskId: string) => {
+    setCompletingTaskId(taskId);
+    const res = await fridayFetch(`/activity/tasks/${taskId}/complete`, {
+      method: "PATCH",
+      body: JSON.stringify({}),
+    });
+    if (res.ok) {
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+      loadBadges();
+    }
+    setCompletingTaskId(null);
   };
 
   const sectionGrouped = groupBySection(items);
@@ -211,6 +264,13 @@ export default function KPIPage() {
     (sectionGrouped.get("overdue-followups")?.length ?? 0);
   const totalNotifications = sectionGrouped.get("notifications")?.length ?? 0;
   const totalWorkItems = totalFollowUps + totalNotifications;
+
+  const overdueTasks = tasks.filter((t) => isTaskOverdue(t.dueDate));
+  const openTasks = tasks.filter((t) => !isTaskOverdue(t.dueDate));
+  const TASK_SECTIONS: { key: string; label: string; color: string; items: MyTask[] }[] = [
+    { key: "overdue-tasks", label: "Overdue Tasks", color: "#f59e0b", items: overdueTasks },
+    { key: "open-tasks", label: "Open Tasks", color: "#3b82f6", items: openTasks },
+  ];
 
   let workItemIndex = 0;
   let healthItemIndex = 0;
@@ -485,6 +545,79 @@ export default function KPIPage() {
         </div>
       </div>
 
+      {/* ──────────── My Tasks (actionable, own PENDING tasks) ──────────── */}
+      <div className="kpi-tasks">
+        <div style={styles.header}>
+          <h2 style={styles.title}>Tasks</h2>
+          <span style={styles.count}>
+            {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
+          </span>
+        </div>
+
+        {tasksLoading && <p style={styles.message}>Loading tasks...</p>}
+
+        {!tasksLoading && tasks.length === 0 && (
+          <div style={styles.empty}>
+            <p style={styles.emptyTitle}>No pending tasks</p>
+            <p style={styles.emptyDesc}>
+              You have no open tasks assigned right now.
+            </p>
+          </div>
+        )}
+
+        {!tasksLoading &&
+          TASK_SECTIONS.map((section) => {
+            if (section.items.length === 0) return null;
+            return (
+              <div key={section.key} style={styles.section}>
+                <div style={styles.sectionHeader}>
+                  <span
+                    style={{ ...styles.sectionDot, background: section.color }}
+                  />
+                  <span style={styles.sectionLabel}>{section.label}</span>
+                  <span style={styles.sectionCount}>
+                    {section.items.length}
+                  </span>
+                </div>
+                {section.items.map((task) => (
+                  <div key={task.id} style={styles.taskCard}>
+                    <div style={styles.taskMain}>
+                      <div style={styles.taskTitle}>
+                        {task.title || task.description}
+                      </div>
+                      <div style={styles.taskMeta}>
+                        {task.customer?.name && (
+                          <span style={styles.taskCustomer}>
+                            {task.customer.name}
+                          </span>
+                        )}
+                        {task.dueDate && (
+                          <span
+                            style={
+                              isTaskOverdue(task.dueDate)
+                                ? styles.taskDueOverdue
+                                : styles.taskDue
+                            }
+                          >
+                            Due {formatDate(task.dueDate)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      style={styles.taskCompleteBtn}
+                      disabled={completingTaskId === task.id}
+                      onClick={() => handleCompleteTask(task.id)}
+                    >
+                      {completingTaskId === task.id ? "Completing…" : "Complete"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+      </div>
+
       <style jsx>{`
         .kpi-page {
           padding: 32px 40px;
@@ -497,6 +630,10 @@ export default function KPIPage() {
           grid-template-columns: 1fr 1fr;
           gap: 28px;
           align-items: start;
+        }
+
+        .kpi-tasks {
+          margin-top: 32px;
         }
 
         .kpi-panel {
@@ -821,5 +958,57 @@ const styles: Record<string, CSSProperties> = {
   topItemCard: {
     borderColor: "rgba(59, 130, 246, 0.45)",
     boxShadow: "0 0 8px rgba(59, 130, 246, 0.15)",
+  },
+  taskCard: {
+    background: FC.surface,
+    border: `1px solid ${FC.border}`,
+    borderRadius: 8,
+    padding: "12px 16px",
+    marginBottom: 6,
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+  },
+  taskMain: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 4,
+  },
+  taskTitle: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: FC.textPrimary,
+  },
+  taskMeta: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap" as const,
+  },
+  taskCustomer: {
+    fontSize: 12,
+    color: FC.textMuted,
+  },
+  taskDue: {
+    fontSize: 12,
+    color: FC.textMuted,
+  },
+  taskDueOverdue: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#f59e0b",
+  },
+  taskCompleteBtn: {
+    padding: "5px 14px",
+    fontSize: 12,
+    fontWeight: 600,
+    border: `1px solid ${FC.accentBlue}`,
+    borderRadius: 5,
+    background: "transparent",
+    color: FC.accentBlue,
+    cursor: "pointer",
+    flexShrink: 0,
   },
 };

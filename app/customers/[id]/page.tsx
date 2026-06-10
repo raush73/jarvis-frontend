@@ -1664,7 +1664,7 @@ export default function CustomerDetailPage() {
         {/* Activity Tab (Phase 16 — unified two-zone Activity System) */}
         {activeTab === "activity" && (
           <div className="activity-panel">
-            <CustomerActivitySection customerId={customerId} refreshKey={activityRefreshKey} />
+            <CustomerActivitySection customerId={customerId} refreshKey={activityRefreshKey} lifecycleStatus={liveCustomer?.lifecycleStatus} />
           </div>
         )}
 

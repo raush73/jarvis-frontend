@@ -3,24 +3,37 @@
 import { useState, useEffect, useCallback } from "react";
 import TaskCreateForm from "./TaskCreateForm";
 import NoteCreateForm from "./NoteCreateForm";
+import FollowUpCreateForm from "./FollowUpCreateForm";
 
-type ActivityTab = "task" | "note";
+type ActivityTab = "followup" | "task" | "note";
 
-const TABS: { key: ActivityTab; label: string }[] = [
-  { key: "task", label: "Task" },
-  { key: "note", label: "Note" },
-];
+// Follow-Up is only available for PROSPECT and CUSTOMER accounts (governance
+// ACTIVITY_SYSTEM §14): leads are Friday-only and create follow-ups via call
+// completion, not from Add Activity.
+function buildTabs(lifecycleStatus?: string | null): { key: ActivityTab; label: string }[] {
+  const tabs: { key: ActivityTab; label: string }[] = [];
+  const status = (lifecycleStatus ?? "").toUpperCase();
+  if (status === "PROSPECT" || status === "CUSTOMER") {
+    tabs.push({ key: "followup", label: "Follow-Up" });
+  }
+  tabs.push({ key: "task", label: "Task" });
+  tabs.push({ key: "note", label: "Note" });
+  return tabs;
+}
 
 export default function AddActivityModal({
   customerId,
+  lifecycleStatus,
   onCreated,
   onClose,
 }: {
   customerId: string;
+  lifecycleStatus?: string | null;
   onCreated: () => void;
   onClose: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<ActivityTab>("task");
+  const TABS = buildTabs(lifecycleStatus);
+  const [activeTab, setActiveTab] = useState<ActivityTab>(TABS[0].key);
 
   const handleCreated = useCallback(() => {
     onCreated();
@@ -62,6 +75,13 @@ export default function AddActivityModal({
         </div>
 
         <div className="modal-body">
+          {activeTab === "followup" && (
+            <FollowUpCreateForm
+              customerId={customerId}
+              onCreated={handleCreated}
+              onCancel={onClose}
+            />
+          )}
           {activeTab === "task" && (
             <TaskCreateForm
               customerId={customerId}

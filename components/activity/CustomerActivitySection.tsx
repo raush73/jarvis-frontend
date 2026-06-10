@@ -22,9 +22,11 @@ const TIMELINE_PAGE_SIZE = 50;
 export default function CustomerActivitySection({
   customerId,
   refreshKey,
+  lifecycleStatus,
 }: {
   customerId: string;
   refreshKey: number;
+  lifecycleStatus?: string | null;
 }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [localRefresh, setLocalRefresh] = useState(0);
@@ -299,6 +301,7 @@ export default function CustomerActivitySection({
       {showAddModal && (
         <AddActivityModal
           customerId={customerId}
+          lifecycleStatus={lifecycleStatus}
           onCreated={handleActivityCreated}
           onClose={() => setShowAddModal(false)}
         />
