@@ -31,6 +31,15 @@ export type RecycleReason =
   | 'NO_TRACTION'
   | 'BETTER_SUITED_OTHER_REP';
 
+// Do-Not-Call reasons (mirror of Prisma DoNotCallReason enum).
+// Only relevant when nextAction is 'do-not-call'.
+export type DoNotCallReason =
+  | 'UNION'
+  | 'OUT_OF_SCOPE_INDUSTRY'
+  | 'BAD_FIT'
+  | 'COMPETITOR'
+  | 'HOSTILE';
+
 export type ConflictResolutionAction =
   | 'reschedule-existing'
   | 'update-existing'
@@ -107,6 +116,8 @@ export interface CompleteCallPayload {
   recyclePayload?: {
     reason: RecycleReason;
   };
+  // Only sent when nextAction is 'do-not-call'.
+  doNotCallReason?: DoNotCallReason;
   conflictResolution?: ResolveConflictPayload;
 }
 
@@ -398,6 +409,22 @@ export const RECYCLE_REASON_LABELS: Record<RecycleReason, string> = {
   NO_TRACTION: 'No traction (10 business days)',
   BETTER_SUITED_OTHER_REP: 'Better suited for another rep (10 business days)',
 };
+
+export const DNC_REASON_LABELS: Record<DoNotCallReason, string> = {
+  UNION: 'Union',
+  OUT_OF_SCOPE_INDUSTRY: 'Out of Scope Industry',
+  BAD_FIT: 'Bad Fit',
+  COMPETITOR: 'Competitor',
+  HOSTILE: 'Hostile',
+};
+
+export const ALL_DNC_REASONS: DoNotCallReason[] = [
+  'UNION',
+  'OUT_OF_SCOPE_INDUSTRY',
+  'BAD_FIT',
+  'COMPETITOR',
+  'HOSTILE',
+];
 
 export const RECYCLE_REASON_BD: Record<RecycleReason, number> = {
   NO_CONTACT: 1,

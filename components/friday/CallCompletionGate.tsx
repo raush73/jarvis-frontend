@@ -8,6 +8,7 @@ import {
   type NextActionType,
   type CallOutcome,
   type RecycleReason,
+  type DoNotCallReason,
   type ConflictResolutionAction,
   type CompanyContact,
   type CompleteCallPayload,
@@ -21,9 +22,11 @@ import {
   CTA_LABELS,
   RECYCLE_REASON_LABELS,
   RECYCLE_REASON_BD,
+  DNC_REASON_LABELS,
   ALL_OUTCOMES,
   ALL_CTAS,
   ALL_RECYCLE_REASONS,
+  ALL_DNC_REASONS,
   ALL_INTENT_TYPES,
 } from './types';
 import * as S from './styles';
@@ -85,6 +88,9 @@ export default function CallCompletionGate({
 
   // Recycle sub-form
   const [recycleReason, setRecycleReason] = useState<RecycleReason | ''>('');
+
+  // Do-not-call sub-form
+  const [dncReason, setDncReason] = useState<DoNotCallReason | ''>('');
 
   // Email draft state
   const [emailDraft, setEmailDraft] = useState<EmailDraft | null>(null);
@@ -196,7 +202,10 @@ export default function CallCompletionGate({
     if (nextAction === 'recycle-lead') {
       return recycleReason !== '';
     }
-    return nextAction === 'do-not-call';
+    if (nextAction === 'do-not-call') {
+      return dncReason !== '';
+    }
+    return false;
   }
 
   async function handleGenerateEmail() {
@@ -335,6 +344,11 @@ export default function CallCompletionGate({
 
     if (nextAction === 'recycle-lead' && recycleReason) {
       payload.recyclePayload = { reason: recycleReason as RecycleReason };
+    }
+
+    if (nextAction === 'do-not-call') {
+      if (!dncReason) { setError('Do Not Call reason is required'); return; }
+      payload.doNotCallReason = dncReason as DoNotCallReason;
     }
 
     setSubmitting(true);
@@ -830,8 +844,24 @@ export default function CallCompletionGate({
         {/* ─── Do Not Call CTA Sub-form ─── */}
         {nextAction === 'do-not-call' && (
           <div style={{ ...S.card, marginTop: 4, borderLeft: `3px solid ${S.FC.accentRed}` }}>
-            <p style={{ color: S.FC.accentRed, fontSize: '0.8125rem' }}>
-              This marks the contact/company as do-not-call. Ensure your call note captures the reason.
+            <h4 style={{ fontSize: '0.8125rem', fontWeight: 600, color: S.FC.accentRed, marginBottom: 12 }}>
+              Do Not Call
+            </h4>
+            <div style={S.fieldGroup}>
+              <label style={S.label}>Reason *</label>
+              <select
+                value={dncReason}
+                onChange={(e) => setDncReason(e.target.value as DoNotCallReason)}
+                style={S.select}
+              >
+                <option value="" style={{ background: '#1a1d24', color: '#fff' }}>Select reason...</option>
+                {ALL_DNC_REASONS.map((r) => (
+                  <option key={r} value={r} style={{ background: '#1a1d24', color: '#fff' }}>{DNC_REASON_LABELS[r]}</option>
+                ))}
+              </select>
+            </div>
+            <p style={{ color: S.FC.accentRed, fontSize: '0.8125rem', marginTop: 4 }}>
+              This marks the company as do-not-call and removes it from the calling queue.
             </p>
           </div>
         )}
