@@ -650,8 +650,19 @@ export default function CustomerDetailPage() {
   const lifecycle = liveCustomer?.lifecycleStatus as string | undefined;
   const canCall = lifecycle === "CUSTOMER" || lifecycle === "PROSPECT";
 
-  const handleStartCall = useCallback(async (contactId?: string) => {
+  const handleStartCall = useCallback(async (contactId?: string, destination?: string) => {
     if (callStarting || activeCallEventId) return;
+
+    // Resolve the dial destination explicitly. A contact-row call must dial the
+    // selected contact's own phone and must NEVER fall back to the company /
+    // header phone. If a contact has no phone on file we refuse to dial rather
+    // than placing a call to the wrong number.
+    const dest = destination?.trim() || "";
+    if (contactId && !dest) {
+      alert("This contact has no phone number on file. Add an office or cell phone before calling.");
+      return;
+    }
+
     setCallStarting(true);
     try {
       const body = contactId ? { contactId } : {};
@@ -661,6 +672,19 @@ export default function CustomerDetailPage() {
       );
       setActiveCallEventId(result.callEventId);
       setActiveCallContactId(contactId ?? null);
+
+      // Place the real Webex call. The CallEvent exists regardless of dial
+      // outcome, so on failure we surface the error but keep the active call so
+      // the rep can still complete/log it via the manual End Call fallback.
+      if (dest) {
+        const dialRes = await fridayFetch<any>(`/webex/calls/dial`, {
+          method: "POST",
+          body: JSON.stringify({ destination: dest, callEventId: result.callEventId }),
+        });
+        if (!dialRes.ok) {
+          alert(`Webex dial failed: ${dialRes.error ?? "unknown error"}`);
+        }
+      }
     } catch (e: any) {
       alert(e?.message ?? "Failed to start call.");
     } finally {
@@ -668,8 +692,11 @@ export default function CustomerDetailPage() {
     }
   }, [callStarting, activeCallEventId, customerId]);
 
-  const handleEndCall = useCallback(async () => {
-    if (!activeCallEventId) return;
+  // Shared opener for the operational completion gate. Loads the same context
+  // (company contacts + open follow-ups) and opens the gate while preserving
+  // activeCallEventId until the completion flow itself clears it. Reused by the
+  // manual End Call button and by Webex disconnect auto-detection.
+  const openCompletionGate = useCallback(async () => {
     setShowCompletionGate(true);
     const [contactsRes, fuRes] = await Promise.all([
       fridayFetch<any[]>(`/friday/contacts/company/${customerId}`),
@@ -677,7 +704,40 @@ export default function CustomerDetailPage() {
     ]);
     if (contactsRes.ok) setCompletionContacts(contactsRes.data ?? []);
     if (fuRes.ok) setCompletionFollowUps(fuRes.data ?? []);
-  }, [activeCallEventId, customerId]);
+  }, [customerId]);
+
+  const handleEndCall = useCallback(async () => {
+    if (!activeCallEventId) return;
+    await openCompletionGate();
+  }, [activeCallEventId, openCompletionGate]);
+
+  // Webex disconnect detection: while a call is active and the completion gate
+  // is not yet open, poll unified call history (~5s) and auto-open the
+  // operational completion gate once the webhook/poller stamps endedAt on the
+  // active CallEvent. No CallSession/queue involvement — CallEvent-only.
+  useEffect(() => {
+    if (!activeCallEventId || showCompletionGate) return;
+    let alive = true;
+    const interval = setInterval(async () => {
+      try {
+        const data = await apiFetch<{ ok: boolean; history: any[] }>(
+          `/customers/${customerId}/call-history`
+        );
+        if (!alive) return;
+        const active = (data.history ?? []).find((c) => c.id === activeCallEventId);
+        if (active && active.endedAt) {
+          await openCompletionGate();
+        }
+      } catch {
+        // Transient poll failures are ignored; the manual End Call fallback and
+        // the next poll tick both still cover completion.
+      }
+    }, 5000);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+    };
+  }, [activeCallEventId, showCompletionGate, customerId, openCompletionGate]);
 
   const handleCompletionDone = useCallback(() => {
     setActiveCallEventId(null);
@@ -1386,7 +1446,7 @@ export default function CustomerDetailPage() {
             <button
               className="op-call-btn"
               disabled={callStarting}
-              onClick={() => handleStartCall()}
+              onClick={() => handleStartCall(undefined, headerPhone ?? undefined)}
             >
               {callStarting ? "Starting..." : "Call"}
             </button>
@@ -1523,13 +1583,22 @@ export default function CustomerDetailPage() {
                       <td className="contact-phone">{contact.cellPhone ? formatPhone(contact.cellPhone) : "—"}</td>
                       <td className="contact-notes">{contact.notes || "—"}</td>
                       <td className="contact-actions">
-                        {canCall && (contact.officePhone || contact.cellPhone) && !activeCallEventId && (
+                        {canCall && (contact.officePhone || "").trim() && !activeCallEventId && (
                           <button
                             className="contact-action-link op-call-inline"
                             disabled={callStarting}
-                            onClick={() => handleStartCall(contact.id)}
+                            onClick={() => handleStartCall(contact.id, (contact.officePhone || "").trim())}
                           >
-                            {callStarting ? "..." : "Call"}
+                            {callStarting ? "..." : "Call Office"}
+                          </button>
+                        )}
+                        {canCall && (contact.cellPhone || "").trim() && !activeCallEventId && (
+                          <button
+                            className="contact-action-link op-call-inline"
+                            disabled={callStarting}
+                            onClick={() => handleStartCall(contact.id, (contact.cellPhone || "").trim())}
+                          >
+                            {callStarting ? "..." : "Call Cell"}
                           </button>
                         )}
                         {activeCallEventId && activeCallContactId === contact.id && (
