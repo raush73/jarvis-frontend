@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Suspense, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
@@ -21,6 +21,29 @@ export default function FridayPage() {
 }
 
 type ManualCallPhase = 'idle' | 'form' | 'in_call' | 'completing';
+
+// Raw shape returned by GET /customer-contacts/customer/:customerId.
+type RawCustomerContact = {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  cellPhone?: string | null;
+  officePhone?: string | null;
+  jobTitle?: string | null;
+};
+
+// Map the customer-contacts API record into the CompanyContact shape the
+// completion gate consumes.
+function toCompanyContacts(rows: RawCustomerContact[]): CompanyContact[] {
+  return rows.map((r) => ({
+    id: r.id,
+    name: `${r.firstName ?? ''} ${r.lastName ?? ''}`.trim() || '(no name)',
+    email: r.email ?? null,
+    phone: r.cellPhone ?? r.officePhone ?? null,
+    title: r.jobTitle ?? null,
+  }));
+}
 
 interface ManualCallState {
   callEventId: string;
@@ -59,22 +82,36 @@ function FridayPageInner() {
   }, []);
 
   const handleManualCallStarted = (result: { callEventId: string; customerId: string; createdLead?: { customerId: string; name: string; phone: string } }) => {
+    const phone = result.createdLead?.phone ?? '';
+
     setManualCall({
       callEventId: result.callEventId,
       customerId: result.customerId,
       companyName: result.createdLead?.name ?? 'Manual Call',
-      phone: result.createdLead?.phone ?? '',
+      phone,
     });
+
     setManualPhase('in_call');
+
+    if (phone) {
+      void fridayFetch('/webex/calls/dial', {
+        method: 'POST',
+        body: JSON.stringify({ destination: phone, callEventId: result.callEventId }),
+      }).then((res) => {
+        if (!res.ok) {
+          alert(`Webex dial failed: ${res.error}`);
+        }
+      });
+    }
   };
 
   const handleManualEndCall = async () => {
     if (!manualCall) return;
     const [cRes, fRes] = await Promise.all([
-      fridayFetch<CompanyContact[]>(`/friday/contacts/company/${manualCall.customerId}`),
+      fridayFetch<RawCustomerContact[]>(`/customer-contacts/customer/${manualCall.customerId}`),
       fridayFetch<FollowUp[]>(`/friday/follow-ups/company/${manualCall.customerId}?status=OPEN`),
     ]);
-    setManualContacts(cRes.ok ? cRes.data : []);
+    setManualContacts(cRes.ok ? toCompanyContacts(cRes.data) : []);
     setManualFollowUps(fRes.ok ? fRes.data : []);
     setManualPhase('completing');
   };
@@ -405,3 +442,7 @@ function FridayPageInner() {
     </div>
   );
 }
+
+
+
+

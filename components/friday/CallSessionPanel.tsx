@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fridayFetch } from './fridayFetch';
@@ -33,6 +33,32 @@ interface CallSessionPanelProps {
   onOpenCompanyDetail?: (customerId: string) => void;
 }
 
+// Raw shape returned by GET /customer-contacts/customer/:customerId.
+type RawCustomerContact = {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  cellPhone?: string | null;
+  officePhone?: string | null;
+  jobTitle?: string | null;
+};
+
+// Map the customer-contacts API record into the CompanyContact shape the
+// completion gate consumes.
+function toCompanyContacts(rows: RawCustomerContact[]): CompanyContact[] {
+  return rows.map((r) => ({
+    id: r.id,
+    name: `${r.firstName ?? ''} ${r.lastName ?? ''}`.trim() || '(no name)',
+    email: r.email ?? null,
+    phone: r.cellPhone ?? r.officePhone ?? null,
+    title: r.jobTitle ?? null,
+  }));
+}
+
+const STATUS_POLL_INTERVAL_MS = 5000;
+const POLLED_PHASES: PanelPhase[] = ['in_call', 'completing', 'blocked'];
+
 export default function CallSessionPanel({ onTargetChange, directTargetCustomerId, onOpenCompanyDetail }: CallSessionPanelProps) {
   const [phase, setPhase] = useState<PanelPhase>('loading');
   const [sessionId, setSessionId] = useState('');
@@ -50,6 +76,8 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
 
   const mountedRef = useRef(true);
   const directConsumedRef = useRef(false);
+  const pollInFlightRef = useRef(false);
+  const autoOpenedCallEventIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -141,16 +169,55 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
 
   const loadContactsAndFollowUps = useCallback(async (customerId: string) => {
     const [cRes, fRes] = await Promise.all([
-      fridayFetch<CompanyContact[]>(`/friday/contacts/company/${customerId}`),
+      fridayFetch<RawCustomerContact[]>(`/customer-contacts/customer/${customerId}`),
       fridayFetch<FollowUp[]>(`/friday/follow-ups/company/${customerId}?status=OPEN`),
     ]);
     if (mountedRef.current) {
-      setContacts(cRes.ok ? cRes.data : []);
+      setContacts(cRes.ok ? toCompanyContacts(cRes.data) : []);
       setFollowUps(fRes.ok ? fRes.data : []);
     }
   }, []);
 
-  // ─── Actions ──────────────────────────────────────────────────────
+  // Poll backend session state while a call is in flight so a backend-driven
+  // IN_CALL -> COMPLETING transition (Webex disconnect detection) auto-opens the
+  // existing completion gate. Only drives the forward transition; never reverts
+  // a locally-opened completing/blocked state back to in_call.
+  useEffect(() => {
+    if (!sessionId || !POLLED_PHASES.includes(phase)) return;
+
+    const pollStatus = async () => {
+      if (pollInFlightRef.current) return;
+      pollInFlightRef.current = true;
+      try {
+        const res = await fridayFetch<SessionStatus>('/friday/call-session/status');
+        if (!mountedRef.current || !res.ok) return;
+
+        const d = res.data;
+        if (
+          d.state === 'COMPLETING' &&
+          d.currentCallEventId &&
+          autoOpenedCallEventIdRef.current !== d.currentCallEventId &&
+          phase === 'in_call'
+        ) {
+          autoOpenedCallEventIdRef.current = d.currentCallEventId;
+          setCallEventId(d.currentCallEventId);
+          const tgt = d.nextTarget ?? target;
+          if (tgt) {
+            setTarget(tgt);
+            await loadContactsAndFollowUps(tgt.customerId);
+          }
+          if (mountedRef.current) setPhase('completing');
+        }
+      } finally {
+        pollInFlightRef.current = false;
+      }
+    };
+
+    const intervalId = setInterval(pollStatus, STATUS_POLL_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [phase, sessionId, target, loadContactsAndFollowUps]);
+
+  // â”€â”€â”€ Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const handleStartSession = async () => {
     setBusy(true);
@@ -182,6 +249,14 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
     if (res.ok) {
       setCallEventId(res.data.callEventId);
       setTarget(res.data.callTarget);
+
+      const phone = res.data.callTarget?.contactPhone ?? "";
+      if (phone) {
+        void fridayFetch('/webex/calls/dial', {
+          method: 'POST',
+          body: JSON.stringify({ destination: phone, callEventId: res.data.callEventId }),
+        });
+      }
       setPhase('in_call');
     } else {
       setError(res.error);
@@ -279,6 +354,7 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
 
   const handleEndCall = async () => {
     if (!target?.customerId) return;
+    if (callEventId) autoOpenedCallEventIdRef.current = callEventId;
     await loadContactsAndFollowUps(target.customerId);
     setPhase('completing');
   };
@@ -317,12 +393,21 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
     if (res.ok) {
       setCallEventId(res.data.callEventId);
       setTarget(res.data.callTarget);
+
+      const phone = res.data.callTarget?.contactPhone ?? "";
+      if (phone) {
+        void fridayFetch('/webex/calls/dial', {
+          method: 'POST',
+          body: JSON.stringify({ destination: phone, callEventId: res.data.callEventId }),
+        });
+      }
       setPhase('blocked');
     }
   };
 
   const handleReopenGate = async () => {
     if (!target?.customerId) return;
+    if (callEventId) autoOpenedCallEventIdRef.current = callEventId;
     await loadContactsAndFollowUps(target.customerId);
     setPhase('completing');
   };
@@ -342,7 +427,7 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
     }
   };
 
-  // ─── Rendering ────────────────────────────────────────────────────
+  // â”€â”€â”€ Rendering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   if (phase === 'loading') {
     return (
@@ -368,11 +453,11 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
         <div style={errorBanner}>{error}</div>
       )}
 
-      {/* IDLE — No session */}
+      {/* IDLE â€” No session */}
       {phase === 'idle' && (
         <div style={panelCard}>
           <div style={emptyState}>
-            <div style={emptyIcon}>📞</div>
+            <div style={emptyIcon}>ðŸ“ž</div>
             <div style={emptyTitle}>Ready to Start Calling</div>
             <div style={emptyDesc}>
               Start a call session to work through your queue. The system will
@@ -389,7 +474,7 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
         </div>
       )}
 
-      {/* READY — Next call target loaded */}
+      {/* READY â€” Next call target loaded */}
       {phase === 'ready' && target && (
         <div style={panelCard}>
           <TargetCard target={target} />
@@ -474,7 +559,7 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
       {phase === 'ready' && !target && (
         <div style={panelCard}>
           <div style={emptyState}>
-            <div style={emptyIcon}>✅</div>
+            <div style={emptyIcon}>âœ…</div>
             <div style={emptyTitle}>Queue Clear</div>
             <div style={emptyDesc}>
               {emptyReason === 'outside_callable_hours'
@@ -485,7 +570,7 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
         </div>
       )}
 
-      {/* IN_CALL — Active call */}
+      {/* IN_CALL â€” Active call */}
       {phase === 'in_call' && target && (
         <div style={{ ...panelCard, borderColor: S.FC.accentGreen }}>
           <div style={activeCallHeader}>
@@ -515,7 +600,7 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
         </div>
       )}
 
-      {/* COMPLETING — CallCompletionGate overlay */}
+      {/* COMPLETING â€” CallCompletionGate overlay */}
       {phase === 'completing' && callEventId && target && (
         <CallCompletionGate
           callEventId={callEventId}
@@ -528,11 +613,11 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
         />
       )}
 
-      {/* BLOCKED — Must complete before continuing */}
+      {/* BLOCKED â€” Must complete before continuing */}
       {phase === 'blocked' && (
         <div style={{ ...panelCard, borderColor: S.FC.accentRed }}>
           <div style={blockedHeader}>
-            <div style={{ fontSize: 24 }}>⚠️</div>
+            <div style={{ fontSize: 24 }}>âš ï¸</div>
             <div>
               <div style={{ fontWeight: 700, color: S.FC.accentRed, fontSize: '0.9375rem' }}>
                 Session Blocked
@@ -567,7 +652,7 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
   );
 }
 
-// ─── Sub-components ─────────────────────────────────────────────────
+// â”€â”€â”€ Sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function TargetCard({ target }: { target: CallTarget }) {
   const bucketColor = BUCKET_COLORS[target.bucket] ?? S.FC.accentBlue;
@@ -620,7 +705,7 @@ function TargetCard({ target }: { target: CallTarget }) {
   );
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function toLocalInputMin(): string {
   const d = new Date();
@@ -652,7 +737,7 @@ function phaseLabel(phase: PanelPhase): string {
   }
 }
 
-// ─── Styles ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import type { CSSProperties } from 'react';
 
@@ -920,3 +1005,6 @@ const companyDetailBtn: CSSProperties = {
   cursor: 'pointer',
   textAlign: 'center' as const,
 };
+
+
+
