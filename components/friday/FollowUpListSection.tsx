@@ -5,9 +5,13 @@ import { fridayFetch } from './fridayFetch';
 import {
   type FollowUp,
   INTENT_LABELS,
+  FOLLOWUP_TYPE_LABELS,
 } from './types';
 import * as S from './styles';
 import { formatDueAt } from './displayHelpers';
+import FollowUpDispositionModal, {
+  type DispositionConfirmPayload,
+} from '../activity/FollowUpDispositionModal';
 
 interface Props {
   followUps: FollowUp[];
@@ -33,13 +37,74 @@ export default function FollowUpListSection({
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
 
-  async function handleComplete(id: string) {
-    setActionError(null);
-    setActionLoading(id);
-    const result = await fridayFetch(`/friday/follow-ups/${id}/complete`, { method: 'PATCH' });
-    setActionLoading(null);
-    if (result.ok) { onRefresh(); return; }
-    setActionError(result.error);
+  const [dispositionId, setDispositionId] = useState<string | null>(null);
+  const [dispositionCustomerId, setDispositionCustomerId] = useState<string | null>(null);
+  const [dispositionBusy, setDispositionBusy] = useState(false);
+  const [dispositionError, setDispositionError] = useState<string | null>(null);
+
+  async function handleConfirmDisposition(payload: DispositionConfirmPayload) {
+    if (!dispositionId) return;
+    setDispositionError(null);
+    setDispositionBusy(true);
+
+    // Replacement-contact workflow: create the replacement contact via the
+    // existing CustomerContacts API, then close the original follow-up and
+    // create a linked replacement follow-up in one complete call.
+    let replacement:
+      | {
+          contactId: string;
+          dueAt: string;
+          hasExplicitTime: boolean;
+          context?: string;
+        }
+      | undefined;
+    if (payload.replacement) {
+      if (!dispositionCustomerId) {
+        setDispositionBusy(false);
+        setDispositionError('Missing customer for replacement contact.');
+        return;
+      }
+      const contactResult = await fridayFetch<{ id: string }>(`/customer-contacts`, {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId: dispositionCustomerId,
+          firstName: payload.replacement.newContact.firstName,
+          lastName: payload.replacement.newContact.lastName,
+          jobTitle: payload.replacement.newContact.jobTitle,
+          email: payload.replacement.newContact.email,
+          cellPhone: payload.replacement.newContact.phone,
+        }),
+      });
+      if (!contactResult.ok) {
+        setDispositionBusy(false);
+        setDispositionError(contactResult.error);
+        return;
+      }
+      replacement = {
+        contactId: contactResult.data.id,
+        dueAt: payload.replacement.dueAt,
+        hasExplicitTime: payload.replacement.hasExplicitTime,
+        context: payload.replacement.context,
+      };
+    }
+
+    const result = await fridayFetch(`/friday/follow-ups/${dispositionId}/complete`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        disposition: payload.disposition,
+        completionNote: payload.completionNote,
+        createNext: payload.createNext,
+        replacement,
+      }),
+    });
+    setDispositionBusy(false);
+    if (result.ok) {
+      setDispositionId(null);
+      setDispositionCustomerId(null);
+      onRefresh();
+      return;
+    }
+    setDispositionError(result.error);
   }
 
   async function handleReschedule(id: string) {
@@ -106,6 +171,7 @@ export default function FollowUpListSection({
         <thead>
           <tr>
             <th style={S.thStyle}>Status</th>
+            <th style={S.thStyle}>Type</th>
             <th style={S.thStyle}>Intent</th>
             <th style={S.thStyle}>Due</th>
             <th style={S.thStyle}>Contact</th>
@@ -120,6 +186,11 @@ export default function FollowUpListSection({
                 <span style={S.statusBadgeStyle(fu.status)}>
                   {fu.status}
                 </span>
+              </td>
+              <td style={S.tdStyle}>
+                {fu.followUpType
+                  ? (FOLLOWUP_TYPE_LABELS[fu.followUpType] ?? fu.followUpType)
+                  : <span style={{ color: S.FC.textFaint }}>—</span>}
               </td>
               <td style={S.tdStyle}>{INTENT_LABELS[fu.intentType] ?? fu.intentType}</td>
               <td style={S.tdStyle}>
@@ -147,7 +218,13 @@ export default function FollowUpListSection({
                   {fu.status === 'OPEN' && (
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                       <button
-                        onClick={() => handleComplete(fu.id)}
+                        onClick={() => {
+                          setDispositionId(fu.id);
+                          setDispositionCustomerId(fu.customerId);
+                          setDispositionError(null);
+                          setRescheduleId(null);
+                          setCancelId(null);
+                        }}
                         disabled={actionLoading === fu.id}
                         style={{ ...S.btnSmall, color: S.FC.accentGreen, borderColor: 'rgba(34,197,94,0.3)' }}
                       >
@@ -260,6 +337,19 @@ export default function FollowUpListSection({
             </button>
           </div>
         </div>
+      )}
+
+      {dispositionId && (
+        <FollowUpDispositionModal
+          busy={dispositionBusy}
+          error={dispositionError}
+          onConfirm={handleConfirmDisposition}
+          onClose={() => {
+            setDispositionId(null);
+            setDispositionCustomerId(null);
+            setDispositionError(null);
+          }}
+        />
       )}
     </div>
   );

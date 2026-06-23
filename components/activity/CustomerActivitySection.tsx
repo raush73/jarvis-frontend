@@ -10,12 +10,17 @@ import {
   OpenActivitiesResponse,
   ACTIVITY_FILTER_TABS,
   ACTIVITY_TYPE_BADGES,
+  FOLLOWUP_TYPE_BADGES,
+  type FollowUpType,
   formatActivityDateTime,
   formatActivityDueDate,
 } from "./types";
 import FullConnectivityPanel from "./FullConnectivityPanel";
 import AddActivityModal from "./AddActivityModal";
 import TaskEditForm from "./TaskEditForm";
+import FollowUpDispositionModal, {
+  DispositionConfirmPayload,
+} from "./FollowUpDispositionModal";
 
 const TIMELINE_PAGE_SIZE = 50;
 
@@ -74,6 +79,168 @@ export default function CustomerActivitySection({
     setEditingTask(null);
     setLocalRefresh((k) => k + 1);
   }, []);
+
+  // ── Follow-up lifecycle (reuses existing FollowUpService endpoints) ──
+  const [followUpActionId, setFollowUpActionId] = useState<string | null>(null);
+  const [followUpActionMode, setFollowUpActionMode] = useState<
+    "reschedule" | "cancel" | null
+  >(null);
+  const [followUpActionLoading, setFollowUpActionLoading] = useState<string | null>(null);
+  const [followUpActionError, setFollowUpActionError] = useState("");
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleTime, setRescheduleTime] = useState("");
+  const [rescheduleReason, setRescheduleReason] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
+
+  // Disposition modal (Complete action)
+  const [dispositionFollowUpId, setDispositionFollowUpId] = useState<string | null>(null);
+  const [dispositionBusy, setDispositionBusy] = useState(false);
+  const [dispositionError, setDispositionError] = useState<string | null>(null);
+
+  const resetFollowUpAction = useCallback(() => {
+    setFollowUpActionId(null);
+    setFollowUpActionMode(null);
+    setFollowUpActionError("");
+    setRescheduleDate("");
+    setRescheduleTime("");
+    setRescheduleReason("");
+    setCancelReason("");
+  }, []);
+
+  const openFollowUpAction = useCallback(
+    (id: string, mode: "reschedule" | "cancel") => {
+      setFollowUpActionId((prev) => (prev === id && followUpActionMode === mode ? null : id));
+      setFollowUpActionMode((prev) =>
+        followUpActionId === id && prev === mode ? null : mode
+      );
+      setFollowUpActionError("");
+      setRescheduleDate("");
+      setRescheduleTime("");
+      setRescheduleReason("");
+      setCancelReason("");
+    },
+    [followUpActionId, followUpActionMode]
+  );
+
+  const openDisposition = useCallback((id: string) => {
+    resetFollowUpAction();
+    setDispositionError(null);
+    setDispositionFollowUpId(id);
+  }, [resetFollowUpAction]);
+
+  const closeDisposition = useCallback(() => {
+    setDispositionFollowUpId(null);
+    setDispositionError(null);
+    setDispositionBusy(false);
+  }, []);
+
+  const handleConfirmDisposition = useCallback(
+    async (payload: DispositionConfirmPayload) => {
+      if (!dispositionFollowUpId) return;
+      setDispositionError(null);
+      setDispositionBusy(true);
+      try {
+        // Replacement-contact workflow: create the replacement contact via the
+        // existing CustomerContacts API, then close the original follow-up and
+        // create a linked replacement follow-up in one complete call.
+        let replacement:
+          | {
+              contactId: string;
+              dueAt: string;
+              hasExplicitTime: boolean;
+              context?: string;
+            }
+          | undefined;
+        if (payload.replacement) {
+          const contact = await apiFetch<{ id: string }>(`/customer-contacts`, {
+            method: "POST",
+            body: JSON.stringify({
+              customerId,
+              firstName: payload.replacement.newContact.firstName,
+              lastName: payload.replacement.newContact.lastName,
+              jobTitle: payload.replacement.newContact.jobTitle,
+              email: payload.replacement.newContact.email,
+              cellPhone: payload.replacement.newContact.phone,
+            }),
+          });
+          replacement = {
+            contactId: contact.id,
+            dueAt: payload.replacement.dueAt,
+            hasExplicitTime: payload.replacement.hasExplicitTime,
+            context: payload.replacement.context,
+          };
+        }
+
+        await apiFetch(`/friday/follow-ups/${dispositionFollowUpId}/complete`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            disposition: payload.disposition,
+            completionNote: payload.completionNote,
+            createNext: payload.createNext,
+            replacement,
+          }),
+        });
+        setDispositionFollowUpId(null);
+        setDispositionBusy(false);
+        setLocalRefresh((k) => k + 1);
+      } catch (e: any) {
+        setDispositionError(e?.message ?? "Failed to complete follow-up.");
+        setDispositionBusy(false);
+      }
+    },
+    [dispositionFollowUpId, customerId]
+  );
+
+  const handleRescheduleFollowUp = useCallback(
+    async (id: string) => {
+      setFollowUpActionError("");
+      if (!rescheduleDate) {
+        setFollowUpActionError("New due date is required.");
+        return;
+      }
+      const newDueAt = rescheduleTime
+        ? new Date(`${rescheduleDate}T${rescheduleTime}`).toISOString()
+        : new Date(`${rescheduleDate}T09:00:00`).toISOString();
+      setFollowUpActionLoading(id);
+      try {
+        await apiFetch(`/friday/follow-ups/${id}/reschedule`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            newDueAt,
+            hasExplicitTime: !!rescheduleTime,
+            reason: rescheduleReason.trim() || undefined,
+          }),
+        });
+        resetFollowUpAction();
+        setLocalRefresh((k) => k + 1);
+      } catch (e: any) {
+        setFollowUpActionError(e?.message ?? "Failed to reschedule follow-up.");
+      } finally {
+        setFollowUpActionLoading(null);
+      }
+    },
+    [rescheduleDate, rescheduleTime, rescheduleReason, resetFollowUpAction]
+  );
+
+  const handleCancelFollowUp = useCallback(
+    async (id: string) => {
+      setFollowUpActionError("");
+      setFollowUpActionLoading(id);
+      try {
+        await apiFetch(`/friday/follow-ups/${id}/cancel`, {
+          method: "PATCH",
+          body: JSON.stringify({ reason: cancelReason.trim() || "Cancelled by user" }),
+        });
+        resetFollowUpAction();
+        setLocalRefresh((k) => k + 1);
+      } catch (e: any) {
+        setFollowUpActionError(e?.message ?? "Failed to cancel follow-up.");
+      } finally {
+        setFollowUpActionLoading(null);
+      }
+    },
+    [cancelReason, resetFollowUpAction]
+  );
 
   const [openItems, setOpenItems] = useState<OpenActivityEntry[]>([]);
   const [openLoading, setOpenLoading] = useState(false);
@@ -193,6 +360,31 @@ export default function CustomerActivitySection({
                   >
                     {ACTIVITY_TYPE_BADGES[item.type]?.label ?? item.type}
                   </span>
+                  {item.type === "FOLLOW_UP" &&
+                    item.metadata?.followUpType &&
+                    FOLLOWUP_TYPE_BADGES[
+                      item.metadata.followUpType as FollowUpType
+                    ] && (
+                      <span
+                        className="oa-type-badge"
+                        style={{
+                          background:
+                            FOLLOWUP_TYPE_BADGES[
+                              item.metadata.followUpType as FollowUpType
+                            ].bg,
+                          color:
+                            FOLLOWUP_TYPE_BADGES[
+                              item.metadata.followUpType as FollowUpType
+                            ].color,
+                        }}
+                      >
+                        {
+                          FOLLOWUP_TYPE_BADGES[
+                            item.metadata.followUpType as FollowUpType
+                          ].label
+                        }
+                      </span>
+                    )}
                   {item.isOverdue && <span className="oa-overdue-badge">Overdue</span>}
                   {item.metadata?.isDueToday && !item.isOverdue && (
                     <span className="oa-due-today-badge">Due Today</span>
@@ -204,6 +396,112 @@ export default function CustomerActivitySection({
                 </div>
                 <div className="oa-title">{item.title}</div>
                 {item.body && <div className="oa-body">{item.body}</div>}
+                {item.type === "FOLLOW_UP" && (
+                  <div className="oa-actions">
+                    <button
+                      className="oa-complete-btn"
+                      disabled={followUpActionLoading === item.id}
+                      onClick={() => openDisposition(item.id)}
+                    >
+                      Complete
+                    </button>
+                    <button
+                      className="oa-edit-btn"
+                      disabled={followUpActionLoading === item.id}
+                      onClick={() => openFollowUpAction(item.id, "reschedule")}
+                    >
+                      Reschedule
+                    </button>
+                    <button
+                      className="oa-cancel-btn"
+                      disabled={followUpActionLoading === item.id}
+                      onClick={() => openFollowUpAction(item.id, "cancel")}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                {item.type === "FOLLOW_UP" &&
+                  followUpActionId === item.id &&
+                  followUpActionMode && (
+                    <div className="fu-action-panel">
+                      {followUpActionError && (
+                        <div className="fu-action-error">{followUpActionError}</div>
+                      )}
+                      {followUpActionMode === "reschedule" && (
+                        <>
+                          <div className="fu-field-row">
+                            <div className="fu-field">
+                              <label className="fu-label">New due date *</label>
+                              <input
+                                type="date"
+                                className="fu-input"
+                                value={rescheduleDate}
+                                onChange={(e) => setRescheduleDate(e.target.value)}
+                              />
+                            </div>
+                            <div className="fu-field">
+                              <label className="fu-label">Time (optional)</label>
+                              <input
+                                type="time"
+                                className="fu-input"
+                                value={rescheduleTime}
+                                onChange={(e) => setRescheduleTime(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <label className="fu-label">Reason (optional)</label>
+                          <input
+                            type="text"
+                            className="fu-input"
+                            value={rescheduleReason}
+                            onChange={(e) => setRescheduleReason(e.target.value)}
+                            placeholder="Why is this being rescheduled?"
+                          />
+                          <div className="fu-action-buttons">
+                            <button
+                              className="fu-confirm-btn"
+                              disabled={followUpActionLoading === item.id}
+                              onClick={() => handleRescheduleFollowUp(item.id)}
+                            >
+                              {followUpActionLoading === item.id
+                                ? "Rescheduling…"
+                                : "Confirm Reschedule"}
+                            </button>
+                            <button className="fu-dismiss-btn" onClick={resetFollowUpAction}>
+                              Cancel
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      {followUpActionMode === "cancel" && (
+                        <>
+                          <label className="fu-label">Reason (optional)</label>
+                          <input
+                            type="text"
+                            className="fu-input"
+                            value={cancelReason}
+                            onChange={(e) => setCancelReason(e.target.value)}
+                            placeholder="Reason for cancellation"
+                          />
+                          <div className="fu-action-buttons">
+                            <button
+                              className="fu-danger-btn"
+                              disabled={followUpActionLoading === item.id}
+                              onClick={() => handleCancelFollowUp(item.id)}
+                            >
+                              {followUpActionLoading === item.id
+                                ? "Cancelling…"
+                                : "Confirm Cancel"}
+                            </button>
+                            <button className="fu-dismiss-btn" onClick={resetFollowUpAction}>
+                              Keep Open
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 {item.type === "TASK" && (
                   <div className="oa-actions">
                     <button
@@ -276,6 +574,31 @@ export default function CustomerActivitySection({
                   >
                     {ACTIVITY_TYPE_BADGES[item.type]?.label ?? item.type}
                   </span>
+                  {item.type === "FOLLOW_UP" &&
+                    item.metadata?.followUpType &&
+                    FOLLOWUP_TYPE_BADGES[
+                      item.metadata.followUpType as FollowUpType
+                    ] && (
+                      <span
+                        className="tl-type-badge"
+                        style={{
+                          background:
+                            FOLLOWUP_TYPE_BADGES[
+                              item.metadata.followUpType as FollowUpType
+                            ].bg,
+                          color:
+                            FOLLOWUP_TYPE_BADGES[
+                              item.metadata.followUpType as FollowUpType
+                            ].color,
+                        }}
+                      >
+                        {
+                          FOLLOWUP_TYPE_BADGES[
+                            item.metadata.followUpType as FollowUpType
+                          ].label
+                        }
+                      </span>
+                    )}
                   {item.status && <span className="tl-status">{item.status}</span>}
                   <span className="tl-user">{item.userName}</span>
                 </div>
@@ -304,6 +627,15 @@ export default function CustomerActivitySection({
           lifecycleStatus={lifecycleStatus}
           onCreated={handleActivityCreated}
           onClose={() => setShowAddModal(false)}
+        />
+      )}
+
+      {dispositionFollowUpId && (
+        <FollowUpDispositionModal
+          busy={dispositionBusy}
+          error={dispositionError}
+          onConfirm={handleConfirmDisposition}
+          onClose={closeDisposition}
         />
       )}
 
@@ -448,6 +780,93 @@ export default function CustomerActivitySection({
         }
         .oa-actions {
           margin-top: 6px;
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+        .fu-action-panel {
+          margin-top: 8px;
+          padding: 10px 12px;
+          background: #f8f9fa;
+          border: 1px solid #e3e8ee;
+          border-radius: 6px;
+        }
+        .fu-action-error {
+          margin-bottom: 6px;
+          color: #c0392b;
+          font-size: 12px;
+        }
+        .fu-label {
+          display: block;
+          font-size: 11px;
+          font-weight: 600;
+          color: #5a6872;
+          margin-bottom: 3px;
+        }
+        .fu-field-row {
+          display: flex;
+          gap: 10px;
+          margin-bottom: 6px;
+        }
+        .fu-field {
+          flex: 1;
+        }
+        .fu-input,
+        .fu-textarea {
+          width: 100%;
+          padding: 6px 8px;
+          border: 1px solid #d0d7de;
+          border-radius: 4px;
+          font-size: 13px;
+          color: #2c3e50;
+          box-sizing: border-box;
+        }
+        .fu-textarea {
+          resize: vertical;
+          font-family: inherit;
+        }
+        .fu-action-buttons {
+          display: flex;
+          gap: 8px;
+          margin-top: 8px;
+        }
+        .fu-confirm-btn {
+          padding: 5px 14px;
+          border: 1px solid #2e7d32;
+          border-radius: 4px;
+          background: #2e7d32;
+          color: #fff;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .fu-confirm-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .fu-danger-btn {
+          padding: 5px 14px;
+          border: 1px solid #c0392b;
+          border-radius: 4px;
+          background: #c0392b;
+          color: #fff;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .fu-danger-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .fu-dismiss-btn {
+          padding: 5px 14px;
+          border: 1px solid #d0d7de;
+          border-radius: 4px;
+          background: #fff;
+          color: #5a6872;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
         }
         .oa-complete-btn {
           padding: 3px 12px;

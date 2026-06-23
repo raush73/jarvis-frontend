@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { fridayFetch } from "../friday/fridayFetch";
+import { FOLLOWUP_TYPE_OPTIONS, type FollowUpType } from "./types";
 
 const INTENT_OPTIONS: { value: string; label: string }[] = [
   { value: "GENERAL", label: "General" },
@@ -23,6 +24,7 @@ export default function FollowUpCreateForm({
   onCancel: () => void;
 }) {
   const [intentType, setIntentType] = useState("GENERAL");
+  const [followUpType, setFollowUpType] = useState<FollowUpType>("TASK");
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
   const [context, setContext] = useState("");
@@ -48,6 +50,7 @@ export default function FollowUpCreateForm({
       body: JSON.stringify({
         customerId,
         intentType,
+        followUpType,
         dueAt: localIso,
         hasExplicitTime,
         context: context.trim(),
@@ -68,21 +71,39 @@ export default function FollowUpCreateForm({
 
   return (
     <div className="followup-create-form">
-      <div className="form-field">
-        <label htmlFor="fu-intent">
-          Intent <span className="required">*</span>
-        </label>
-        <select
-          id="fu-intent"
-          value={intentType}
-          onChange={(e) => setIntentType(e.target.value)}
-        >
-          {INTENT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+      <div className="form-row">
+        <div className="form-field">
+          <label htmlFor="fu-type">
+            Type <span className="required">*</span>
+          </label>
+          <select
+            id="fu-type"
+            value={followUpType}
+            onChange={(e) => setFollowUpType(e.target.value as FollowUpType)}
+          >
+            {FOLLOWUP_TYPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="form-field">
+          <label htmlFor="fu-intent">
+            Intent <span className="required">*</span>
+          </label>
+          <select
+            id="fu-intent"
+            value={intentType}
+            onChange={(e) => setIntentType(e.target.value)}
+          >
+            {INTENT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="form-row">

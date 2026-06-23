@@ -9,6 +9,13 @@ export type FollowUpIntentType =
   | 'INFORMATION_SENT'
   | 'GENERAL';
 
+export type FollowUpType =
+  | 'TASK'
+  | 'RELATIONSHIP_HEALTH'
+  | 'CONTACT_VERIFICATION'
+  | 'COLLECTIONS'
+  | 'DATA_REFRESH';
+
 // New 3-CTA model (locked design)
 export type NextActionType =
   | 'follow-up'
@@ -53,6 +60,7 @@ export interface FollowUp {
   callEventId?: string | null;
   userId: string;
   intentType: FollowUpIntentType;
+  followUpType?: FollowUpType;
   dueAt: string;
   hasExplicitTime: boolean;
   context: string;
@@ -80,6 +88,7 @@ export interface CreateFollowUpPayload {
   contactId?: string;
   callEventId?: string;
   intentType: FollowUpIntentType;
+  followUpType?: FollowUpType;
   dueAt: string;
   hasExplicitTime: boolean;
   context: string;
@@ -387,6 +396,22 @@ export const STATUS_LABELS: Record<FollowUpStatus, string> = {
   MISSED: 'Missed',
   CANCELLED: 'Cancelled',
 };
+
+export const FOLLOWUP_TYPE_LABELS: Record<FollowUpType, string> = {
+  TASK: 'Task',
+  RELATIONSHIP_HEALTH: 'Relationship Health',
+  CONTACT_VERIFICATION: 'Contact Verification',
+  COLLECTIONS: 'Collections',
+  DATA_REFRESH: 'Data Refresh',
+};
+
+export const FOLLOWUP_TYPE_OPTIONS: { value: FollowUpType; label: string }[] = [
+  { value: 'TASK', label: 'Task' },
+  { value: 'RELATIONSHIP_HEALTH', label: 'Relationship Health' },
+  { value: 'CONTACT_VERIFICATION', label: 'Contact Verification' },
+  { value: 'COLLECTIONS', label: 'Collections' },
+  { value: 'DATA_REFRESH', label: 'Data Refresh' },
+];
 
 export const OUTCOME_LABELS: Record<CallOutcome, string> = {
   NO_ANSWER: 'No Answer',

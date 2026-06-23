@@ -49,6 +49,29 @@ export const ACTIVITY_TYPE_BADGES: Record<ActivityType, { label: string; bg: str
   TASK: { label: "Task", bg: "#e8f5e9", color: "#2e7d32" },
 };
 
+export type FollowUpType =
+  | "TASK"
+  | "RELATIONSHIP_HEALTH"
+  | "CONTACT_VERIFICATION"
+  | "COLLECTIONS"
+  | "DATA_REFRESH";
+
+export const FOLLOWUP_TYPE_BADGES: Record<FollowUpType, { label: string; bg: string; color: string }> = {
+  TASK: { label: "Task", bg: "#eceff1", color: "#546e7a" },
+  RELATIONSHIP_HEALTH: { label: "Relationship", bg: "#e8f5e9", color: "#2e7d32" },
+  CONTACT_VERIFICATION: { label: "Verify Contact", bg: "#fff8e1", color: "#b8860b" },
+  COLLECTIONS: { label: "Collections", bg: "#fdecea", color: "#c0392b" },
+  DATA_REFRESH: { label: "Data Refresh", bg: "#e3f2fd", color: "#1565c0" },
+};
+
+export const FOLLOWUP_TYPE_OPTIONS: { value: FollowUpType; label: string }[] = [
+  { value: "TASK", label: "Task" },
+  { value: "RELATIONSHIP_HEALTH", label: "Relationship Health" },
+  { value: "CONTACT_VERIFICATION", label: "Contact Verification" },
+  { value: "COLLECTIONS", label: "Collections" },
+  { value: "DATA_REFRESH", label: "Data Refresh" },
+];
+
 export const LIFECYCLE_BADGES: Record<string, { label: string; bg: string; color: string }> = {
   CUSTOMER: { label: "Customer", bg: "#e8f5e9", color: "#2e7d32" },
   PROSPECT: { label: "Prospect", bg: "#fff3e0", color: "#e67e22" },

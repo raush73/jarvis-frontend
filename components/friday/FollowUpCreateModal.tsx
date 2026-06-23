@@ -5,11 +5,13 @@ import { fridayFetch } from './fridayFetch';
 import {
   type FollowUp,
   type FollowUpIntentType,
+  type FollowUpType,
   type CompanyContact,
   type CreateFollowUpPayload,
   type ConflictResponse,
   INTENT_LABELS,
   ALL_INTENT_TYPES,
+  FOLLOWUP_TYPE_OPTIONS,
 } from './types';
 import * as S from './styles';
 
@@ -32,6 +34,7 @@ export default function FollowUpCreateModal({
 }: Props) {
   const [contactId, setContactId] = useState('');
   const [intentType, setIntentType] = useState<FollowUpIntentType>('CALLBACK');
+  const [followUpType, setFollowUpType] = useState<FollowUpType>('TASK');
   const [dueDate, setDueDate] = useState('');
   const [dueTime, setDueTime] = useState('');
   const [context, setContext] = useState('');
@@ -54,6 +57,7 @@ export default function FollowUpCreateModal({
     const payload: CreateFollowUpPayload = {
       customerId,
       intentType,
+      followUpType,
       dueAt: buildDueAt(),
       hasExplicitTime: !!dueTime,
       context: context.trim(),
@@ -103,6 +107,19 @@ export default function FollowUpCreateModal({
           {contacts.length === 0 && (
             <p style={S.helpText}>No contacts on file. Follow-up will be company-level.</p>
           )}
+        </div>
+
+        <div style={S.fieldGroup}>
+          <label style={S.label}>Type</label>
+          <select
+            value={followUpType}
+            onChange={(e) => setFollowUpType(e.target.value as FollowUpType)}
+            style={S.select}
+          >
+            {FOLLOWUP_TYPE_OPTIONS.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
         </div>
 
         <div style={S.fieldGroup}>

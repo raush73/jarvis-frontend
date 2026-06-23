@@ -31,6 +31,9 @@ import {
 } from './types';
 import * as S from './styles';
 import { formatDueAt } from './displayHelpers';
+import FollowUpDispositionModal, {
+  type DispositionConfirmPayload,
+} from '../activity/FollowUpDispositionModal';
 
 interface Props {
   callEventId: string;
@@ -101,7 +104,19 @@ export default function CallCompletionGate({
   const [emailExpanded, setEmailExpanded] = useState(false);
   const [emailStatus, setEmailStatus] = useState<'idle' | 'approving' | 'approved' | 'discarded'>('idle');
 
-  const openFollowUps = existingFollowUps.filter((fu) => fu.status === 'OPEN');
+  // Contact-issue disposition: lets the rep disposition an EXISTING open
+  // follow-up (e.g. CONTACT_LEFT_COMPANY / WRONG_CONTACT / BAD_NUMBER) without
+  // completing the Friday call itself. Reuses the shared FollowUpDispositionModal
+  // and the same orchestration as FollowUpListSection. Locally dispositioned
+  // follow-ups are excluded from the conflict set so the call flow continues.
+  const [dispositionFollowUpId, setDispositionFollowUpId] = useState<string | null>(null);
+  const [dispositionBusy, setDispositionBusy] = useState(false);
+  const [dispositionError, setDispositionError] = useState<string | null>(null);
+  const [dispositionedIds, setDispositionedIds] = useState<Set<string>>(new Set());
+
+  const openFollowUps = existingFollowUps.filter(
+    (fu) => fu.status === 'OPEN' && !dispositionedIds.has(fu.id),
+  );
   const hasConflict = nextAction === 'follow-up' && openFollowUps.length > 0;
 
   // Load context data
@@ -253,6 +268,62 @@ export default function CallCompletionGate({
     setEmailSubject('');
     setEmailBody('');
     setEmailStatus('discarded');
+  }
+
+  // Disposition an existing open follow-up (contact-issue path). This does NOT
+  // complete the Friday call — it only resolves the follow-up obligation, then
+  // closes the modal and leaves the call completion flow intact.
+  async function handleConfirmDisposition(payload: DispositionConfirmPayload) {
+    if (!dispositionFollowUpId) return;
+    setDispositionError(null);
+    setDispositionBusy(true);
+
+    let replacement:
+      | { contactId: string; dueAt: string; hasExplicitTime: boolean; context?: string }
+      | undefined;
+    if (payload.replacement) {
+      const contactResult = await fridayFetch<{ id: string }>(`/customer-contacts`, {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId,
+          firstName: payload.replacement.newContact.firstName,
+          lastName: payload.replacement.newContact.lastName,
+          jobTitle: payload.replacement.newContact.jobTitle,
+          email: payload.replacement.newContact.email,
+          cellPhone: payload.replacement.newContact.phone,
+        }),
+      });
+      if (!contactResult.ok) {
+        setDispositionBusy(false);
+        setDispositionError(contactResult.error);
+        return;
+      }
+      replacement = {
+        contactId: contactResult.data.id,
+        dueAt: payload.replacement.dueAt,
+        hasExplicitTime: payload.replacement.hasExplicitTime,
+        context: payload.replacement.context,
+      };
+    }
+
+    const result = await fridayFetch(`/friday/follow-ups/${dispositionFollowUpId}/complete`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        disposition: payload.disposition,
+        completionNote: payload.completionNote,
+        createNext: payload.createNext,
+        replacement,
+      }),
+    });
+    setDispositionBusy(false);
+    if (result.ok) {
+      // Exclude the now-resolved follow-up from the conflict set so the call
+      // completion flow continues without a stale "Existing Follow-up" prompt.
+      setDispositionedIds((prev) => new Set(prev).add(dispositionFollowUpId));
+      setDispositionFollowUpId(null);
+      return;
+    }
+    setDispositionError(result.error);
   }
 
   async function handleSubmit() {
@@ -725,6 +796,30 @@ export default function CallCompletionGate({
               {openFollowUps[0].intentType.replace(/_/g, ' ')} — due {formatDueAt(openFollowUps[0].dueAt, openFollowUps[0].hasExplicitTime)}
               {openFollowUps[0].context ? `: ${openFollowUps[0].context.slice(0, 80)}` : ''}
             </p>
+            <button
+              type="button"
+              onClick={() => {
+                setDispositionError(null);
+                setDispositionFollowUpId(openFollowUps[0].id);
+              }}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: 6,
+                border: 'none',
+                background: S.FC.accentBlue,
+                color: '#fff',
+                fontSize: '0.8125rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                marginBottom: 6,
+              }}
+            >
+              Contact Information Issue
+            </button>
+            <p style={{ fontSize: '0.6875rem', color: S.FC.textMuted, marginBottom: 12 }}>
+              Use when the phone number is bad, the contact left the company, or you reached the wrong person.
+            </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
               {([
                 ['update-existing', 'Update existing follow-up'],
@@ -958,6 +1053,18 @@ export default function CallCompletionGate({
             {submitting ? 'Completing...' : 'Complete Call'}
           </button>
         </div>
+
+        {dispositionFollowUpId && (
+          <FollowUpDispositionModal
+            title="Disposition Follow-Up"
+            busy={dispositionBusy}
+            error={dispositionError}
+            onConfirm={handleConfirmDisposition}
+            onClose={() => {
+              if (!dispositionBusy) setDispositionFollowUpId(null);
+            }}
+          />
+        )}
       </div>
     </div>
   );
