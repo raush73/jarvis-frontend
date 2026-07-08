@@ -36,6 +36,7 @@ const MODULE_ACCESS: Record<string, string[]> = {
   customers:    ["admin", "sales", "recruiting", "accounting"],
   employees:    ["admin", "recruiting"],
   "time-entry": ["admin", "accounting", "recruiting"],
+  careers:      ["admin", "hiring_manager"],
 };
 
 export const SESSION_SYNC_EVENT = "jp:session-sync";

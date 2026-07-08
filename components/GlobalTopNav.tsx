@@ -15,6 +15,7 @@ const DOMAINS = [
   { key: "employees", label: "Employees" },
   { key: "time-entry", label: "Time Entry" },
   { key: "accounting", label: "Accounting" },
+  { key: "careers", label: "Careers" },
   { key: "admin", label: "Admin" },
 ];
 

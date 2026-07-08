@@ -43,6 +43,13 @@ const MODULE_TABS: Record<string, { key: string; label: string }[]> = {
     { key: "users", label: "Staff" },
     { key: "settings", label: "Settings" },
   ],
+  careers: [
+    { key: "dashboard", label: "Dashboard" },
+    { key: "positions", label: "Positions" },
+    { key: "postings", label: "Job Postings" },
+    { key: "applicants", label: "Applicants" },
+    { key: "applications", label: "Applications" },
+  ],
 };
 
 const VALID_DOMAINS = Object.keys(MODULE_TABS);
@@ -96,6 +103,11 @@ export default function ModuleTabs() {
       const match = tabs.find((t) => t.key === adminSubpage);
       if (match) return match.key;
     }
+    if (currentDomain === "careers") {
+      const sub = segments.length > 1 ? segments[1] : "dashboard";
+      const match = tabs.find((t) => t.key === sub);
+      return match ? match.key : "dashboard";
+    }
     if (hash && tabs.some((t) => t.key === hash)) return hash;
     return tabs[0]?.key || "";
   })();
@@ -107,6 +119,10 @@ export default function ModuleTabs() {
     }
     if (currentDomain === "admin") {
       router.push(`/admin/${tabKey}`);
+      return;
+    }
+    if (currentDomain === "careers") {
+      router.push(tabKey === "dashboard" ? "/careers" : `/careers/${tabKey}`);
       return;
     }
     if (tabKey === "accountability") {
