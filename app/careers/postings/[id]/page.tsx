@@ -260,6 +260,18 @@ export default function CareersPostingDetailPage() {
         </div>
         <div className="panel-body meta-grid">
           <div className="field">
+            <span className="field-label">Public Application ID</span>
+            {posting.publicCode ? (
+              <p className="field-text">
+                <span className="mono">{posting.publicCode}</span>
+              </p>
+            ) : (
+              <p className="field-empty">
+                Generated when the posting is first published.
+              </p>
+            )}
+          </div>
+          <div className="field">
             <span className="field-label">Public URL Slug</span>
             <p className="field-text">
               <span className="mono">{posting.slug}</span>

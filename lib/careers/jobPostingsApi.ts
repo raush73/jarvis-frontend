@@ -40,6 +40,7 @@ export type JobPosting = {
   status: PostingStatus;
   hiringManagerUserId: string | null;
   createdByUserId: string | null;
+  publicCode: string | null;
   publishedAt: string | null;
   closedAt: string | null;
   createdAt: string;
