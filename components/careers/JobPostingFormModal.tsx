@@ -163,6 +163,7 @@ export function JobPostingFormModal({
         className="pf-modal"
         role="dialog"
         aria-modal="true"
+        aria-label={mode === "create" ? "New Job Posting" : "Edit Job Posting"}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="pf-header">

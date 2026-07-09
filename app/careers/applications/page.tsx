@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CareersShell } from "@/components/careers/CareersShell";
 import { StatusBadge } from "@/components/careers/StatusBadge";
@@ -170,6 +171,7 @@ export default function CareersApplicationsPage() {
           type="search"
           className="control-search"
           placeholder="Search applicant, email, or posting…"
+          aria-label="Search applications"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -289,9 +291,13 @@ export default function CareersApplicationsPage() {
                   onClick={() => router.push(`/careers/applications/${a.id}`)}
                 >
                   <td>
-                    <span className="cell-title">
+                    <Link
+                      href={`/careers/applications/${a.id}`}
+                      className="cell-link"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {applicantName(a.internalApplicant)}
-                    </span>
+                    </Link>
                     <span className="cell-sub">{a.internalApplicant.email}</span>
                   </td>
                   <td>{postingTitle(a.jobPosting)}</td>
@@ -465,10 +471,15 @@ export default function CareersApplicationsPage() {
         .data-row:hover td {
           background: #f9fafb;
         }
-        .cell-title {
-          display: block;
+        .cell-link {
+          display: inline-block;
           font-weight: 600;
           color: #111827;
+          text-decoration: none;
+        }
+        .cell-link:hover {
+          color: #2563eb;
+          text-decoration: underline;
         }
         .cell-sub {
           display: block;

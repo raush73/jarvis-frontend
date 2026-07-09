@@ -151,6 +151,7 @@ export function ApplicationCreateModal({
         className="pf-modal"
         role="dialog"
         aria-modal="true"
+        aria-label="New Application"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="pf-header">

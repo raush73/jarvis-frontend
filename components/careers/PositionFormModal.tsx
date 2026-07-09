@@ -85,6 +85,7 @@ export function PositionFormModal({
         className="pf-modal"
         role="dialog"
         aria-modal="true"
+        aria-label={mode === "create" ? "New Position" : "Edit Position"}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="pf-header">

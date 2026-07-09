@@ -27,7 +27,7 @@ const KPI_PLACEHOLDERS: { key: string; label: string }[] = [
   { key: "hired", label: "Hired / Converted" },
 ];
 
-const RESERVED_NOTE = "Reserved - data wired in a later phase";
+const RESERVED_NOTE = "Reserved \u2014 data wired in a later phase";
 
 export default function CareersDashboardPage() {
   return (
@@ -107,7 +107,7 @@ function PlaceholderRows({ rows }: { rows: number }) {
         </div>
       ))}
       <div className="placeholder-caption">
-        No data yet - this widget populates in a later phase.
+        No data yet — this widget populates in a later phase.
       </div>
 
       <style jsx>{`

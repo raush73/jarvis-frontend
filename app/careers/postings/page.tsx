@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CareersShell } from "@/components/careers/CareersShell";
 import { StatusBadge } from "@/components/careers/StatusBadge";
@@ -217,6 +218,7 @@ export default function CareersPostingsPage() {
           type="search"
           className="control-search"
           placeholder="Search title, position, or location…"
+          aria-label="Search job postings"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -341,7 +343,13 @@ export default function CareersPostingsPage() {
                   onClick={() => router.push(`/careers/postings/${p.id}`)}
                 >
                   <td>
-                    <span className="cell-title">{postingTitle(p)}</span>
+                    <Link
+                      href={`/careers/postings/${p.id}`}
+                      className="cell-link"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {postingTitle(p)}
+                    </Link>
                     {p.visibility === "PUBLIC" ? (
                       <span className="cell-tag">Public</span>
                     ) : null}
@@ -614,9 +622,15 @@ export default function CareersPostingsPage() {
         .data-row:hover td {
           background: #f9fafb;
         }
-        .cell-title {
+        .cell-link {
+          display: inline-block;
           font-weight: 600;
           color: #111827;
+          text-decoration: none;
+        }
+        .cell-link:hover {
+          color: #2563eb;
+          text-decoration: underline;
         }
         .cell-tag {
           display: inline-block;

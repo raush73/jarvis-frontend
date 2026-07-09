@@ -46,6 +46,7 @@ export function StatusTransitionDialog({
         className="st-modal"
         role="dialog"
         aria-modal="true"
+        aria-label={TRANSITION_ACTION_LABELS[toStatus]}
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="st-title">{TRANSITION_ACTION_LABELS[toStatus]}</h3>

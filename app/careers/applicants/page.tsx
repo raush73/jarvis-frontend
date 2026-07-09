@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CareersShell } from "@/components/careers/CareersShell";
 import { ApplicantFormModal } from "@/components/careers/ApplicantFormModal";
@@ -139,6 +140,7 @@ export default function CareersApplicantsPage() {
           type="search"
           className="control-search"
           placeholder="Search name, email, phone, city, or state…"
+          aria-label="Search applicants"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -233,7 +235,13 @@ export default function CareersApplicantsPage() {
                   onClick={() => router.push(`/careers/applicants/${a.id}`)}
                 >
                   <td>
-                    <span className="cell-title">{applicantName(a)}</span>
+                    <Link
+                      href={`/careers/applicants/${a.id}`}
+                      className="cell-link"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {applicantName(a)}
+                    </Link>
                   </td>
                   <td>{a.email}</td>
                   <td>{a.phone ?? "\u2014"}</td>
@@ -414,9 +422,15 @@ export default function CareersApplicantsPage() {
         .data-row:hover td {
           background: #f9fafb;
         }
-        .cell-title {
+        .cell-link {
+          display: inline-block;
           font-weight: 600;
           color: #111827;
+          text-decoration: none;
+        }
+        .cell-link:hover {
+          color: #2563eb;
+          text-decoration: underline;
         }
         .col-actions {
           text-align: right;

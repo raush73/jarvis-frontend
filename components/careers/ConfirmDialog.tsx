@@ -37,6 +37,7 @@ export function ConfirmDialog({
         className="cd-modal"
         role="dialog"
         aria-modal="true"
+        aria-label={title}
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="cd-title">{title}</h3>

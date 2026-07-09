@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CareersShell } from "@/components/careers/CareersShell";
 import {
@@ -173,6 +174,7 @@ export default function CareersPositionsPage() {
           type="search"
           className="control-search"
           placeholder="Search title or department…"
+          aria-label="Search positions"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -277,7 +279,13 @@ export default function CareersPositionsPage() {
                   onClick={() => router.push(`/careers/positions/${p.id}`)}
                 >
                   <td>
-                    <span className="cell-title">{p.title}</span>
+                    <Link
+                      href={`/careers/positions/${p.id}`}
+                      className="cell-link"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {p.title}
+                    </Link>
                   </td>
                   <td>{p.department ?? "\u2014"}</td>
                   <td>
@@ -517,9 +525,15 @@ export default function CareersPositionsPage() {
         .data-row:hover td {
           background: #f9fafb;
         }
-        .cell-title {
+        .cell-link {
+          display: inline-block;
           font-weight: 600;
           color: #111827;
+          text-decoration: none;
+        }
+        .cell-link:hover {
+          color: #2563eb;
+          text-decoration: underline;
         }
         .cell-muted {
           font-size: 12px;

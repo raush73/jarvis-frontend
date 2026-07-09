@@ -97,6 +97,7 @@ export function ApplicantFormModal({
         className="pf-modal"
         role="dialog"
         aria-modal="true"
+        aria-label={mode === "create" ? "New Applicant" : "Edit Applicant"}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="pf-header">
