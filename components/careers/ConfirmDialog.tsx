@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode } from "react";
+import { useDialogA11y } from "./useDialogA11y";
 
 /**
  * Jarvis Careers - reusable confirmation modal (Industrial Light V1).
@@ -29,11 +30,19 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const dialogRef = useDialogA11y<HTMLDivElement>({
+    open,
+    onClose: onCancel,
+    busy,
+  });
+
   if (!open) return null;
 
   return (
     <div className="cd-overlay" onClick={busy ? undefined : onCancel}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="cd-modal"
         role="dialog"
         aria-modal="true"

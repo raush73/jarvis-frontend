@@ -20,6 +20,7 @@ import {
   listApplicants,
 } from "@/lib/careers/applicantsApi";
 import { getApiErrorMessage } from "@/lib/careers/errors";
+import { useDialogA11y } from "./useDialogA11y";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -96,6 +97,12 @@ export function ApplicationCreateModal({
     };
   }, [open]);
 
+  const dialogRef = useDialogA11y<HTMLDivElement>({
+    open,
+    onClose,
+    busy: saving,
+  });
+
   if (!open) return null;
 
   const emailValid = EMAIL_RE.test(email.trim());
@@ -148,6 +155,8 @@ export function ApplicationCreateModal({
   return (
     <div className="pf-overlay" onClick={saving ? undefined : onClose}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="pf-modal"
         role="dialog"
         aria-modal="true"
@@ -179,6 +188,7 @@ export function ApplicationCreateModal({
               value={jobPostingId}
               onChange={(e) => setJobPostingId(e.target.value)}
               disabled={postingsLoading}
+              data-autofocus
             >
               <option value="">
                 {postingsLoading

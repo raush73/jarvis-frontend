@@ -16,6 +16,7 @@ import {
 import { Position, listPositions } from "@/lib/careers/positionsApi";
 import { getApiErrorMessage } from "@/lib/careers/errors";
 import { StaffSelect } from "./StaffSelect";
+import { useDialogA11y } from "./useDialogA11y";
 
 /**
  * Jarvis Careers - Create / Edit Job Posting dialog (Industrial Light V1).
@@ -115,6 +116,12 @@ export function JobPostingFormModal({
     };
   }, [open, posting]);
 
+  const dialogRef = useDialogA11y<HTMLDivElement>({
+    open,
+    onClose,
+    busy: saving,
+  });
+
   if (!open) return null;
 
   const canSave = positionId.trim().length > 0 && !saving;
@@ -160,6 +167,8 @@ export function JobPostingFormModal({
   return (
     <div className="pf-overlay" onClick={saving ? undefined : onClose}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="pf-modal"
         role="dialog"
         aria-modal="true"
@@ -191,6 +200,7 @@ export function JobPostingFormModal({
               value={positionId}
               onChange={(e) => setPositionId(e.target.value)}
               disabled={positionLocked || positionsLoading}
+              data-autofocus
             >
               <option value="">
                 {positionsLoading ? "Loading positions…" : "Select a position…"}

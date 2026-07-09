@@ -8,6 +8,7 @@ import {
   updatePosition,
 } from "@/lib/careers/positionsApi";
 import { getApiErrorMessage } from "@/lib/careers/errors";
+import { useDialogA11y } from "./useDialogA11y";
 
 /**
  * Jarvis Careers - Create / Edit Position dialog (Industrial Light V1).
@@ -49,6 +50,12 @@ export function PositionFormModal({
     setError(null);
   }, [open, mode, position]);
 
+  const dialogRef = useDialogA11y<HTMLDivElement>({
+    open,
+    onClose,
+    busy: saving,
+  });
+
   if (!open) return null;
 
   const canSave = title.trim().length > 0 && !saving;
@@ -82,6 +89,8 @@ export function PositionFormModal({
   return (
     <div className="pf-overlay" onClick={saving ? undefined : onClose}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="pf-modal"
         role="dialog"
         aria-modal="true"
@@ -114,7 +123,7 @@ export function PositionFormModal({
               onChange={(e) => setTitle(e.target.value)}
               maxLength={200}
               placeholder="e.g. Staff Accountant"
-              autoFocus
+              data-autofocus
             />
           </label>
 

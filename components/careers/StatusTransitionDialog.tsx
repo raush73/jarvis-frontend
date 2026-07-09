@@ -7,6 +7,7 @@ import {
   TRANSITION_ACTION_LABELS,
   isDestructiveTransition,
 } from "@/lib/careers/applicationsApi";
+import { useDialogA11y } from "./useDialogA11y";
 
 /**
  * Jarvis Careers - Application status-transition dialog.
@@ -36,6 +37,12 @@ export function StatusTransitionDialog({
   // `key` tied to the target status (avoids a reset-in-effect anti-pattern).
   const [reviewNote, setReviewNote] = useState("");
 
+  const dialogRef = useDialogA11y<HTMLDivElement>({
+    open,
+    onClose: onCancel,
+    busy,
+  });
+
   if (!open || !toStatus) return null;
 
   const danger = isDestructiveTransition(toStatus);
@@ -43,6 +50,8 @@ export function StatusTransitionDialog({
   return (
     <div className="st-overlay" onClick={busy ? undefined : onCancel}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="st-modal"
         role="dialog"
         aria-modal="true"
