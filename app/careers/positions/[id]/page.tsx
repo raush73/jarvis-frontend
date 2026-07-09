@@ -17,6 +17,7 @@ import {
   deactivatePosition,
   getPosition,
 } from "@/lib/careers/positionsApi";
+import { employmentTypeLabel } from "@/lib/careers/jobPostingsApi";
 
 export default function CareersPositionDetailPage() {
   const params = useParams<{ id: string }>();
@@ -210,6 +211,41 @@ export default function CareersPositionDetailPage() {
         </div>
       </section>
 
+      {/* Position Defaults panel */}
+      <section className="panel panel-spaced">
+        <div className="panel-header">
+          <h2>Position Defaults</h2>
+        </div>
+        <div className="panel-body">
+          <div className="field">
+            <span className="field-label">Standard Responsibilities</span>
+            {position.standardResponsibilities ? (
+              <p className="field-text">{position.standardResponsibilities}</p>
+            ) : (
+              <p className="field-empty">
+                No standard responsibilities provided.
+              </p>
+            )}
+          </div>
+          <div className="field">
+            <span className="field-label">Standard Qualifications</span>
+            {position.standardQualifications ? (
+              <p className="field-text">{position.standardQualifications}</p>
+            ) : (
+              <p className="field-empty">
+                No standard qualifications provided.
+              </p>
+            )}
+          </div>
+          <div className="field">
+            <span className="field-label">Default Employment Type</span>
+            <p className="field-text">
+              {employmentTypeLabel(position.defaultEmploymentType)}
+            </p>
+          </div>
+        </div>
+      </section>
+
       <PositionFormModal
         open={editOpen}
         mode="edit"
@@ -318,6 +354,9 @@ export default function CareersPositionDetailPage() {
           border: 1px solid #e5e7eb;
           border-radius: 10px;
           overflow: hidden;
+        }
+        .panel-spaced {
+          margin-top: 18px;
         }
         .panel-header {
           padding: 14px 16px;

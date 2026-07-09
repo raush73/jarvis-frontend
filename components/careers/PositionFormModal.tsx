@@ -7,6 +7,11 @@ import {
   createPosition,
   updatePosition,
 } from "@/lib/careers/positionsApi";
+import {
+  EMPLOYMENT_TYPES,
+  EMPLOYMENT_TYPE_LABELS,
+  EmploymentType,
+} from "@/lib/careers/jobPostingsApi";
 import { getApiErrorMessage } from "@/lib/careers/errors";
 import { useDialogA11y } from "./useDialogA11y";
 
@@ -30,6 +35,11 @@ export function PositionFormModal({
   const [title, setTitle] = useState("");
   const [department, setDepartment] = useState("");
   const [description, setDescription] = useState("");
+  const [standardResponsibilities, setStandardResponsibilities] = useState("");
+  const [standardQualifications, setStandardQualifications] = useState("");
+  const [defaultEmploymentType, setDefaultEmploymentType] = useState<
+    EmploymentType | ""
+  >("");
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,11 +50,17 @@ export function PositionFormModal({
       setTitle(position.title ?? "");
       setDepartment(position.department ?? "");
       setDescription(position.description ?? "");
+      setStandardResponsibilities(position.standardResponsibilities ?? "");
+      setStandardQualifications(position.standardQualifications ?? "");
+      setDefaultEmploymentType(position.defaultEmploymentType ?? "");
       setIsActive(position.isActive);
     } else {
       setTitle("");
       setDepartment("");
       setDescription("");
+      setStandardResponsibilities("");
+      setStandardQualifications("");
+      setDefaultEmploymentType("");
       setIsActive(true);
     }
     setError(null);
@@ -71,6 +87,12 @@ export function PositionFormModal({
       title: title.trim(),
       department: department.trim() || undefined,
       description: description.trim() || undefined,
+      // Position Defaults support explicit clearing: an emptied field is sent as
+      // null so the backend removes the stored value (unlike the legacy V1
+      // description field, which is intentionally left unchanged when empty).
+      standardResponsibilities: standardResponsibilities.trim() || null,
+      standardQualifications: standardQualifications.trim() || null,
+      defaultEmploymentType: defaultEmploymentType || null,
       isActive,
     };
     try {
@@ -148,6 +170,56 @@ export function PositionFormModal({
               rows={5}
               placeholder={"Role summary, responsibilities, requirements\u2026"}
             />
+          </label>
+
+          <div className="pf-section">
+            <span className="pf-section-title">Position Defaults</span>
+            <span className="pf-section-hint">
+              Reusable defaults for this role. Used to speed up future job
+              postings created from this position.
+            </span>
+          </div>
+
+          <label className="pf-field">
+            <span className="pf-label">Standard Responsibilities</span>
+            <textarea
+              className="pf-textarea"
+              value={standardResponsibilities}
+              onChange={(e) => setStandardResponsibilities(e.target.value)}
+              maxLength={5000}
+              rows={4}
+              placeholder={"Typical responsibilities for this role\u2026"}
+            />
+          </label>
+
+          <label className="pf-field">
+            <span className="pf-label">Standard Qualifications</span>
+            <textarea
+              className="pf-textarea"
+              value={standardQualifications}
+              onChange={(e) => setStandardQualifications(e.target.value)}
+              maxLength={5000}
+              rows={4}
+              placeholder={"Typical qualifications / requirements\u2026"}
+            />
+          </label>
+
+          <label className="pf-field">
+            <span className="pf-label">Default Employment Type</span>
+            <select
+              className="pf-input"
+              value={defaultEmploymentType}
+              onChange={(e) =>
+                setDefaultEmploymentType(e.target.value as EmploymentType | "")
+              }
+            >
+              <option value="">No default</option>
+              {EMPLOYMENT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {EMPLOYMENT_TYPE_LABELS[t]}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="pf-check">
@@ -258,6 +330,25 @@ export function PositionFormModal({
           }
           .pf-req {
             color: #dc2626;
+          }
+          .pf-section {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding-top: 6px;
+            margin-top: 2px;
+            border-top: 1px solid #f1f5f9;
+          }
+          .pf-section-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #111827;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+          }
+          .pf-section-hint {
+            font-size: 11.5px;
+            color: #9ca3af;
           }
           .pf-input,
           .pf-textarea {

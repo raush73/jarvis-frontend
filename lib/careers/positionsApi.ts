@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { EmploymentType } from "./jobPostingsApi";
 
 /**
  * Jarvis Careers - Position API client (Phase 3 backend: /careers/positions).
@@ -10,6 +11,10 @@ export type Position = {
   title: string;
   department: string | null;
   description: string | null;
+  // Position Defaults (V2.1.1)
+  standardResponsibilities: string | null;
+  standardQualifications: string | null;
+  defaultEmploymentType: EmploymentType | null;
   isActive: boolean;
   createdByUserId: string | null;
   createdAt: string;
@@ -27,6 +32,9 @@ export type PositionInput = {
   title: string;
   department?: string;
   description?: string;
+  standardResponsibilities?: string | null;
+  standardQualifications?: string | null;
+  defaultEmploymentType?: EmploymentType | null;
   isActive?: boolean;
 };
 
