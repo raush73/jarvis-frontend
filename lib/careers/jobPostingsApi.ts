@@ -34,6 +34,10 @@ export type JobPosting = {
   title: string | null;
   slug: string;
   description: string | null;
+  // Position Defaults snapshot (V2.1.2b): copied from the Position at creation.
+  department: string | null;
+  responsibilities: string | null;
+  qualifications: string | null;
   location: string | null;
   employmentType: EmploymentType | null;
   visibility: PostingVisibility;

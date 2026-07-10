@@ -27,12 +27,17 @@ export function JobPostingFormModal({
   open,
   mode,
   posting,
+  fromPosition,
   onClose,
   onSaved,
 }: {
   open: boolean;
   mode: "create" | "edit";
   posting?: JobPosting | null;
+  // V2.1.2b: when a posting is created from a Position, the caller passes the
+  // source Position so the form can prefill from its (editable) Position
+  // Defaults. The authoritative snapshot is still taken server-side at create.
+  fromPosition?: Position | null;
   onClose: () => void;
   onSaved: (saved: JobPosting) => void;
 }) {
@@ -53,6 +58,17 @@ export function JobPostingFormModal({
   // positionId can only be changed while a posting is in DRAFT (backend rule).
   const positionLocked = mode === "edit" && posting != null && posting.status !== "DRAFT";
 
+  // V2.1.2b: the currently chosen Position (used to preview which defaults will
+  // be snapshotted into a new posting).
+  const selectedPosition = positions.find((p) => p.id === positionId) ?? null;
+  const snapshotFields =
+    mode === "create" && selectedPosition
+      ? [
+          selectedPosition.standardResponsibilities ? "responsibilities" : null,
+          selectedPosition.standardQualifications ? "qualifications" : null,
+        ].filter(Boolean)
+      : [];
+
   useEffect(() => {
     if (!open) return;
     if (mode === "edit" && posting) {
@@ -64,16 +80,19 @@ export function JobPostingFormModal({
       setHiringManagerUserId(posting.hiringManagerUserId ?? "");
       setDescription(posting.description ?? "");
     } else {
-      setPositionId("");
-      setTitle("");
+      // Create mode. When launched from a Position, prefill from its Position
+      // Defaults (editable); these are only for UX — the persisted snapshot is
+      // taken server-side from the Position at create time.
+      setPositionId(fromPosition?.id ?? "");
+      setTitle(fromPosition?.title ?? "");
       setLocation("");
-      setEmploymentType("");
+      setEmploymentType(fromPosition?.defaultEmploymentType ?? "");
       setVisibility("INTERNAL");
       setHiringManagerUserId("");
       setDescription("");
     }
     setError(null);
-  }, [open, mode, posting]);
+  }, [open, mode, posting, fromPosition]);
 
   // Load active positions for the picker whenever the dialog opens.
   useEffect(() => {
@@ -201,7 +220,18 @@ export function JobPostingFormModal({
             <select
               className="pf-input"
               value={positionId}
-              onChange={(e) => setPositionId(e.target.value)}
+              onChange={(e) => {
+                const nextId = e.target.value;
+                setPositionId(nextId);
+                // V2.1.2b: prefill posting fields from the chosen Position's
+                // Defaults (create mode only). Editable; server snapshots the
+                // authoritative values at create.
+                if (mode === "create") {
+                  const chosen = positions.find((p) => p.id === nextId);
+                  setTitle(chosen?.title ?? "");
+                  setEmploymentType(chosen?.defaultEmploymentType ?? "");
+                }
+              }}
               disabled={positionLocked || positionsLoading}
               data-autofocus
             >
@@ -219,6 +249,11 @@ export function JobPostingFormModal({
             {positionLocked ? (
               <span className="pf-hint">
                 Position can only be changed while the posting is a draft.
+              </span>
+            ) : snapshotFields.length > 0 ? (
+              <span className="pf-hint">
+                The position&rsquo;s {snapshotFields.join(" & ")} will be copied
+                into this posting as a snapshot.
               </span>
             ) : null}
           </label>

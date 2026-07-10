@@ -208,6 +208,10 @@ export default function CareersPostingDetailPage() {
           </span>
         </div>
         <div className="summary-card">
+          <span className="summary-label">Department</span>
+          <span className="summary-value">{posting.department ?? "—"}</span>
+        </div>
+        <div className="summary-card">
           <span className="summary-label">Employment Type</span>
           <span className="summary-value">
             {employmentTypeLabel(posting.employmentType)}
@@ -251,6 +255,32 @@ export default function CareersPostingDetailPage() {
           ) : (
             <p className="field-empty">No description provided.</p>
           )}
+        </div>
+      </section>
+
+      {/* V2.1.2b: Position Defaults snapshot captured at posting creation. These
+          values belong to the posting and are unaffected by later Position edits. */}
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Role Details</h2>
+        </div>
+        <div className="panel-body meta-grid">
+          <div className="field">
+            <span className="field-label">Responsibilities</span>
+            {posting.responsibilities ? (
+              <p className="field-text">{posting.responsibilities}</p>
+            ) : (
+              <p className="field-empty">No responsibilities captured.</p>
+            )}
+          </div>
+          <div className="field">
+            <span className="field-label">Qualifications</span>
+            {posting.qualifications ? (
+              <p className="field-text">{posting.qualifications}</p>
+            ) : (
+              <p className="field-empty">No qualifications captured.</p>
+            )}
+          </div>
         </div>
       </section>
 

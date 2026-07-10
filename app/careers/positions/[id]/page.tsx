@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { CareersShell } from "@/components/careers/CareersShell";
 import {
   StatusBadge,
   positionStatusTone,
 } from "@/components/careers/StatusBadge";
 import { PositionFormModal } from "@/components/careers/PositionFormModal";
+import { JobPostingFormModal } from "@/components/careers/JobPostingFormModal";
 import { ConfirmDialog } from "@/components/careers/ConfirmDialog";
 import { formatDateTime } from "@/lib/careers/format";
 import { getApiErrorMessage } from "@/lib/careers/errors";
@@ -21,6 +22,7 @@ import { employmentTypeLabel } from "@/lib/careers/jobPostingsApi";
 
 export default function CareersPositionDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const id = params?.id;
 
   const [position, setPosition] = useState<Position | null>(null);
@@ -30,6 +32,7 @@ export default function CareersPositionDetailPage() {
   const [busy, setBusy] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
+  const [postingOpen, setPostingOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
@@ -122,6 +125,15 @@ export default function CareersPositionDetailPage() {
             label={position.isActive ? "Active" : "Inactive"}
             tone={positionStatusTone(position.isActive)}
           />
+          {position.isActive ? (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => setPostingOpen(true)}
+            >
+              Create Job Posting
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn-secondary"
@@ -257,6 +269,19 @@ export default function CareersPositionDetailPage() {
         }}
       />
 
+      {/* V2.1.2b: create a Job Posting from this Position. The new posting takes
+          a snapshot of the Position Defaults server-side at create. */}
+      <JobPostingFormModal
+        open={postingOpen}
+        mode="create"
+        fromPosition={position}
+        onClose={() => setPostingOpen(false)}
+        onSaved={(saved) => {
+          setPostingOpen(false);
+          router.push(`/careers/postings/${saved.id}`);
+        }}
+      />
+
       <ConfirmDialog
         open={confirmOpen}
         title="Deactivate position"
@@ -278,6 +303,23 @@ export default function CareersPositionDetailPage() {
       />
 
       <style jsx>{`
+        .btn-primary {
+          background: #2563eb;
+          color: #ffffff;
+          border: none;
+          border-radius: 7px;
+          padding: 8px 14px;
+          font-size: 13px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .btn-primary:hover:not(:disabled) {
+          background: #1d4ed8;
+        }
+        .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
         .btn-secondary {
           background: #ffffff;
           color: #374151;
