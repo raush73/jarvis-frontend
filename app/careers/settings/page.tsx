@@ -257,6 +257,7 @@ function toDraft(c: CareersApplicationConfig): CareersApplicationConfigInput {
     requireFacebookUrl: c.requireFacebookUrl,
     requireLinkedinUrl: c.requireLinkedinUrl,
     requireResume: c.requireResume,
+    collectCompensationHistory: c.collectCompensationHistory,
   };
 }
 

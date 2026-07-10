@@ -19,6 +19,7 @@ export type CareersApplicationConfig = {
   requireFacebookUrl: boolean;
   requireLinkedinUrl: boolean;
   requireResume: boolean;
+  collectCompensationHistory: boolean;
   updatedByUserId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -34,6 +35,21 @@ export type CareersApplicationConfigInput = {
   requireFacebookUrl?: boolean;
   requireLinkedinUrl?: boolean;
   requireResume?: boolean;
+  collectCompensationHistory?: boolean;
+};
+
+/** Public-safe subset returned by the unauthenticated /careers/public/config. */
+export type PublicCareersApplicationConfig = {
+  requirePhone: boolean;
+  requireLocation: boolean;
+  requireProfessionalSummary: boolean;
+  requireCurrentProfession: boolean;
+  requireDesiredProfession: boolean;
+  requireLongTermGoals: boolean;
+  requireFacebookUrl: boolean;
+  requireLinkedinUrl: boolean;
+  requireResume: boolean;
+  collectCompensationHistory: boolean;
 };
 
 /** Ordered field descriptors for rendering the admin config UI. */
@@ -83,10 +99,24 @@ export const CAREERS_CONFIG_FIELDS: {
     label: "Resume",
     hint: "Require a resume attachment (always supplemental to the profile).",
   },
+  {
+    key: "collectCompensationHistory",
+    label: "Collect Compensation History",
+    hint: "Show compensation fields (starting/ending pay and type) on Work History.",
+  },
 ];
 
 export async function getCareersConfig(): Promise<CareersApplicationConfig> {
   return apiFetch<CareersApplicationConfig>(`/careers/config`);
+}
+
+/**
+ * Reads the public-safe config (required flags + compensation visibility).
+ * Usable by any authenticated staff screen without the admin role, since it hits
+ * the unauthenticated /careers/public/config projection.
+ */
+export async function getPublicCareersConfig(): Promise<PublicCareersApplicationConfig> {
+  return apiFetch<PublicCareersApplicationConfig>(`/careers/public/config`);
 }
 
 export async function updateCareersConfig(

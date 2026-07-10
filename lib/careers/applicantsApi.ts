@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import type { WorkHistoryEntry } from "@/lib/careers/workHistoryApi";
 
 /**
  * Jarvis Careers - InternalApplicant API client (Phase 6 backend:
@@ -32,6 +33,8 @@ export type Applicant = {
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  // Included by the detail (findOne) endpoint only (V2.1.5B).
+  workHistory?: WorkHistoryEntry[];
 };
 
 export type ApplicantListResponse = {
