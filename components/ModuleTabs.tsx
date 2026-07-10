@@ -49,6 +49,7 @@ const MODULE_TABS: Record<string, { key: string; label: string }[]> = {
     { key: "postings", label: "Job Postings" },
     { key: "applicants", label: "Applicants" },
     { key: "applications", label: "Applications" },
+    { key: "review", label: "Review" },
   ],
 };
 
