@@ -20,10 +20,11 @@ import {
   getJobPosting,
   postingStatusTone,
   postingTitle,
+  publicApplicationUrl,
   publishJobPosting,
 } from "@/lib/careers/jobPostingsApi";
 
-type LifecycleAction = "close" | "fill";
+type LifecycleAction = "publish" | "close" | "fill";
 
 export default function CareersPostingDetailPage() {
   const params = useParams<{ id: string }>();
@@ -33,8 +34,6 @@ export default function CareersPostingDetailPage() {
   const [posting, setPosting] = useState<JobPosting | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<LifecycleAction | null>(
@@ -61,38 +60,27 @@ export default function CareersPostingDetailPage() {
     load();
   }, [load]);
 
-  const handlePublish = async () => {
-    if (!posting) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      const updated = await publishJobPosting(posting.id);
-      setPosting(updated);
-    } catch (e) {
-      setActionError(getApiErrorMessage(e, "Failed to publish posting."));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleConfirmLifecycle = async () => {
     if (!posting || !confirmAction) return;
     setConfirmBusy(true);
     setConfirmError(null);
     try {
       const updated =
-        confirmAction === "close"
-          ? await closeJobPosting(posting.id)
-          : await fillJobPosting(posting.id);
+        confirmAction === "publish"
+          ? await publishJobPosting(posting.id)
+          : confirmAction === "close"
+            ? await closeJobPosting(posting.id)
+            : await fillJobPosting(posting.id);
       setPosting(updated);
       setConfirmAction(null);
     } catch (e) {
-      setConfirmError(
-        getApiErrorMessage(
-          e,
-          `Failed to ${confirmAction === "close" ? "close" : "fill"} posting.`,
-        ),
-      );
+      const verb =
+        confirmAction === "publish"
+          ? "publish"
+          : confirmAction === "close"
+            ? "close"
+            : "fill";
+      setConfirmError(getApiErrorMessage(e, `Failed to ${verb} posting.`));
     } finally {
       setConfirmBusy(false);
     }
@@ -133,6 +121,7 @@ export default function CareersPostingDetailPage() {
   }
 
   const isTerminal = posting.status === "CLOSED" || posting.status === "FILLED";
+  const publicUrl = publicApplicationUrl(posting);
 
   return (
     <CareersShell
@@ -157,17 +146,18 @@ export default function CareersPostingDetailPage() {
             <button
               type="button"
               className="btn-primary"
-              disabled={busy}
-              onClick={handlePublish}
+              onClick={() => {
+                setConfirmError(null);
+                setConfirmAction("publish");
+              }}
             >
-              {busy ? "Working…" : "Publish"}
+              Publish
             </button>
           ) : null}
           {posting.status === "OPEN" ? (
             <button
               type="button"
               className="btn-primary"
-              disabled={busy}
               onClick={() => {
                 setConfirmError(null);
                 setConfirmAction("fill");
@@ -180,7 +170,6 @@ export default function CareersPostingDetailPage() {
             <button
               type="button"
               className="btn-danger"
-              disabled={busy}
               onClick={() => {
                 setConfirmError(null);
                 setConfirmAction("close");
@@ -192,8 +181,6 @@ export default function CareersPostingDetailPage() {
         </>
       }
     >
-      {actionError ? <div className="action-error">{actionError}</div> : null}
-
       <div className="summary-row">
         <div className="summary-card">
           <span className="summary-label">Status</span>
@@ -302,6 +289,23 @@ export default function CareersPostingDetailPage() {
             )}
           </div>
           <div className="field">
+            <span className="field-label">Public Application URL</span>
+            {publicUrl ? (
+              <input
+                className="url-readonly"
+                type="text"
+                value={publicUrl}
+                readOnly
+                aria-label="Canonical public application URL"
+                onFocus={(e) => e.currentTarget.select()}
+              />
+            ) : (
+              <p className="field-empty">
+                Available once the posting is published.
+              </p>
+            )}
+          </div>
+          <div className="field">
             <span className="field-label">Public URL Slug</span>
             <p className="field-text">
               <span className="mono">{posting.slug}</span>
@@ -344,14 +348,30 @@ export default function CareersPostingDetailPage() {
       <ConfirmDialog
         open={confirmAction !== null}
         title={
-          confirmAction === "fill" ? "Mark posting as filled" : "Close posting"
+          confirmAction === "publish"
+            ? "Publish posting"
+            : confirmAction === "fill"
+              ? "Mark posting as filled"
+              : "Close posting"
         }
-        tone={confirmAction === "fill" ? "primary" : "danger"}
-        confirmLabel={confirmAction === "fill" ? "Mark Filled" : "Close"}
+        tone={confirmAction === "close" ? "danger" : "primary"}
+        confirmLabel={
+          confirmAction === "publish"
+            ? "Publish"
+            : confirmAction === "fill"
+              ? "Mark Filled"
+              : "Close"
+        }
         busy={confirmBusy}
         error={confirmError}
         message={
-          confirmAction === "fill" ? (
+          confirmAction === "publish" ? (
+            <>
+              Publish <strong>{postingTitle(posting)}</strong>? This activates the
+              posting and assigns its permanent public application ID. The public
+              ID never changes once assigned.
+            </>
+          ) : confirmAction === "fill" ? (
             <>
               Mark <strong>{postingTitle(posting)}</strong> as filled? This
               closes the posting to further hiring. This action is final.
@@ -513,6 +533,20 @@ export default function CareersPostingDetailPage() {
           font-family: var(--font-geist-mono, monospace);
           font-size: 12px;
           color: #6b7280;
+        }
+        .url-readonly {
+          width: 100%;
+          font-family: var(--font-geist-mono, monospace);
+          font-size: 12px;
+          color: #111827;
+          background: #f8fafc;
+          border: 1px solid #e5e7eb;
+          border-radius: 7px;
+          padding: 8px 10px;
+        }
+        .url-readonly:focus {
+          outline: 2px solid #2563eb;
+          outline-offset: 1px;
         }
         @media (max-width: 900px) {
           .summary-row {

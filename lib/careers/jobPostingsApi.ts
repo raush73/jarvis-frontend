@@ -129,6 +129,25 @@ export function postingTitle(p: JobPosting): string {
   return (p.title && p.title.trim()) || p.position?.title || "Untitled posting";
 }
 
+/**
+ * Base URL of the public Careers portal. The canonical public application URL
+ * for a published posting is `${base}/jobs/{publicCode}`. Configurable via
+ * NEXT_PUBLIC_CAREERS_PORTAL_URL; defaults to the approved careers.mw4h.com
+ * domain (see governance/JARVIS_CAREERS.md). The portal itself is a later phase
+ * (V2.1.4) — this only renders the canonical identity for a published posting.
+ */
+export const CAREERS_PUBLIC_BASE_URL = (
+  process.env.NEXT_PUBLIC_CAREERS_PORTAL_URL ?? "https://careers.mw4h.com"
+).replace(/\/+$/, "");
+
+/**
+ * Canonical public application URL for a posting, or null until it is published
+ * (a draft has no publicCode). The URL is stable and immutable once assigned.
+ */
+export function publicApplicationUrl(p: JobPosting): string | null {
+  return p.publicCode ? `${CAREERS_PUBLIC_BASE_URL}/jobs/${p.publicCode}` : null;
+}
+
 export async function listJobPostings(params?: {
   status?: PostingStatus;
   visibility?: PostingVisibility;

@@ -33,7 +33,7 @@ type StatusFilter = "all" | PostingStatus;
 type VisibilityFilter = "all" | PostingVisibility;
 type SortKey = "title" | "createdAt" | "publishedAt" | "updatedAt";
 type SortOrder = "asc" | "desc";
-type LifecycleAction = "close" | "fill";
+type LifecycleAction = "publish" | "close" | "fill";
 
 const PAGE_SIZES = [25, 50, 100];
 const FETCH_LIMIT = 200;
@@ -67,7 +67,6 @@ export default function CareersPostingsPage() {
   } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  const [rowBusyId, setRowBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -164,25 +163,14 @@ export default function CareersPostingsPage() {
     load();
   };
 
-  const handlePublish = async (p: JobPosting) => {
-    setRowBusyId(p.id);
-    setError(null);
-    try {
-      await publishJobPosting(p.id);
-      await load();
-    } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to publish posting."));
-    } finally {
-      setRowBusyId(null);
-    }
-  };
-
   const handleConfirmLifecycle = async () => {
     if (!confirmTarget) return;
     setConfirmBusy(true);
     setConfirmError(null);
     try {
-      if (confirmTarget.action === "close") {
+      if (confirmTarget.action === "publish") {
+        await publishJobPosting(confirmTarget.posting.id);
+      } else if (confirmTarget.action === "close") {
         await closeJobPosting(confirmTarget.posting.id);
       } else {
         await fillJobPosting(confirmTarget.posting.id);
@@ -190,12 +178,13 @@ export default function CareersPostingsPage() {
       setConfirmTarget(null);
       await load();
     } catch (e) {
-      setConfirmError(
-        getApiErrorMessage(
-          e,
-          `Failed to ${confirmTarget.action === "close" ? "close" : "fill"} posting.`,
-        ),
-      );
+      const verb =
+        confirmTarget.action === "publish"
+          ? "publish"
+          : confirmTarget.action === "close"
+            ? "close"
+            : "fill";
+      setConfirmError(getApiErrorMessage(e, `Failed to ${verb} posting.`));
     } finally {
       setConfirmBusy(false);
     }
@@ -381,10 +370,12 @@ export default function CareersPostingsPage() {
                       <button
                         type="button"
                         className="link-action"
-                        disabled={rowBusyId === p.id}
-                        onClick={() => handlePublish(p)}
+                        onClick={() => {
+                          setConfirmError(null);
+                          setConfirmTarget({ posting: p, action: "publish" });
+                        }}
                       >
-                        {rowBusyId === p.id ? "Working\u2026" : "Publish"}
+                        Publish
                       </button>
                     ) : null}
                     {p.status === "OPEN" ? (
@@ -466,18 +457,33 @@ export default function CareersPostingsPage() {
       <ConfirmDialog
         open={confirmTarget !== null}
         title={
-          confirmTarget?.action === "fill"
-            ? "Mark posting as filled"
-            : "Close posting"
+          confirmTarget?.action === "publish"
+            ? "Publish posting"
+            : confirmTarget?.action === "fill"
+              ? "Mark posting as filled"
+              : "Close posting"
         }
-        tone={confirmTarget?.action === "fill" ? "primary" : "danger"}
+        tone={confirmTarget?.action === "close" ? "danger" : "primary"}
         confirmLabel={
-          confirmTarget?.action === "fill" ? "Mark Filled" : "Close"
+          confirmTarget?.action === "publish"
+            ? "Publish"
+            : confirmTarget?.action === "fill"
+              ? "Mark Filled"
+              : "Close"
         }
         busy={confirmBusy}
         error={confirmError}
         message={
-          confirmTarget?.action === "fill" ? (
+          confirmTarget?.action === "publish" ? (
+            <>
+              Publish{" "}
+              <strong>
+                {confirmTarget && postingTitle(confirmTarget.posting)}
+              </strong>
+              ? This activates the posting and assigns its permanent public
+              application ID. The public ID never changes once assigned.
+            </>
+          ) : confirmTarget?.action === "fill" ? (
             <>
               Mark <strong>{confirmTarget && postingTitle(confirmTarget.posting)}</strong>{" "}
               as filled? This closes the posting to further hiring. This action
