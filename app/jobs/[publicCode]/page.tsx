@@ -86,17 +86,14 @@ export default function PublicJobPage() {
             </div>
 
             <div className="pj-apply">
-              <button
-                type="button"
+              <a
                 className="pj-apply-btn"
-                disabled
-                aria-disabled="true"
-                title="Online applications are opening soon"
+                href={`/jobs/${encodeURIComponent(job.publicCode)}/apply`}
               >
                 Apply Now
-              </button>
+              </a>
               <span className="pj-apply-note">
-                Online applications are opening soon.
+                It only takes a few minutes to apply.
               </span>
             </div>
 
@@ -222,6 +219,12 @@ export default function PublicJobPage() {
           font-size: 15px;
           font-weight: 700;
           cursor: pointer;
+          display: inline-block;
+          text-decoration: none;
+          text-align: center;
+        }
+        .pj-apply-btn:hover {
+          background: #1d4ed8;
         }
         .pj-apply-btn:disabled {
           background: #93b4f5;
