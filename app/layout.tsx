@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import GlobalTopNav from "@/components/GlobalTopNav";
-import ModuleTabs from "@/components/ModuleTabs";
+import AppChrome from "@/components/AppChrome";
 import ModuleGuard from "@/components/ModuleGuard";
 
 const geistSans = Geist({
@@ -28,11 +27,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        {/* Level 0: Global Top Bar */}
-        <GlobalTopNav />
-
-        {/* Level 1: Module Tabs */}
-        <ModuleTabs />
+        {/* Level 0 + 1: internal chrome (hidden on public surfaces like /jobs) */}
+        <AppChrome />
 
         {/* Page Content — guarded by module access */}
         <ModuleGuard>

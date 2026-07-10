@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useSession } from "@/lib/auth/useSession";
 
-const PUBLIC_PATHS = ["/login", "/register", "/auth"];
+const PUBLIC_PATHS = ["/login", "/register", "/auth", "/jobs"];
 
 type GuardState = "allowed" | "denied" | "loading";
 
