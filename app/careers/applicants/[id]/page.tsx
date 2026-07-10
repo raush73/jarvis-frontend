@@ -5,6 +5,10 @@ import { useParams } from "next/navigation";
 import { CareersShell } from "@/components/careers/CareersShell";
 import { ApplicantFormModal } from "@/components/careers/ApplicantFormModal";
 import { WorkHistoryFormModal } from "@/components/careers/WorkHistoryFormModal";
+import { EducationFormModal } from "@/components/careers/EducationFormModal";
+import { CertificationFormModal } from "@/components/careers/CertificationFormModal";
+import { MilitaryServiceFormModal } from "@/components/careers/MilitaryServiceFormModal";
+import { MembershipFormModal } from "@/components/careers/MembershipFormModal";
 import { ConfirmDialog } from "@/components/careers/ConfirmDialog";
 import { formatDate, formatDateTime } from "@/lib/careers/format";
 import { getApiErrorMessage } from "@/lib/careers/errors";
@@ -21,6 +25,17 @@ import {
   WorkHistoryEntry,
   deleteWorkHistory,
 } from "@/lib/careers/workHistoryApi";
+import {
+  CertificationEntry,
+  EducationEntry,
+  MILITARY_SERVICE_TYPE_LABELS,
+  MembershipEntry,
+  MilitaryServiceEntry,
+  deleteCertification,
+  deleteEducation,
+  deleteMembership,
+  deleteMilitaryService,
+} from "@/lib/careers/credentialsApi";
 
 export default function CareersApplicantDetailPage() {
   const params = useParams<{ id: string }>();
@@ -39,6 +54,37 @@ export default function CareersApplicantDetailPage() {
   const [whDeleting, setWhDeleting] = useState<WorkHistoryEntry | null>(null);
   const [whDeleteBusy, setWhDeleteBusy] = useState(false);
   const [whDeleteError, setWhDeleteError] = useState<string | null>(null);
+
+  // Education dialogs (V2.1.5C)
+  const [edModalOpen, setEdModalOpen] = useState(false);
+  const [edMode, setEdMode] = useState<"create" | "edit">("create");
+  const [edEditing, setEdEditing] = useState<EducationEntry | null>(null);
+
+  // Certification dialogs (V2.1.5C)
+  const [ceModalOpen, setCeModalOpen] = useState(false);
+  const [ceMode, setCeMode] = useState<"create" | "edit">("create");
+  const [ceEditing, setCeEditing] = useState<CertificationEntry | null>(null);
+
+  // Military Service dialogs (V2.1.5C)
+  const [milModalOpen, setMilModalOpen] = useState(false);
+  const [milMode, setMilMode] = useState<"create" | "edit">("create");
+  const [milEditing, setMilEditing] = useState<MilitaryServiceEntry | null>(
+    null,
+  );
+
+  // Membership dialogs (V2.1.5C)
+  const [memModalOpen, setMemModalOpen] = useState(false);
+  const [memMode, setMemMode] = useState<"create" | "edit">("create");
+  const [memEditing, setMemEditing] = useState<MembershipEntry | null>(null);
+
+  // Unified credential delete confirmation (V2.1.5C)
+  const [credDeleting, setCredDeleting] = useState<{
+    kind: "education" | "certification" | "military" | "membership";
+    id: string;
+    label: string;
+  } | null>(null);
+  const [credDeleteBusy, setCredDeleteBusy] = useState(false);
+  const [credDeleteError, setCredDeleteError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -84,6 +130,34 @@ export default function CareersApplicantDetailPage() {
       setWhDeleteError(getApiErrorMessage(e, "Failed to delete entry."));
     } finally {
       setWhDeleteBusy(false);
+    }
+  }
+
+  async function handleDeleteCredential() {
+    if (!credDeleting) return;
+    setCredDeleteBusy(true);
+    setCredDeleteError(null);
+    try {
+      switch (credDeleting.kind) {
+        case "education":
+          await deleteEducation(credDeleting.id);
+          break;
+        case "certification":
+          await deleteCertification(credDeleting.id);
+          break;
+        case "military":
+          await deleteMilitaryService(credDeleting.id);
+          break;
+        case "membership":
+          await deleteMembership(credDeleting.id);
+          break;
+      }
+      setCredDeleting(null);
+      await load();
+    } catch (e) {
+      setCredDeleteError(getApiErrorMessage(e, "Failed to delete entry."));
+    } finally {
+      setCredDeleteBusy(false);
     }
   }
 
@@ -402,6 +476,376 @@ export default function CareersApplicantDetailPage() {
       </section>
 
       <section className="panel">
+        <div className="panel-header panel-header-row">
+          <h2>Education</h2>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setEdMode("create");
+              setEdEditing(null);
+              setEdModalOpen(true);
+            }}
+          >
+            Add Education
+          </button>
+        </div>
+        <div className="panel-body">
+          {applicant.education && applicant.education.length > 0 ? (
+            <div className="wh-list">
+              {applicant.education.map((ed) => (
+                <div key={ed.id} className="wh-card">
+                  <div className="wh-card-head">
+                    <div>
+                      <p className="wh-title">
+                        {ed.schoolName}
+                        {ed.degree ? (
+                          <span className="wh-employer"> &middot; {ed.degree}</span>
+                        ) : null}
+                      </p>
+                      <p className="wh-meta">
+                        {[
+                          ed.fieldOfStudy,
+                          [ed.city, ed.state].filter(Boolean).join(", ") ||
+                            null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </p>
+                    </div>
+                    <div className="wh-actions">
+                      <button
+                        type="button"
+                        className="btn-mini"
+                        onClick={() => {
+                          setEdMode("edit");
+                          setEdEditing(ed);
+                          setEdModalOpen(true);
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-mini btn-mini-danger"
+                        onClick={() => {
+                          setCredDeleteError(null);
+                          setCredDeleting({
+                            kind: "education",
+                            id: ed.id,
+                            label: ed.schoolName,
+                          });
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  <div className="wh-grid">
+                    <div className="wh-field">
+                      <span className="field-label">Graduation</span>
+                      <p className="field-text">
+                        {ed.isCurrent
+                          ? "Currently Attending"
+                          : (formatDate(ed.graduationDate) ?? "—")}
+                      </p>
+                    </div>
+                    {ed.gpa ? (
+                      <div className="wh-field">
+                        <span className="field-label">GPA</span>
+                        <p className="field-text">{ed.gpa}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="wh-empty">No education recorded yet.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header panel-header-row">
+          <h2>Certifications</h2>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setCeMode("create");
+              setCeEditing(null);
+              setCeModalOpen(true);
+            }}
+          >
+            Add Certification
+          </button>
+        </div>
+        <div className="panel-body">
+          {applicant.certifications && applicant.certifications.length > 0 ? (
+            <div className="wh-list">
+              {applicant.certifications.map((ce) => (
+                <div key={ce.id} className="wh-card">
+                  <div className="wh-card-head">
+                    <div>
+                      <p className="wh-title">
+                        {ce.name}
+                        {ce.issuingOrganization ? (
+                          <span className="wh-employer">
+                            {" "}
+                            &middot; {ce.issuingOrganization}
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="wh-meta">
+                        {ce.doesNotExpire
+                          ? "Does not expire"
+                          : ce.expirationDate
+                            ? `Expires ${formatDate(ce.expirationDate)}`
+                            : "—"}
+                      </p>
+                    </div>
+                    <div className="wh-actions">
+                      <button
+                        type="button"
+                        className="btn-mini"
+                        onClick={() => {
+                          setCeMode("edit");
+                          setCeEditing(ce);
+                          setCeModalOpen(true);
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-mini btn-mini-danger"
+                        onClick={() => {
+                          setCredDeleteError(null);
+                          setCredDeleting({
+                            kind: "certification",
+                            id: ce.id,
+                            label: ce.name,
+                          });
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  <div className="wh-grid">
+                    {ce.certificationNumber ? (
+                      <div className="wh-field">
+                        <span className="field-label">Certification Number</span>
+                        <p className="field-text">{ce.certificationNumber}</p>
+                      </div>
+                    ) : null}
+                    <div className="wh-field">
+                      <span className="field-label">Issued</span>
+                      <p className="field-text">
+                        {formatDate(ce.issueDate) ?? "—"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="wh-empty">No certifications recorded yet.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header panel-header-row">
+          <h2>Military Service</h2>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setMilMode("create");
+              setMilEditing(null);
+              setMilModalOpen(true);
+            }}
+          >
+            Add Military Service
+          </button>
+        </div>
+        <div className="panel-body">
+          {applicant.militaryService &&
+          applicant.militaryService.length > 0 ? (
+            <div className="wh-list">
+              {applicant.militaryService.map((mil) => (
+                <div key={mil.id} className="wh-card">
+                  <div className="wh-card-head">
+                    <div>
+                      <p className="wh-title">
+                        {mil.branch || "Military Service"}
+                        {mil.isVeteran ? (
+                          <span className="wh-badge">Veteran</span>
+                        ) : null}
+                      </p>
+                      <p className="wh-meta">
+                        {[
+                          mil.rank,
+                          mil.serviceType
+                            ? MILITARY_SERVICE_TYPE_LABELS[mil.serviceType]
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </p>
+                    </div>
+                    <div className="wh-actions">
+                      <button
+                        type="button"
+                        className="btn-mini"
+                        onClick={() => {
+                          setMilMode("edit");
+                          setMilEditing(mil);
+                          setMilModalOpen(true);
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-mini btn-mini-danger"
+                        onClick={() => {
+                          setCredDeleteError(null);
+                          setCredDeleting({
+                            kind: "military",
+                            id: mil.id,
+                            label: mil.branch || "Military Service",
+                          });
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  <div className="wh-grid">
+                    <div className="wh-field">
+                      <span className="field-label">Veteran</span>
+                      <p className="field-text">
+                        {mil.isVeteran ? "Yes" : "No"}
+                      </p>
+                    </div>
+                    <div className="wh-field">
+                      <span className="field-label">Service Period</span>
+                      <p className="field-text">
+                        {(formatDate(mil.serviceStartDate) ?? "—") +
+                          " \u2013 " +
+                          (mil.isCurrent
+                            ? "Present"
+                            : (formatDate(mil.serviceEndDate) ?? "—"))}
+                      </p>
+                    </div>
+                    {mil.occupationalSpecialty ? (
+                      <div className="wh-field">
+                        <span className="field-label">
+                          Occupational Specialty
+                        </span>
+                        <p className="field-text">
+                          {mil.occupationalSpecialty}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="wh-empty">No military service recorded yet.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header panel-header-row">
+          <h2>Professional Memberships</h2>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setMemMode("create");
+              setMemEditing(null);
+              setMemModalOpen(true);
+            }}
+          >
+            Add Membership
+          </button>
+        </div>
+        <div className="panel-body">
+          {applicant.memberships && applicant.memberships.length > 0 ? (
+            <div className="wh-list">
+              {applicant.memberships.map((mem) => (
+                <div key={mem.id} className="wh-card">
+                  <div className="wh-card-head">
+                    <div>
+                      <p className="wh-title">
+                        {mem.organization}
+                        {mem.membershipType ? (
+                          <span className="wh-employer">
+                            {" "}
+                            &middot; {mem.membershipType}
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="wh-meta">
+                        {(formatDate(mem.startDate) ?? "—") +
+                          " \u2013 " +
+                          (mem.isCurrent
+                            ? "Present"
+                            : (formatDate(mem.endDate) ?? "—"))}
+                      </p>
+                    </div>
+                    <div className="wh-actions">
+                      <button
+                        type="button"
+                        className="btn-mini"
+                        onClick={() => {
+                          setMemMode("edit");
+                          setMemEditing(mem);
+                          setMemModalOpen(true);
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-mini btn-mini-danger"
+                        onClick={() => {
+                          setCredDeleteError(null);
+                          setCredDeleting({
+                            kind: "membership",
+                            id: mem.id,
+                            label: mem.organization,
+                          });
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  {mem.membershipNumber ? (
+                    <div className="wh-grid">
+                      <div className="wh-field">
+                        <span className="field-label">Membership Number</span>
+                        <p className="field-text">{mem.membershipNumber}</p>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="wh-empty">No professional memberships recorded yet.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
         <div className="panel-header">
           <h2>Metadata</h2>
         </div>
@@ -455,6 +899,70 @@ export default function CareersApplicantDetailPage() {
         error={whDeleteError}
         onConfirm={handleDeleteWorkHistory}
         onCancel={() => setWhDeleting(null)}
+      />
+
+      <EducationFormModal
+        open={edModalOpen}
+        mode={edMode}
+        applicantId={applicant.id}
+        entry={edEditing}
+        onClose={() => setEdModalOpen(false)}
+        onSaved={() => {
+          setEdModalOpen(false);
+          load();
+        }}
+      />
+
+      <CertificationFormModal
+        open={ceModalOpen}
+        mode={ceMode}
+        applicantId={applicant.id}
+        entry={ceEditing}
+        onClose={() => setCeModalOpen(false)}
+        onSaved={() => {
+          setCeModalOpen(false);
+          load();
+        }}
+      />
+
+      <MilitaryServiceFormModal
+        open={milModalOpen}
+        mode={milMode}
+        applicantId={applicant.id}
+        entry={milEditing}
+        onClose={() => setMilModalOpen(false)}
+        onSaved={() => {
+          setMilModalOpen(false);
+          load();
+        }}
+      />
+
+      <MembershipFormModal
+        open={memModalOpen}
+        mode={memMode}
+        applicantId={applicant.id}
+        entry={memEditing}
+        onClose={() => setMemModalOpen(false)}
+        onSaved={() => {
+          setMemModalOpen(false);
+          load();
+        }}
+      />
+
+      <ConfirmDialog
+        open={credDeleting != null}
+        title="Delete Entry"
+        message={
+          credDeleting
+            ? `Delete "${credDeleting.label}"? This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete"
+        tone="danger"
+        busy={credDeleteBusy}
+        error={credDeleteError}
+        onConfirm={handleDeleteCredential}
+        onCancel={() => setCredDeleting(null)}
       />
 
       <style jsx>{`
@@ -574,6 +1082,20 @@ export default function CareersApplicantDetailPage() {
         .wh-employer {
           font-weight: 500;
           color: #4b5563;
+        }
+        .wh-badge {
+          display: inline-block;
+          margin-left: 8px;
+          padding: 2px 8px;
+          font-size: 10.5px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: #1d4ed8;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          border-radius: 999px;
+          vertical-align: middle;
         }
         .wh-meta {
           margin: 4px 0 0;
