@@ -22,6 +22,14 @@ export type Applicant = {
   phone: string | null;
   city: string | null;
   state: string | null;
+  // Structured professional profile (V2.1.5A)
+  professionalSummary: string | null;
+  currentProfession: string | null;
+  desiredProfession: string | null;
+  longTermGoals: string | null;
+  facebookUrl: string | null;
+  linkedinUrl: string | null;
+  completedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -40,6 +48,13 @@ export type ApplicantInput = {
   phone?: string;
   city?: string;
   state?: string;
+  // Structured profile fields (V2.1.5A). Null explicitly clears the value.
+  professionalSummary?: string | null;
+  currentProfession?: string | null;
+  desiredProfession?: string | null;
+  longTermGoals?: string | null;
+  facebookUrl?: string | null;
+  linkedinUrl?: string | null;
 };
 
 /** Display name for an applicant (falls back to email, then a placeholder). */

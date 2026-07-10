@@ -136,6 +136,80 @@ export default function CareersApplicantDetailPage() {
 
       <section className="panel">
         <div className="panel-header">
+          <h2>Professional Profile</h2>
+        </div>
+        <div className="panel-body">
+          <div className="field">
+            <span className="field-label">Professional Summary</span>
+            <p className="field-text multiline">
+              {applicant.professionalSummary ?? "—"}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Career Goals</h2>
+        </div>
+        <div className="panel-body info-grid">
+          <div className="field">
+            <span className="field-label">Current Profession</span>
+            <p className="field-text">{applicant.currentProfession ?? "—"}</p>
+          </div>
+          <div className="field">
+            <span className="field-label">Desired Profession</span>
+            <p className="field-text">{applicant.desiredProfession ?? "—"}</p>
+          </div>
+          <div className="field field-wide">
+            <span className="field-label">Long-Term Career Goals</span>
+            <p className="field-text multiline">
+              {applicant.longTermGoals ?? "—"}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Social Profiles</h2>
+        </div>
+        <div className="panel-body info-grid">
+          <div className="field">
+            <span className="field-label">Facebook</span>
+            {applicant.facebookUrl ? (
+              <a
+                className="field-link"
+                href={applicant.facebookUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {applicant.facebookUrl}
+              </a>
+            ) : (
+              <p className="field-text">—</p>
+            )}
+          </div>
+          <div className="field">
+            <span className="field-label">LinkedIn</span>
+            {applicant.linkedinUrl ? (
+              <a
+                className="field-link"
+                href={applicant.linkedinUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {applicant.linkedinUrl}
+              </a>
+            ) : (
+              <p className="field-text">—</p>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
           <h2>Metadata</h2>
         </div>
         <div className="panel-body info-grid">
@@ -247,6 +321,22 @@ export default function CareersApplicantDetailPage() {
           line-height: 1.6;
           margin: 0;
           word-break: break-word;
+        }
+        .field-text.multiline {
+          white-space: pre-wrap;
+        }
+        .field-wide {
+          grid-column: 1 / -1;
+        }
+        .field-link {
+          font-size: 13px;
+          color: #2563eb;
+          line-height: 1.6;
+          word-break: break-all;
+          text-decoration: none;
+        }
+        .field-link:hover {
+          text-decoration: underline;
         }
         @media (max-width: 900px) {
           .summary-row {

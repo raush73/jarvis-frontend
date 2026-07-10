@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { CareersShell } from "@/components/careers/CareersShell";
 import { KpiCard } from "@/components/careers/KpiCard";
 import { WidgetPanel } from "@/components/careers/WidgetPanel";
 import { Skeleton } from "@/components/careers/Skeleton";
+import { useSession } from "@/lib/auth/useSession";
 
 /**
  * Jarvis Careers - Dashboard (Phase 7B.1 foundation SHELL only).
@@ -30,8 +32,19 @@ const KPI_PLACEHOLDERS: { key: string; label: string }[] = [
 const RESERVED_NOTE = "Reserved \u2014 data wired in a later phase";
 
 export default function CareersDashboardPage() {
+  const session = useSession();
   return (
-    <CareersShell title="Careers" subtitle="Internal hiring command center">
+    <CareersShell
+      title="Careers"
+      subtitle="Internal hiring command center"
+      actions={
+        session.ready && session.isAdmin ? (
+          <Link href="/careers/settings" className="settings-link">
+            Application Settings
+          </Link>
+        ) : null
+      }
+    >
       {/* Region 1: KPI Cards (reserved placeholders) */}
       <div className="kpi-grid">
         {KPI_PLACEHOLDERS.map((kpi) => (
@@ -57,6 +70,21 @@ export default function CareersDashboardPage() {
       </div>
 
       <style jsx>{`
+        .settings-link {
+          display: inline-block;
+          background: #ffffff;
+          color: #374151;
+          border: 1px solid #e5e7eb;
+          border-radius: 7px;
+          padding: 8px 14px;
+          font-size: 13px;
+          font-weight: 600;
+          text-decoration: none;
+        }
+        .settings-link:hover {
+          background: #f1f5f9;
+          border-color: #d1d5db;
+        }
         .kpi-grid {
           display: grid;
           grid-template-columns: repeat(6, minmax(0, 1fr));

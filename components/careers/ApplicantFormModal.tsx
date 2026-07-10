@@ -36,6 +36,12 @@ export function ApplicantFormModal({
   const [phone, setPhone] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
+  const [professionalSummary, setProfessionalSummary] = useState("");
+  const [currentProfession, setCurrentProfession] = useState("");
+  const [desiredProfession, setDesiredProfession] = useState("");
+  const [longTermGoals, setLongTermGoals] = useState("");
+  const [facebookUrl, setFacebookUrl] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +54,12 @@ export function ApplicantFormModal({
       setPhone(applicant.phone ?? "");
       setCity(applicant.city ?? "");
       setState(applicant.state ?? "");
+      setProfessionalSummary(applicant.professionalSummary ?? "");
+      setCurrentProfession(applicant.currentProfession ?? "");
+      setDesiredProfession(applicant.desiredProfession ?? "");
+      setLongTermGoals(applicant.longTermGoals ?? "");
+      setFacebookUrl(applicant.facebookUrl ?? "");
+      setLinkedinUrl(applicant.linkedinUrl ?? "");
     } else {
       setEmail("");
       setFirstName("");
@@ -55,6 +67,12 @@ export function ApplicantFormModal({
       setPhone("");
       setCity("");
       setState("");
+      setProfessionalSummary("");
+      setCurrentProfession("");
+      setDesiredProfession("");
+      setLongTermGoals("");
+      setFacebookUrl("");
+      setLinkedinUrl("");
     }
     setError(null);
   }, [open, mode, applicant]);
@@ -84,6 +102,14 @@ export function ApplicantFormModal({
       phone: phone.trim(),
       city: city.trim(),
       state: state.trim(),
+      // Structured profile fields support explicit clearing: an emptied field
+      // is sent as null so the backend removes the stored value.
+      professionalSummary: professionalSummary.trim() || null,
+      currentProfession: currentProfession.trim() || null,
+      desiredProfession: desiredProfession.trim() || null,
+      longTermGoals: longTermGoals.trim() || null,
+      facebookUrl: facebookUrl.trim() || null,
+      linkedinUrl: linkedinUrl.trim() || null,
     };
     try {
       const saved =
@@ -200,6 +226,95 @@ export function ApplicantFormModal({
               />
             </label>
           </div>
+
+          <div className="pf-section">
+            <span className="pf-section-title">Professional Profile</span>
+            <span className="pf-section-hint">
+              The applicant record is the authoritative career record. These
+              fields describe the applicant, not a specific application.
+            </span>
+          </div>
+
+          <label className="pf-field">
+            <span className="pf-label">Professional Summary</span>
+            <textarea
+              className="pf-textarea"
+              value={professionalSummary}
+              onChange={(e) => setProfessionalSummary(e.target.value)}
+              maxLength={5000}
+              rows={4}
+              placeholder={"Brief professional summary\u2026"}
+            />
+          </label>
+
+          <div className="pf-section">
+            <span className="pf-section-title">Career Goals</span>
+            <span className="pf-section-hint">
+              The applicant&apos;s intended professional direction.
+            </span>
+          </div>
+
+          <div className="pf-grid">
+            <label className="pf-field">
+              <span className="pf-label">Current Profession</span>
+              <input
+                className="pf-input"
+                value={currentProfession}
+                onChange={(e) => setCurrentProfession(e.target.value)}
+                maxLength={200}
+                placeholder="e.g. Bookkeeper"
+              />
+            </label>
+            <label className="pf-field">
+              <span className="pf-label">Desired Profession</span>
+              <input
+                className="pf-input"
+                value={desiredProfession}
+                onChange={(e) => setDesiredProfession(e.target.value)}
+                maxLength={200}
+                placeholder="e.g. Staff Accountant"
+              />
+            </label>
+          </div>
+
+          <label className="pf-field">
+            <span className="pf-label">Long-Term Career Goals</span>
+            <textarea
+              className="pf-textarea"
+              value={longTermGoals}
+              onChange={(e) => setLongTermGoals(e.target.value)}
+              maxLength={5000}
+              rows={3}
+              placeholder={"Where the applicant wants to be long-term\u2026"}
+            />
+          </label>
+
+          <div className="pf-section">
+            <span className="pf-section-title">Social Profiles</span>
+          </div>
+
+          <div className="pf-grid">
+            <label className="pf-field">
+              <span className="pf-label">Facebook URL</span>
+              <input
+                className="pf-input"
+                value={facebookUrl}
+                onChange={(e) => setFacebookUrl(e.target.value)}
+                maxLength={500}
+                placeholder="https://facebook.com/\u2026"
+              />
+            </label>
+            <label className="pf-field">
+              <span className="pf-label">LinkedIn URL</span>
+              <input
+                className="pf-input"
+                value={linkedinUrl}
+                onChange={(e) => setLinkedinUrl(e.target.value)}
+                maxLength={500}
+                placeholder="https://linkedin.com/in/\u2026"
+              />
+            </label>
+          </div>
         </div>
 
         <div className="pf-footer">
@@ -310,7 +425,27 @@ export function ApplicantFormModal({
             font-size: 11.5px;
             color: #9ca3af;
           }
-          .pf-input {
+          .pf-section {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding-top: 6px;
+            margin-top: 2px;
+            border-top: 1px solid #f1f5f9;
+          }
+          .pf-section-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #111827;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+          }
+          .pf-section-hint {
+            font-size: 11.5px;
+            color: #9ca3af;
+          }
+          .pf-input,
+          .pf-textarea {
             font-size: 13px;
             color: #111827;
             background: #ffffff;
@@ -321,12 +456,17 @@ export function ApplicantFormModal({
             box-sizing: border-box;
             font-family: inherit;
           }
-          .pf-input:focus {
+          .pf-textarea {
+            resize: vertical;
+          }
+          .pf-input:focus,
+          .pf-textarea:focus {
             outline: none;
             border-color: #2563eb;
             box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
           }
-          .pf-input::placeholder {
+          .pf-input::placeholder,
+          .pf-textarea::placeholder {
             color: #9ca3af;
           }
           .pf-footer {
