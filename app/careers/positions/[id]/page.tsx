@@ -13,9 +13,14 @@ import { ConfirmDialog } from "@/components/careers/ConfirmDialog";
 import { formatDateTime } from "@/lib/careers/format";
 import { getApiErrorMessage } from "@/lib/careers/errors";
 import {
+  FLSA_CLASSIFICATION_LABELS,
+  PAY_TYPE_LABELS,
   Position,
+  TRAVEL_REQUIREMENT_LABELS,
+  WORK_LOCATION_LABELS,
   activatePosition,
   deactivatePosition,
+  formatTime12h,
   getPosition,
 } from "@/lib/careers/positionsApi";
 import { employmentTypeLabel } from "@/lib/careers/jobPostingsApi";
@@ -201,6 +206,12 @@ export default function CareersPositionDetailPage() {
         </div>
         <div className="panel-body">
           <div className="field">
+            <span className="field-label">Position Code</span>
+            <p className={position.positionCode ? "field-text" : "field-muted"}>
+              {position.positionCode ?? "Not specified"}
+            </p>
+          </div>
+          <div className="field">
             <span className="field-label">Description</span>
             {position.description ? (
               <p className="field-text">{position.description}</p>
@@ -255,6 +266,208 @@ export default function CareersPositionDetailPage() {
               {employmentTypeLabel(position.defaultEmploymentType)}
             </p>
           </div>
+        </div>
+      </section>
+
+      {/* Employment Defaults */}
+      <section className="panel panel-spaced">
+        <div className="panel-header">
+          <h2>Employment Defaults</h2>
+        </div>
+        <div className="panel-body">
+          <div className="pair-grid">
+            <ProfileValue
+              label="Pay Type"
+              value={
+                position.payType ? PAY_TYPE_LABELS[position.payType] : null
+              }
+            />
+            <ProfileValue
+              label="FLSA Classification"
+              value={
+                position.flsaClassification
+                  ? FLSA_CLASSIFICATION_LABELS[position.flsaClassification]
+                  : null
+              }
+            />
+            <ProfileValue
+              label="Work Location"
+              value={
+                position.workLocation
+                  ? WORK_LOCATION_LABELS[position.workLocation]
+                  : null
+              }
+            />
+            <ProfileValue
+              label="Travel Requirement"
+              value={
+                position.travelRequirement
+                  ? TRAVEL_REQUIREMENT_LABELS[position.travelRequirement]
+                  : null
+              }
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Standard Schedule */}
+      <section className="panel panel-spaced">
+        <div className="panel-header">
+          <h2>Standard Schedule</h2>
+        </div>
+        <div className="panel-body">
+          <div className="pair-grid">
+            <ProfileValue label="Work Days" value={position.standardWorkDays} />
+            <ProfileValue
+              label="Start Time"
+              value={
+                position.standardStartTime
+                  ? formatTime12h(position.standardStartTime)
+                  : null
+              }
+            />
+            <ProfileValue
+              label="End Time"
+              value={
+                position.standardEndTime
+                  ? formatTime12h(position.standardEndTime)
+                  : null
+              }
+            />
+            <ProfileValue
+              label="Lunch Duration"
+              value={
+                position.standardLunchMinutes != null
+                  ? `${position.standardLunchMinutes} minutes`
+                  : null
+              }
+            />
+            <ProfileValue
+              label="Hours Per Week"
+              value={
+                position.standardHoursPerWeek != null
+                  ? String(position.standardHoursPerWeek)
+                  : null
+              }
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Reporting Structure */}
+      <section className="panel panel-spaced">
+        <div className="panel-header">
+          <h2>Reporting Structure</h2>
+        </div>
+        <div className="panel-body">
+          <div className="field">
+            <span className="field-label">Reports To</span>
+            {position.reportsTo.length > 0 ? (
+              <div className="chip-row">
+                {position.reportsTo.map((r) => (
+                  <span key={r.id} className="chip">
+                    {r.reportsTo.title}
+                    {!r.reportsTo.isActive ? (
+                      <span className="chip-muted"> (inactive)</span>
+                    ) : null}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="field-muted">Not specified</p>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Hiring Requirements — only checked requirements are shown (no negative
+          wording); nothing appears when none are set. */}
+      {(() => {
+        const hiring = [
+          position.drugScreenRequired ? "Drug Screen" : null,
+          position.backgroundCheckRequired ? "Background Check" : null,
+          position.driversLicenseRequired ? "Driver's License" : null,
+          position.motorVehicleRecordRequired ? "Motor Vehicle Record" : null,
+        ].filter((x): x is string => x !== null);
+        return (
+          <section className="panel panel-spaced">
+            <div className="panel-header">
+              <h2>Hiring Requirements</h2>
+            </div>
+            <div className="panel-body">
+              {hiring.length > 0 ? (
+                <div className="chip-row">
+                  {hiring.map((h) => (
+                    <span key={h} className="chip">
+                      {h}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="field-muted">Not specified</p>
+              )}
+            </div>
+          </section>
+        );
+      })()}
+
+      {/* Physical Requirements */}
+      {(() => {
+        const physical = [
+          position.liftRequirements ? "Lift Requirements" : null,
+          position.climbingRequirements ? "Climbing Requirements" : null,
+          position.outdoorWork ? "Outdoor Work" : null,
+          position.overnightTravel ? "Overnight Travel" : null,
+        ].filter((x): x is string => x !== null);
+        const hasAny =
+          physical.length > 0 || !!position.additionalPhysicalRequirements;
+        return (
+          <section className="panel panel-spaced">
+            <div className="panel-header">
+              <h2>Physical Requirements</h2>
+            </div>
+            <div className="panel-body">
+              {physical.length > 0 ? (
+                <div className="chip-row">
+                  {physical.map((p) => (
+                    <span key={p} className="chip">
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {position.additionalPhysicalRequirements ? (
+                <div className="field">
+                  <span className="field-label">Additional</span>
+                  <p className="field-text">
+                    {position.additionalPhysicalRequirements}
+                  </p>
+                </div>
+              ) : null}
+              {!hasAny ? <p className="field-muted">Not specified</p> : null}
+            </div>
+          </section>
+        );
+      })()}
+
+      {/* Certifications — nothing but the stored names is shown; no negative
+          wording when empty. */}
+      <section className="panel panel-spaced">
+        <div className="panel-header">
+          <h2>Certifications</h2>
+        </div>
+        <div className="panel-body">
+          {position.certifications.length > 0 ? (
+            <div className="chip-row">
+              {position.certifications.map((c) => (
+                <span key={c.id} className="chip">
+                  {c.name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="field-muted">Not specified</p>
+          )}
         </div>
       </section>
 
@@ -441,6 +654,35 @@ export default function CareersPositionDetailPage() {
           font-style: italic;
           margin: 0;
         }
+        .field-muted {
+          font-size: 13px;
+          color: #9ca3af;
+          margin: 0;
+        }
+        .pair-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 18px;
+        }
+        .chip-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .chip {
+          display: inline-flex;
+          align-items: center;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          border-radius: 999px;
+          padding: 4px 12px;
+          font-size: 12.5px;
+          color: #334155;
+        }
+        .chip-muted {
+          color: #9ca3af;
+          font-style: italic;
+        }
         .mono {
           font-family: var(--font-geist-mono, monospace);
           font-size: 12px;
@@ -455,9 +697,53 @@ export default function CareersPositionDetailPage() {
           .summary-row {
             grid-template-columns: 1fr;
           }
+          .pair-grid {
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
     </CareersShell>
+  );
+}
+
+function ProfileValue({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  return (
+    <div className="pv">
+      <span className="pv-label">{label}</span>
+      <p className={value ? "pv-text" : "pv-muted"}>{value || "Not specified"}</p>
+      <style jsx>{`
+        .pv {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .pv-label {
+          font-size: 11px;
+          font-weight: 700;
+          color: #6b7280;
+          text-transform: uppercase;
+          letter-spacing: 0.6px;
+        }
+        .pv-text {
+          font-size: 13px;
+          color: #111827;
+          line-height: 1.6;
+          margin: 0;
+          white-space: pre-wrap;
+        }
+        .pv-muted {
+          font-size: 13px;
+          color: #9ca3af;
+          margin: 0;
+        }
+      `}</style>
+    </div>
   );
 }
 

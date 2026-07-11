@@ -108,6 +108,10 @@ export function JobPostingFormModal({
           posting?.position &&
           !items.some((p) => p.id === posting.position!.id)
         ) {
+          // Minimal picker-only stand-in for an inactive current position. Cast
+          // to Position because only id/title are read here; the full Position
+          // Profile is not needed for the selector. (No Job Posting inheritance
+          // behavior is changed by this.)
           items = [
             {
               id: posting.position.id,
@@ -121,7 +125,7 @@ export function JobPostingFormModal({
               createdByUserId: null,
               createdAt: posting.createdAt,
               updatedAt: posting.updatedAt,
-            },
+            } as Position,
             ...items,
           ];
         }
