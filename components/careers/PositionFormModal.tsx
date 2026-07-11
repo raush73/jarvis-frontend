@@ -130,7 +130,9 @@ export function PositionFormModal({
           ? String(position.standardHoursPerWeek)
           : "",
       );
-      setReportsToIds(position.reportsTo.map((r) => r.reportsToPositionId));
+      setReportsToIds(
+        (position.reportsTo ?? []).map((r) => r.reportsToPositionId),
+      );
       setStandardResponsibilities(position.standardResponsibilities ?? "");
       setStandardQualifications(position.standardQualifications ?? "");
       setDrugScreenRequired(position.drugScreenRequired);
@@ -144,7 +146,7 @@ export function PositionFormModal({
       setAdditionalPhysicalRequirements(
         position.additionalPhysicalRequirements ?? "",
       );
-      setCertifications(position.certifications.map((c) => c.name));
+      setCertifications((position.certifications ?? []).map((c) => c.name));
     } else {
       setPositionCode("");
       setTitle("");

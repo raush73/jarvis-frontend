@@ -29,7 +29,7 @@ type ApplicantMode = "email" | "existing";
 /**
  * Jarvis Careers - Create Application dialog.
  *
- * A new component: no existing modal fits. It combines an OPEN job-posting
+ * A new component: no existing modal fits. It combines a Published job-posting
  * picker with two applicant paths - find-or-create by email, or select an
  * existing applicant - and surfaces duplicate / posting-not-open backend errors.
  * Resume upload is intentionally NOT part of this flow.
@@ -83,7 +83,7 @@ export function ApplicationCreateModal({
     if (!open) return;
     let active = true;
     setPostingsLoading(true);
-    listJobPostings({ status: "OPEN", limit: 200 })
+    listJobPostings({ status: "PUBLISHED", limit: 200 })
       .then((res) => active && setPostings(res.items))
       .catch(() => active && setPostings([]))
       .finally(() => active && setPostingsLoading(false));
@@ -205,7 +205,7 @@ export function ApplicationCreateModal({
               ))}
             </select>
             <span className="pf-hint">
-              Only OPEN postings accept new applications.
+              Only Published postings accept new applications.
             </span>
           </label>
 

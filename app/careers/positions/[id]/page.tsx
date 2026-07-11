@@ -362,9 +362,9 @@ export default function CareersPositionDetailPage() {
         <div className="panel-body">
           <div className="field">
             <span className="field-label">Reports To</span>
-            {position.reportsTo.length > 0 ? (
+            {(position.reportsTo ?? []).length > 0 ? (
               <div className="chip-row">
-                {position.reportsTo.map((r) => (
+                {(position.reportsTo ?? []).map((r) => (
                   <span key={r.id} className="chip">
                     {r.reportsTo.title}
                     {!r.reportsTo.isActive ? (
@@ -457,9 +457,9 @@ export default function CareersPositionDetailPage() {
           <h2>Certifications</h2>
         </div>
         <div className="panel-body">
-          {position.certifications.length > 0 ? (
+          {(position.certifications ?? []).length > 0 ? (
             <div className="chip-row">
-              {position.certifications.map((c) => (
+              {(position.certifications ?? []).map((c) => (
                 <span key={c.id} className="chip">
                   {c.name}
                 </span>

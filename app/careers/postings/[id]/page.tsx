@@ -14,17 +14,33 @@ import {
   JobPosting,
   POSTING_STATUS_LABELS,
   VISIBILITY_LABELS,
+  archiveJobPosting,
   closeJobPosting,
   employmentTypeLabel,
   fillJobPosting,
   getJobPosting,
+  pauseJobPosting,
   postingStatusTone,
   postingTitle,
   publicApplicationUrl,
   publishJobPosting,
 } from "@/lib/careers/jobPostingsApi";
+import {
+  FLSA_CLASSIFICATION_LABELS,
+  PAY_TYPE_LABELS,
+  TRAVEL_REQUIREMENT_LABELS,
+  WORK_LOCATION_LABELS,
+  formatTime12h,
+} from "@/lib/careers/positionsApi";
 
-type LifecycleAction = "publish" | "close" | "fill";
+// Local, display-only formatters (no negative/placeholder wording).
+const formatDate = (iso: string | null): string =>
+  iso ? new Date(iso).toLocaleDateString() : "—";
+const formatMoney = (n: number | null): string | null =>
+  n != null ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : null;
+const yesNo = (b: boolean): string => (b ? "Yes" : "No");
+
+type LifecycleAction = "publish" | "pause" | "fill" | "close" | "archive";
 
 export default function CareersPostingDetailPage() {
   const params = useParams<{ id: string }>();
@@ -65,22 +81,20 @@ export default function CareersPostingDetailPage() {
     setConfirmBusy(true);
     setConfirmError(null);
     try {
-      const updated =
-        confirmAction === "publish"
-          ? await publishJobPosting(posting.id)
-          : confirmAction === "close"
-            ? await closeJobPosting(posting.id)
-            : await fillJobPosting(posting.id);
+      const action: Record<LifecycleAction, () => Promise<JobPosting>> = {
+        publish: () => publishJobPosting(posting.id),
+        pause: () => pauseJobPosting(posting.id),
+        fill: () => fillJobPosting(posting.id),
+        close: () => closeJobPosting(posting.id),
+        archive: () => archiveJobPosting(posting.id),
+      };
+      const updated = await action[confirmAction]();
       setPosting(updated);
       setConfirmAction(null);
     } catch (e) {
-      const verb =
-        confirmAction === "publish"
-          ? "publish"
-          : confirmAction === "close"
-            ? "close"
-            : "fill";
-      setConfirmError(getApiErrorMessage(e, `Failed to ${verb} posting.`));
+      setConfirmError(
+        getApiErrorMessage(e, `Failed to ${confirmAction} posting.`),
+      );
     } finally {
       setConfirmBusy(false);
     }
@@ -120,8 +134,36 @@ export default function CareersPostingDetailPage() {
     );
   }
 
-  const isTerminal = posting.status === "CLOSED" || posting.status === "FILLED";
+  const canClose =
+    posting.status === "DRAFT" ||
+    posting.status === "PUBLISHED" ||
+    posting.status === "PAUSED" ||
+    posting.status === "FILLED";
+  const canArchive =
+    posting.status === "FILLED" || posting.status === "CLOSED";
   const publicUrl = publicApplicationUrl(posting);
+
+  const hiringRequirements = [
+    posting.drugScreenRequired ? "Drug Screen" : null,
+    posting.backgroundCheckRequired ? "Background Check" : null,
+    posting.driversLicenseRequired ? "Driver's License" : null,
+    posting.motorVehicleRecordRequired ? "Motor Vehicle Record" : null,
+  ].filter((x): x is string => x !== null);
+  const physicalRequirements = [
+    posting.liftRequirements ? "Lift Requirements" : null,
+    posting.climbingRequirements ? "Climbing Requirements" : null,
+    posting.outdoorWork ? "Outdoor Work" : null,
+    posting.overnightTravel ? "Overnight Travel" : null,
+  ].filter((x): x is string => x !== null);
+  const startingPay = formatMoney(posting.startingPay);
+  const maximumPay = formatMoney(posting.maximumPay);
+  const signOnBonus = formatMoney(posting.signOnBonus);
+  const hasCompensation =
+    startingPay !== null ||
+    maximumPay !== null ||
+    signOnBonus !== null ||
+    !!posting.commissionPlan ||
+    !!posting.benefitsSummaryOverride;
 
   return (
     <CareersShell
@@ -142,7 +184,7 @@ export default function CareersPostingDetailPage() {
           >
             Edit
           </button>
-          {posting.status === "DRAFT" ? (
+          {posting.status === "DRAFT" || posting.status === "PAUSED" ? (
             <button
               type="button"
               className="btn-primary"
@@ -151,22 +193,34 @@ export default function CareersPostingDetailPage() {
                 setConfirmAction("publish");
               }}
             >
-              Publish
+              {posting.status === "PAUSED" ? "Republish" : "Publish"}
             </button>
           ) : null}
-          {posting.status === "OPEN" ? (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => {
-                setConfirmError(null);
-                setConfirmAction("fill");
-              }}
-            >
-              Mark Filled
-            </button>
+          {posting.status === "PUBLISHED" ? (
+            <>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setConfirmError(null);
+                  setConfirmAction("pause");
+                }}
+              >
+                Pause
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  setConfirmError(null);
+                  setConfirmAction("fill");
+                }}
+              >
+                Mark Filled
+              </button>
+            </>
           ) : null}
-          {!isTerminal ? (
+          {canClose ? (
             <button
               type="button"
               className="btn-danger"
@@ -176,6 +230,18 @@ export default function CareersPostingDetailPage() {
               }}
             >
               Close
+            </button>
+          ) : null}
+          {canArchive ? (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setConfirmError(null);
+                setConfirmAction("archive");
+              }}
+            >
+              Archive
             </button>
           ) : null}
         </>
@@ -219,13 +285,35 @@ export default function CareersPostingDetailPage() {
           <span className="summary-value">{managerDisplay(posting)}</span>
         </div>
         <div className="summary-card">
+          <span className="summary-label">Posting Code</span>
+          <span className="summary-value">{posting.postingCode ?? "—"}</span>
+        </div>
+        <div className="summary-card">
+          <span className="summary-label">Openings</span>
+          <span className="summary-value">{posting.numberOfOpenings}</span>
+        </div>
+        <div className="summary-card">
+          <span className="summary-label">Posting Date</span>
+          <span className="summary-value">{formatDate(posting.postingDate)}</span>
+        </div>
+        <div className="summary-card">
+          <span className="summary-label">Closing Date</span>
+          <span className="summary-value">{formatDate(posting.closingDate)}</span>
+        </div>
+        <div className="summary-card">
+          <span className="summary-label">Expected Start</span>
+          <span className="summary-value">
+            {formatDate(posting.expectedStartDate)}
+          </span>
+        </div>
+        <div className="summary-card">
           <span className="summary-label">Published</span>
           <span className="summary-value">
             {formatDateTime(posting.publishedAt)}
           </span>
         </div>
         <div className="summary-card">
-          <span className="summary-label">Closing / Closed</span>
+          <span className="summary-label">Closed</span>
           <span className="summary-value">
             {formatDateTime(posting.closedAt)}
           </span>
@@ -245,11 +333,74 @@ export default function CareersPostingDetailPage() {
         </div>
       </section>
 
-      {/* V2.1.2b: Position Defaults snapshot captured at posting creation. These
-          values belong to the posting and are unaffected by later Position edits. */}
+      {/* Inherited Position Profile snapshot (V2.1.2b + V2.1.6B): captured at
+          posting creation. These values belong to the posting and are unaffected
+          by later Position edits; editing the posting never changes the Position. */}
       <section className="panel">
         <div className="panel-header">
-          <h2>Role Details</h2>
+          <h2>Inherited Position Profile (Snapshot)</h2>
+        </div>
+        <div className="panel-body meta-grid">
+          <div className="field">
+            <span className="field-label">Pay Type</span>
+            <p className="field-text">
+              {posting.payType ? PAY_TYPE_LABELS[posting.payType] : "—"}
+            </p>
+          </div>
+          <div className="field">
+            <span className="field-label">FLSA Classification</span>
+            <p className="field-text">
+              {posting.flsaClassification
+                ? FLSA_CLASSIFICATION_LABELS[posting.flsaClassification]
+                : "—"}
+            </p>
+          </div>
+          <div className="field">
+            <span className="field-label">Work Location</span>
+            <p className="field-text">
+              {posting.workLocation
+                ? WORK_LOCATION_LABELS[posting.workLocation]
+                : "—"}
+            </p>
+          </div>
+          <div className="field">
+            <span className="field-label">Travel Requirement</span>
+            <p className="field-text">
+              {posting.travelRequirement
+                ? TRAVEL_REQUIREMENT_LABELS[posting.travelRequirement]
+                : "—"}
+            </p>
+          </div>
+          <div className="field">
+            <span className="field-label">Standard Work Days</span>
+            <p className="field-text">{posting.standardWorkDays ?? "—"}</p>
+          </div>
+          <div className="field">
+            <span className="field-label">Standard Hours / Week</span>
+            <p className="field-text">
+              {posting.standardHoursPerWeek != null
+                ? posting.standardHoursPerWeek
+                : "—"}
+            </p>
+          </div>
+          <div className="field">
+            <span className="field-label">Standard Start Time</span>
+            <p className="field-text">
+              {formatTime12h(posting.standardStartTime)}
+            </p>
+          </div>
+          <div className="field">
+            <span className="field-label">Standard End Time</span>
+            <p className="field-text">{formatTime12h(posting.standardEndTime)}</p>
+          </div>
+          <div className="field">
+            <span className="field-label">Standard Lunch</span>
+            <p className="field-text">
+              {posting.standardLunchMinutes != null
+                ? `${posting.standardLunchMinutes} minutes`
+                : "—"}
+            </p>
+          </div>
         </div>
         <div className="panel-body meta-grid">
           <div className="field">
@@ -257,7 +408,7 @@ export default function CareersPostingDetailPage() {
             {posting.responsibilities ? (
               <p className="field-text">{posting.responsibilities}</p>
             ) : (
-              <p className="field-empty">No responsibilities captured.</p>
+              <p className="field-empty">Not specified.</p>
             )}
           </div>
           <div className="field">
@@ -265,8 +416,109 @@ export default function CareersPostingDetailPage() {
             {posting.qualifications ? (
               <p className="field-text">{posting.qualifications}</p>
             ) : (
-              <p className="field-empty">No qualifications captured.</p>
+              <p className="field-empty">Not specified.</p>
             )}
+          </div>
+          <div className="field">
+            <span className="field-label">Hiring Requirements</span>
+            {hiringRequirements.length > 0 ? (
+              <p className="field-text">{hiringRequirements.join(", ")}</p>
+            ) : (
+              <p className="field-empty">Not specified.</p>
+            )}
+          </div>
+          <div className="field">
+            <span className="field-label">Physical Requirements</span>
+            {physicalRequirements.length > 0 ? (
+              <p className="field-text">{physicalRequirements.join(", ")}</p>
+            ) : (
+              <p className="field-empty">Not specified.</p>
+            )}
+            {posting.additionalPhysicalRequirements ? (
+              <p className="field-text">
+                {posting.additionalPhysicalRequirements}
+              </p>
+            ) : null}
+          </div>
+          <div className="field">
+            <span className="field-label">Default Certifications</span>
+            {(posting.certifications ?? []).length > 0 ? (
+              <p className="field-text">
+                {(posting.certifications ?? []).map((c) => c.name).join(", ")}
+              </p>
+            ) : (
+              <p className="field-empty">Not specified.</p>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {hasCompensation ? (
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Compensation</h2>
+          </div>
+          <div className="panel-body meta-grid">
+            {startingPay ? (
+              <div className="field">
+                <span className="field-label">Starting Pay</span>
+                <p className="field-text">{startingPay}</p>
+              </div>
+            ) : null}
+            {maximumPay ? (
+              <div className="field">
+                <span className="field-label">Maximum Pay</span>
+                <p className="field-text">{maximumPay}</p>
+              </div>
+            ) : null}
+            {signOnBonus ? (
+              <div className="field">
+                <span className="field-label">Sign-on Bonus</span>
+                <p className="field-text">{signOnBonus}</p>
+              </div>
+            ) : null}
+            {posting.commissionPlan ? (
+              <div className="field">
+                <span className="field-label">Commission Plan</span>
+                <p className="field-text">{posting.commissionPlan}</p>
+              </div>
+            ) : null}
+            {posting.benefitsSummaryOverride ? (
+              <div className="field">
+                <span className="field-label">Benefits Summary Override</span>
+                <p className="field-text">{posting.benefitsSummaryOverride}</p>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Application Settings</h2>
+        </div>
+        <div className="panel-body meta-grid">
+          <div className="field">
+            <span className="field-label">Resume Required</span>
+            <p className="field-text">{yesNo(posting.resumeRequired)}</p>
+          </div>
+          <div className="field">
+            <span className="field-label">Cover Letter Required</span>
+            <p className="field-text">{yesNo(posting.coverLetterRequired)}</p>
+          </div>
+          <div className="field">
+            <span className="field-label">Internal Applicants Only</span>
+            <p className="field-text">{yesNo(posting.internalApplicantsOnly)}</p>
+          </div>
+          <div className="field">
+            <span className="field-label">External Applicants Allowed</span>
+            <p className="field-text">
+              {yesNo(posting.externalApplicantsAllowed)}
+            </p>
+          </div>
+          <div className="field">
+            <span className="field-label">Auto-Close When Filled</span>
+            <p className="field-text">{yesNo(posting.autoCloseWhenFilled)}</p>
           </div>
         </div>
       </section>
@@ -349,37 +601,68 @@ export default function CareersPostingDetailPage() {
         open={confirmAction !== null}
         title={
           confirmAction === "publish"
-            ? "Publish posting"
-            : confirmAction === "fill"
-              ? "Mark posting as filled"
-              : "Close posting"
+            ? posting.status === "PAUSED"
+              ? "Republish posting"
+              : "Publish posting"
+            : confirmAction === "pause"
+              ? "Pause posting"
+              : confirmAction === "fill"
+                ? "Mark posting as filled"
+                : confirmAction === "archive"
+                  ? "Archive posting"
+                  : "Close posting"
         }
         tone={confirmAction === "close" ? "danger" : "primary"}
         confirmLabel={
           confirmAction === "publish"
-            ? "Publish"
-            : confirmAction === "fill"
-              ? "Mark Filled"
-              : "Close"
+            ? posting.status === "PAUSED"
+              ? "Republish"
+              : "Publish"
+            : confirmAction === "pause"
+              ? "Pause"
+              : confirmAction === "fill"
+                ? "Mark Filled"
+                : confirmAction === "archive"
+                  ? "Archive"
+                  : "Close"
         }
         busy={confirmBusy}
         error={confirmError}
         message={
           confirmAction === "publish" ? (
+            posting.status === "PAUSED" ? (
+              <>
+                Republish <strong>{postingTitle(posting)}</strong>? This returns
+                the posting to the public careers site. Its permanent public
+                application ID is unchanged.
+              </>
+            ) : (
+              <>
+                Publish <strong>{postingTitle(posting)}</strong>? This activates
+                the posting and assigns its permanent public application ID. The
+                public ID never changes once assigned.
+              </>
+            )
+          ) : confirmAction === "pause" ? (
             <>
-              Publish <strong>{postingTitle(posting)}</strong>? This activates the
-              posting and assigns its permanent public application ID. The public
-              ID never changes once assigned.
+              Pause <strong>{postingTitle(posting)}</strong>? This temporarily
+              removes it from the public careers site. You can republish it later.
             </>
           ) : confirmAction === "fill" ? (
             <>
-              Mark <strong>{postingTitle(posting)}</strong> as filled? This
-              closes the posting to further hiring. This action is final.
+              Mark <strong>{postingTitle(posting)}</strong> as filled? The posting
+              is no longer public but is retained and can still be closed or
+              archived.
+            </>
+          ) : confirmAction === "archive" ? (
+            <>
+              Archive <strong>{postingTitle(posting)}</strong>? This retains it
+              for historical reference only. This action is final.
             </>
           ) : (
             <>
-              Close <strong>{postingTitle(posting)}</strong>? A closed posting
-              can no longer be published or reopened.
+              Close <strong>{postingTitle(posting)}</strong>? A closed posting can
+              no longer be published or reopened.
             </>
           )
         }

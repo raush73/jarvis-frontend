@@ -171,7 +171,7 @@ export class PublicApplyError extends Error {
   }
 }
 
-/** Submit a complete public application for the OPEN + PUBLIC posting. */
+/** Submit a complete public application for the PUBLISHED + PUBLIC posting. */
 export async function submitPublicApplication(
   publicCode: string,
   input: PublicApplicationInput,

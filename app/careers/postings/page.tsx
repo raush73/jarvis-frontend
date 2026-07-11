@@ -20,10 +20,12 @@ import {
   PostingVisibility,
   VISIBILITIES,
   VISIBILITY_LABELS,
+  archiveJobPosting,
   closeJobPosting,
   employmentTypeLabel,
   fillJobPosting,
   listJobPostings,
+  pauseJobPosting,
   postingStatusTone,
   postingTitle,
   publishJobPosting,
@@ -33,7 +35,7 @@ type StatusFilter = "all" | PostingStatus;
 type VisibilityFilter = "all" | PostingVisibility;
 type SortKey = "title" | "createdAt" | "publishedAt" | "updatedAt";
 type SortOrder = "asc" | "desc";
-type LifecycleAction = "publish" | "close" | "fill";
+type LifecycleAction = "publish" | "pause" | "fill" | "close" | "archive";
 
 const PAGE_SIZES = [25, 50, 100];
 const FETCH_LIMIT = 200;
@@ -168,23 +170,21 @@ export default function CareersPostingsPage() {
     setConfirmBusy(true);
     setConfirmError(null);
     try {
-      if (confirmTarget.action === "publish") {
-        await publishJobPosting(confirmTarget.posting.id);
-      } else if (confirmTarget.action === "close") {
-        await closeJobPosting(confirmTarget.posting.id);
-      } else {
-        await fillJobPosting(confirmTarget.posting.id);
-      }
+      const id = confirmTarget.posting.id;
+      const action: Record<LifecycleAction, () => Promise<unknown>> = {
+        publish: () => publishJobPosting(id),
+        pause: () => pauseJobPosting(id),
+        fill: () => fillJobPosting(id),
+        close: () => closeJobPosting(id),
+        archive: () => archiveJobPosting(id),
+      };
+      await action[confirmTarget.action]();
       setConfirmTarget(null);
       await load();
     } catch (e) {
-      const verb =
-        confirmTarget.action === "publish"
-          ? "publish"
-          : confirmTarget.action === "close"
-            ? "close"
-            : "fill";
-      setConfirmError(getApiErrorMessage(e, `Failed to ${verb} posting.`));
+      setConfirmError(
+        getApiErrorMessage(e, `Failed to ${confirmTarget.action} posting.`),
+      );
     } finally {
       setConfirmBusy(false);
     }
@@ -366,7 +366,7 @@ export default function CareersPostingsPage() {
                     >
                       Edit
                     </button>
-                    {p.status === "DRAFT" ? (
+                    {p.status === "DRAFT" || p.status === "PAUSED" ? (
                       <button
                         type="button"
                         className="link-action"
@@ -375,11 +375,21 @@ export default function CareersPostingsPage() {
                           setConfirmTarget({ posting: p, action: "publish" });
                         }}
                       >
-                        Publish
+                        {p.status === "PAUSED" ? "Republish" : "Publish"}
                       </button>
                     ) : null}
-                    {p.status === "OPEN" ? (
+                    {p.status === "PUBLISHED" ? (
                       <>
+                        <button
+                          type="button"
+                          className="link-action"
+                          onClick={() => {
+                            setConfirmError(null);
+                            setConfirmTarget({ posting: p, action: "pause" });
+                          }}
+                        >
+                          Pause
+                        </button>
                         <button
                           type="button"
                           className="link-action"
@@ -390,19 +400,12 @@ export default function CareersPostingsPage() {
                         >
                           Mark Filled
                         </button>
-                        <button
-                          type="button"
-                          className="link-action link-danger"
-                          onClick={() => {
-                            setConfirmError(null);
-                            setConfirmTarget({ posting: p, action: "close" });
-                          }}
-                        >
-                          Close
-                        </button>
                       </>
                     ) : null}
-                    {p.status === "DRAFT" ? (
+                    {p.status === "DRAFT" ||
+                    p.status === "PUBLISHED" ||
+                    p.status === "PAUSED" ||
+                    p.status === "FILLED" ? (
                       <button
                         type="button"
                         className="link-action link-danger"
@@ -412,6 +415,18 @@ export default function CareersPostingsPage() {
                         }}
                       >
                         Close
+                      </button>
+                    ) : null}
+                    {p.status === "FILLED" || p.status === "CLOSED" ? (
+                      <button
+                        type="button"
+                        className="link-action"
+                        onClick={() => {
+                          setConfirmError(null);
+                          setConfirmTarget({ posting: p, action: "archive" });
+                        }}
+                      >
+                        Archive
                       </button>
                     ) : null}
                   </td>
@@ -458,44 +473,71 @@ export default function CareersPostingsPage() {
         open={confirmTarget !== null}
         title={
           confirmTarget?.action === "publish"
-            ? "Publish posting"
-            : confirmTarget?.action === "fill"
-              ? "Mark posting as filled"
-              : "Close posting"
+            ? confirmTarget?.posting.status === "PAUSED"
+              ? "Republish posting"
+              : "Publish posting"
+            : confirmTarget?.action === "pause"
+              ? "Pause posting"
+              : confirmTarget?.action === "fill"
+                ? "Mark posting as filled"
+                : confirmTarget?.action === "archive"
+                  ? "Archive posting"
+                  : "Close posting"
         }
         tone={confirmTarget?.action === "close" ? "danger" : "primary"}
         confirmLabel={
           confirmTarget?.action === "publish"
-            ? "Publish"
-            : confirmTarget?.action === "fill"
-              ? "Mark Filled"
-              : "Close"
+            ? confirmTarget?.posting.status === "PAUSED"
+              ? "Republish"
+              : "Publish"
+            : confirmTarget?.action === "pause"
+              ? "Pause"
+              : confirmTarget?.action === "fill"
+                ? "Mark Filled"
+                : confirmTarget?.action === "archive"
+                  ? "Archive"
+                  : "Close"
         }
         busy={confirmBusy}
         error={confirmError}
         message={
-          confirmTarget?.action === "publish" ? (
+          !confirmTarget ? null : confirmTarget.action === "publish" ? (
+            confirmTarget.posting.status === "PAUSED" ? (
+              <>
+                Republish{" "}
+                <strong>{postingTitle(confirmTarget.posting)}</strong>? This
+                returns the posting to the public careers site. Its permanent
+                public application ID is unchanged.
+              </>
+            ) : (
+              <>
+                Publish{" "}
+                <strong>{postingTitle(confirmTarget.posting)}</strong>? This
+                activates the posting and assigns its permanent public
+                application ID. The public ID never changes once assigned.
+              </>
+            )
+          ) : confirmTarget.action === "pause" ? (
             <>
-              Publish{" "}
-              <strong>
-                {confirmTarget && postingTitle(confirmTarget.posting)}
-              </strong>
-              ? This activates the posting and assigns its permanent public
-              application ID. The public ID never changes once assigned.
+              Pause <strong>{postingTitle(confirmTarget.posting)}</strong>? This
+              temporarily removes it from the public careers site. You can
+              republish it later.
             </>
-          ) : confirmTarget?.action === "fill" ? (
+          ) : confirmTarget.action === "fill" ? (
             <>
-              Mark <strong>{confirmTarget && postingTitle(confirmTarget.posting)}</strong>{" "}
-              as filled? This closes the posting to further hiring. This action
-              is final.
+              Mark <strong>{postingTitle(confirmTarget.posting)}</strong> as
+              filled? The posting is no longer public but is retained and can
+              still be closed or archived.
+            </>
+          ) : confirmTarget.action === "archive" ? (
+            <>
+              Archive <strong>{postingTitle(confirmTarget.posting)}</strong>? This
+              retains it for historical reference only. This action is final.
             </>
           ) : (
             <>
-              Close{" "}
-              <strong>
-                {confirmTarget && postingTitle(confirmTarget.posting)}
-              </strong>
-              ? A closed posting can no longer be published or reopened.
+              Close <strong>{postingTitle(confirmTarget.posting)}</strong>? A
+              closed posting can no longer be published or reopened.
             </>
           )
         }
