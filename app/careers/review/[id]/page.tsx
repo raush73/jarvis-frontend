@@ -33,7 +33,7 @@ import {
   InterviewType,
   InterviewInput,
   ReviewApplication,
-  TIMELINE_EVENT_LABELS,
+  timelineEventLabel,
   addHiringNote,
   addInterview,
   getReviewApplication,
@@ -58,6 +58,16 @@ function fromLocalInput(value: string): string | null {
   if (!value) return null;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/** Time-only label for an activity entry (the date lives in the group heading). */
+function formatActivityTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 type InterviewFormState = {
@@ -229,6 +239,42 @@ export default function CareersReviewDetailPage() {
   };
 
   const timeline = review?.timeline ?? [];
+
+  // Group the (newest-first) activity stream under calendar-date headings.
+  // Presentation only; entries within each date stay newest-first.
+  const timelineGroups = useMemo(() => {
+    const groups: {
+      key: string;
+      label: string;
+      items: typeof timeline;
+    }[] = [];
+    const byKey = new Map<string, (typeof groups)[number]>();
+    for (const ev of timeline) {
+      const d = new Date(ev.at);
+      const valid = !Number.isNaN(d.getTime());
+      const key = valid
+        ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+        : "unknown";
+      let group = byKey.get(key);
+      if (!group) {
+        group = {
+          key,
+          label: valid
+            ? d.toLocaleDateString(undefined, {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })
+            : "Unknown date",
+          items: [],
+        };
+        byKey.set(key, group);
+        groups.push(group);
+      }
+      group.items.push(ev);
+    }
+    return groups;
+  }, [timeline]);
 
   const profile = useMemo(() => review?.internalApplicant ?? null, [review]);
 
@@ -817,30 +863,47 @@ export default function CareersReviewDetailPage() {
             </div>
           </Panel>
 
-          <Panel title="Hiring Timeline">
-            <div className="timeline">
-              {timeline.length === 0 ? (
-                <Empty text="No timeline events yet." />
-              ) : (
-                timeline.map((ev, i) => (
-                  <div className="tl-item" key={`${ev.type}-${ev.at}-${i}`}>
-                    <span className="tl-dot" />
-                    <div className="tl-body">
-                      <span className="tl-label">
-                        {TIMELINE_EVENT_LABELS[ev.type]}
-                      </span>
-                      {ev.detail ? (
-                        <span className="tl-detail">{ev.detail}</span>
-                      ) : null}
-                      <span className="tl-meta">
-                        {formatDateTime(ev.at)}
-                        {ev.actorUserId ? ` · ${staffName(ev.actorUserId)}` : ""}
-                      </span>
+          <Panel title="Application Activity">
+            {timeline.length === 0 ? (
+              <Empty text="No activity yet." />
+            ) : (
+              <div className="tl-groups">
+                {timelineGroups.map((g) => (
+                  <div className="tl-group" key={g.key}>
+                    <div className="tl-date">{g.label}</div>
+                    <div className="timeline">
+                      {g.items.map((ev, i) => (
+                        <div className="tl-item" key={`${ev.type}-${ev.at}-${i}`}>
+                          <span
+                            className={`tl-dot ${ev.activityType ? "" : "tl-dot-system"}`}
+                          />
+                          <div className="tl-body">
+                            <span className="tl-label">
+                              {timelineEventLabel(ev)}
+                              {ev.activityType ? null : (
+                                <span className="tl-system-tag">System</span>
+                              )}
+                            </span>
+                            {ev.detail ? (
+                              <span className="tl-detail">{ev.detail}</span>
+                            ) : null}
+                            {ev.note ? (
+                              <span className="tl-note">{ev.note}</span>
+                            ) : null}
+                            <span className="tl-meta">
+                              {formatActivityTime(ev.at)}
+                              {ev.actorUserId
+                                ? ` · ${staffName(ev.actorUserId)}`
+                                : ""}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </Panel>
         </div>
       </div>
@@ -1365,6 +1428,24 @@ function StyleBlock() {
         line-height: 1.5;
         white-space: pre-wrap;
       }
+      .tl-groups {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .tl-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .tl-date {
+        font-size: 11.5px;
+        font-weight: 700;
+        color: #334155;
+        letter-spacing: 0.3px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #eef2f7;
+      }
       .timeline {
         display: flex;
         flex-direction: column;
@@ -1393,6 +1474,9 @@ function StyleBlock() {
         flex-shrink: 0;
         z-index: 1;
       }
+      .tl-dot-system {
+        background: #94a3b8;
+      }
       .tl-body {
         display: flex;
         flex-direction: column;
@@ -1402,10 +1486,31 @@ function StyleBlock() {
         font-size: 13px;
         font-weight: 600;
         color: #111827;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .tl-system-tag {
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        color: #64748b;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        border-radius: 999px;
+        padding: 1px 7px;
       }
       .tl-detail {
         font-size: 12px;
         color: #4b5563;
+        word-break: break-word;
+      }
+      .tl-note {
+        font-size: 12.5px;
+        color: #374151;
+        line-height: 1.5;
+        white-space: pre-wrap;
         word-break: break-word;
       }
       .tl-meta {

@@ -155,7 +155,8 @@ export type TimelineEventType =
   | "INTERVIEW_COMPLETED"
   | "NOTE_ADDED"
   | "REFERENCE_VERIFICATION"
-  | "OFFER_GENERATED";
+  | "OFFER_GENERATED"
+  | "ACTIVITY_LOGGED";
 
 export const TIMELINE_EVENT_LABELS: Record<TimelineEventType, string> = {
   APPLICATION_SUBMITTED: "Application Submitted",
@@ -167,15 +168,80 @@ export const TIMELINE_EVENT_LABELS: Record<TimelineEventType, string> = {
   NOTE_ADDED: "Hiring Note Added",
   REFERENCE_VERIFICATION: "Reference Verification",
   OFFER_GENERATED: "Offer Generated",
+  ACTIVITY_LOGGED: "Activity",
+};
+
+// V2.1.7: manually logged activity categories carried on timeline entries where
+// type === "ACTIVITY_LOGGED". EMAIL / TEXT_MESSAGE / INTERVIEW are legacy
+// (display-only) values retained for older rows.
+export type TimelineActivityType =
+  | "PHONE_CALL"
+  | "VOICEMAIL_LEFT"
+  | "EMAIL_SENT"
+  | "EMAIL_RECEIVED"
+  | "TEXT_SENT"
+  | "TEXT_RECEIVED"
+  | "INTERVIEW_SCHEDULED"
+  | "INTERVIEW_COMPLETED"
+  | "MEETING"
+  | "BACKGROUND_CHECK"
+  | "DRUG_SCREEN"
+  | "REFERENCE_CHECK"
+  | "OFFER_SENT"
+  | "OFFER_ACCEPTED"
+  | "OFFER_DECLINED"
+  | "INTERNAL_NOTE"
+  | "DOCUMENT_UPLOADED"
+  | "OTHER"
+  | "EMAIL"
+  | "TEXT_MESSAGE"
+  | "INTERVIEW";
+
+export const TIMELINE_ACTIVITY_TYPE_LABELS: Record<
+  TimelineActivityType,
+  string
+> = {
+  PHONE_CALL: "Phone Call",
+  VOICEMAIL_LEFT: "Voicemail Left",
+  EMAIL_SENT: "Email Sent",
+  EMAIL_RECEIVED: "Email Received",
+  TEXT_SENT: "Text Sent",
+  TEXT_RECEIVED: "Text Received",
+  INTERVIEW_SCHEDULED: "Interview Scheduled",
+  INTERVIEW_COMPLETED: "Interview Completed",
+  MEETING: "Meeting",
+  BACKGROUND_CHECK: "Background Check",
+  DRUG_SCREEN: "Drug Screen",
+  REFERENCE_CHECK: "Reference Check",
+  OFFER_SENT: "Offer Sent",
+  OFFER_ACCEPTED: "Offer Accepted",
+  OFFER_DECLINED: "Offer Declined",
+  INTERNAL_NOTE: "Internal Note",
+  DOCUMENT_UPLOADED: "Document Uploaded",
+  OTHER: "Other",
+  // Legacy (display-only)
+  EMAIL: "Email",
+  TEXT_MESSAGE: "Text Message",
+  INTERVIEW: "Interview",
 };
 
 export type TimelineEvent = {
   type: TimelineEventType;
+  activityType: TimelineActivityType | null;
   detail: string | null;
+  note: string | null;
   at: string;
   actorUserId: string | null;
   derived: boolean;
 };
+
+/** Display label for a timeline entry (manual category, else event type). */
+export function timelineEventLabel(ev: TimelineEvent): string {
+  if (ev.activityType) {
+    return TIMELINE_ACTIVITY_TYPE_LABELS[ev.activityType];
+  }
+  return TIMELINE_EVENT_LABELS[ev.type] ?? ev.type;
+}
 
 export type ProfileCompletion = {
   percent: number;

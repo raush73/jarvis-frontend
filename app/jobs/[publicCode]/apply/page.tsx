@@ -18,6 +18,7 @@ import {
   MILITARY_SERVICE_TYPE_LABELS,
   type MilitaryServiceType,
 } from "@/lib/careers/credentialsApi";
+import { US_STATES } from "@/lib/careers/usStates";
 import {
   PublicApplyConfig,
   PublicApplyError,
@@ -690,17 +691,11 @@ export default function PublicApplyPage() {
           <section className="wz-sec">
             <div className="wz-sec-head">
               <h2 className="wz-sec-title">Work History</h2>
-              <button
-                type="button"
-                className="wz-add"
-                onClick={() => setWorkHistory((p) => [...p, newWH()])}
-              >
-                + Add Employer
-              </button>
             </div>
             {workHistory.length === 0 ? (
               <p className="wz-empty">
-                Add your previous employers. This section is optional.
+                Add your previous employers using the &ldquo;Add Employer&rdquo;
+                button below. This section is optional.
               </p>
             ) : null}
             {workHistory.map((e, idx) => (
@@ -779,7 +774,7 @@ export default function PublicApplyPage() {
                   </label>
                   <label className="wz-field">
                     <span className="wz-label">State</span>
-                    <input
+                    <select
                       className="wz-input"
                       value={e.employerState}
                       onChange={(ev) =>
@@ -791,8 +786,14 @@ export default function PublicApplyPage() {
                           ),
                         )
                       }
-                      maxLength={120}
-                    />
+                    >
+                      <option value="">Select state…</option>
+                      {US_STATES.map((s) => (
+                        <option key={s.code} value={s.code}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                 </div>
                 <div className="wz-grid">
@@ -1113,7 +1114,7 @@ export default function PublicApplyPage() {
                   </label>
                   <label className="wz-field">
                     <span className="wz-label">State</span>
-                    <input
+                    <select
                       className="wz-input"
                       value={e.state}
                       onChange={(ev) =>
@@ -1125,8 +1126,14 @@ export default function PublicApplyPage() {
                           ),
                         )
                       }
-                      maxLength={120}
-                    />
+                    >
+                      <option value="">Select state…</option>
+                      {US_STATES.map((s) => (
+                        <option key={s.code} value={s.code}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label className="wz-field">
                     <span className="wz-label">GPA</span>
@@ -1661,19 +1668,27 @@ export default function PublicApplyPage() {
                 ? "A resume is required for this application."
                 : "Attach a resume (optional). Accepted: PDF, DOC, DOCX."}
             </p>
-            <input
-              type="file"
-              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              disabled={resumeUploading}
-              onChange={(e) =>
-                handleResumeSelect(e.target.files?.[0] ?? null)
-              }
-            />
-            {resumeUploading ? (
-              <p className="wz-empty">Uploading…</p>
-            ) : resumeDoc ? (
-              <div className="wz-resume-ok">
-                Uploaded: {resumeDoc.fileName}{" "}
+            <div className="wz-file">
+              <label
+                className={`wz-file-btn${resumeUploading ? " is-disabled" : ""}`}
+              >
+                {resumeUploading ? "Uploading…" : "Browse…"}
+                <input
+                  type="file"
+                  className="wz-file-input"
+                  accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  disabled={resumeUploading}
+                  onChange={(e) =>
+                    handleResumeSelect(e.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+              <span
+                className={`wz-file-name${resumeDoc ? " has-file" : ""}`}
+              >
+                {resumeDoc ? resumeDoc.fileName : "No file selected"}
+              </span>
+              {resumeDoc && !resumeUploading ? (
                 <button
                   type="button"
                   className="wz-remove"
@@ -1681,7 +1696,10 @@ export default function PublicApplyPage() {
                 >
                   Remove
                 </button>
-              </div>
+              ) : null}
+            </div>
+            {resumeDoc ? (
+              <p className="wz-resume-ok">✓ Resume uploaded successfully.</p>
             ) : null}
             {resumeError ? <div className="wz-error">{resumeError}</div> : null}
           </section>
@@ -1713,81 +1731,164 @@ export default function PublicApplyPage() {
               <div className="wz-error">{submitError}</div>
             ) : null}
             <div className="wz-review">
-              <div className="wz-review-row">
-                <span className="wz-review-k">Name</span>
-                <span className="wz-review-v">
-                  {[firstName, lastName].filter(Boolean).join(" ") || "—"}
-                </span>
+              <div className="wz-review-group">
+                <div className="wz-review-group-head">
+                  <h3 className="wz-review-group-title">Identity</h3>
+                  <button
+                    type="button"
+                    className="wz-edit"
+                    onClick={() => setStep(1)}
+                  >
+                    Edit Identity
+                  </button>
+                </div>
+                <div className="wz-review-row">
+                  <span className="wz-review-k">Name</span>
+                  <span className="wz-review-v">
+                    {[firstName, lastName].filter(Boolean).join(" ") || "—"}
+                  </span>
+                </div>
+                <div className="wz-review-row">
+                  <span className="wz-review-k">Email</span>
+                  <span className="wz-review-v">{email || "—"}</span>
+                </div>
+                <div className="wz-review-row">
+                  <span className="wz-review-k">Phone</span>
+                  <span className="wz-review-v">{phone || "—"}</span>
+                </div>
+                <div className="wz-review-row">
+                  <span className="wz-review-k">Location</span>
+                  <span className="wz-review-v">
+                    {[city, state].filter(Boolean).join(", ") || "—"}
+                  </span>
+                </div>
               </div>
-              <div className="wz-review-row">
-                <span className="wz-review-k">Email</span>
-                <span className="wz-review-v">{email || "—"}</span>
+
+              <div className="wz-review-group">
+                <div className="wz-review-group-head">
+                  <h3 className="wz-review-group-title">Work History</h3>
+                  <button
+                    type="button"
+                    className="wz-edit"
+                    onClick={() => setStep(2)}
+                  >
+                    Edit Work History
+                  </button>
+                </div>
+                <div className="wz-review-row">
+                  <span className="wz-review-k">Entries</span>
+                  <span className="wz-review-v">
+                    {
+                      workHistory.filter(
+                        (e) =>
+                          e.employerName.trim() &&
+                          e.jobTitle.trim() &&
+                          e.startDate,
+                      ).length
+                    }{" "}
+                    entr(ies)
+                  </span>
+                </div>
               </div>
-              <div className="wz-review-row">
-                <span className="wz-review-k">Phone</span>
-                <span className="wz-review-v">{phone || "—"}</span>
+
+              <div className="wz-review-group">
+                <div className="wz-review-group-head">
+                  <h3 className="wz-review-group-title">Education</h3>
+                  <button
+                    type="button"
+                    className="wz-edit"
+                    onClick={() => setStep(3)}
+                  >
+                    Edit Education
+                  </button>
+                </div>
+                <div className="wz-review-row">
+                  <span className="wz-review-k">Entries</span>
+                  <span className="wz-review-v">
+                    {education.filter((e) => e.schoolName.trim()).length}{" "}
+                    entr(ies)
+                  </span>
+                </div>
               </div>
-              <div className="wz-review-row">
-                <span className="wz-review-k">Location</span>
-                <span className="wz-review-v">
-                  {[city, state].filter(Boolean).join(", ") || "—"}
-                </span>
+
+              <div className="wz-review-group">
+                <div className="wz-review-group-head">
+                  <h3 className="wz-review-group-title">Credentials</h3>
+                  <button
+                    type="button"
+                    className="wz-edit"
+                    onClick={() => setStep(4)}
+                  >
+                    Edit Credentials
+                  </button>
+                </div>
+                <div className="wz-review-row">
+                  <span className="wz-review-k">Certifications</span>
+                  <span className="wz-review-v">
+                    {certifications.filter((e) => e.name.trim()).length}{" "}
+                    entr(ies)
+                  </span>
+                </div>
+                <div className="wz-review-row">
+                  <span className="wz-review-k">Military Service</span>
+                  <span className="wz-review-v">
+                    {
+                      military.filter(
+                        (e) =>
+                          e.isVeteran ||
+                          e.serviceType ||
+                          e.branch.trim() ||
+                          e.rank.trim(),
+                      ).length
+                    }{" "}
+                    entr(ies)
+                  </span>
+                </div>
+                <div className="wz-review-row">
+                  <span className="wz-review-k">Memberships</span>
+                  <span className="wz-review-v">
+                    {memberships.filter((e) => e.organization.trim()).length}{" "}
+                    entr(ies)
+                  </span>
+                </div>
               </div>
-              <div className="wz-review-row">
-                <span className="wz-review-k">Work History</span>
-                <span className="wz-review-v">
-                  {
-                    workHistory.filter(
-                      (e) =>
-                        e.employerName.trim() &&
-                        e.jobTitle.trim() &&
-                        e.startDate,
-                    ).length
-                  }{" "}
-                  entr(ies)
-                </span>
+
+              <div className="wz-review-group">
+                <div className="wz-review-group-head">
+                  <h3 className="wz-review-group-title">Resume</h3>
+                  <button
+                    type="button"
+                    className="wz-edit"
+                    onClick={() => setStep(5)}
+                  >
+                    Edit Resume
+                  </button>
+                </div>
+                <div className="wz-review-row">
+                  <span className="wz-review-k">File</span>
+                  <span className="wz-review-v">
+                    {resumeDoc ? resumeDoc.fileName : "None"}
+                  </span>
+                </div>
               </div>
-              <div className="wz-review-row">
-                <span className="wz-review-k">Education</span>
-                <span className="wz-review-v">
-                  {education.filter((e) => e.schoolName.trim()).length}{" "}
-                  entr(ies)
-                </span>
-              </div>
-              <div className="wz-review-row">
-                <span className="wz-review-k">Certifications</span>
-                <span className="wz-review-v">
-                  {certifications.filter((e) => e.name.trim()).length}{" "}
-                  entr(ies)
-                </span>
-              </div>
-              <div className="wz-review-row">
-                <span className="wz-review-k">Military Service</span>
-                <span className="wz-review-v">
-                  {
-                    military.filter(
-                      (e) =>
-                        e.isVeteran ||
-                        e.serviceType ||
-                        e.branch.trim() ||
-                        e.rank.trim(),
-                    ).length
-                  }{" "}
-                  entr(ies)
-                </span>
-              </div>
-              <div className="wz-review-row">
-                <span className="wz-review-k">Memberships</span>
-                <span className="wz-review-v">
-                  {memberships.filter((e) => e.organization.trim()).length}{" "}
-                  entr(ies)
-                </span>
-              </div>
-              <div className="wz-review-row">
-                <span className="wz-review-k">Resume</span>
-                <span className="wz-review-v">
-                  {resumeDoc ? resumeDoc.fileName : "None"}
-                </span>
+
+              <div className="wz-review-group">
+                <div className="wz-review-group-head">
+                  <h3 className="wz-review-group-title">Questions</h3>
+                  <button
+                    type="button"
+                    className="wz-edit"
+                    onClick={() => setStep(6)}
+                  >
+                    Edit Questions
+                  </button>
+                </div>
+                <div className="wz-review-row">
+                  <span className="wz-review-k">Interest</span>
+                  <span className="wz-review-v">
+                    {interestReason.trim() ? "Provided" : "—"}
+                  </span>
+                </div>
               </div>
             </div>
           </section>
@@ -1802,25 +1903,36 @@ export default function PublicApplyPage() {
           >
             Back
           </button>
-          {step < 7 ? (
-            <button
-              type="button"
-              className="wz-btn wz-primary"
-              onClick={() => setStep((s) => Math.min(7, s + 1))}
-              disabled={!canProceed}
-            >
-              Next
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="wz-btn wz-primary"
-              onClick={handleSubmit}
-              disabled={submitting}
-            >
-              {submitting ? "Submitting…" : "Submit Application"}
-            </button>
-          )}
+          <div className="wz-nav-right">
+            {step === 2 ? (
+              <button
+                type="button"
+                className="wz-btn wz-add-nav"
+                onClick={() => setWorkHistory((p) => [...p, newWH()])}
+              >
+                + Add Employer
+              </button>
+            ) : null}
+            {step < 7 ? (
+              <button
+                type="button"
+                className="wz-btn wz-primary"
+                onClick={() => setStep((s) => Math.min(7, s + 1))}
+                disabled={!canProceed}
+              >
+                Next
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="wz-btn wz-primary"
+                onClick={handleSubmit}
+                disabled={submitting}
+              >
+                {submitting ? "Submitting…" : "Submit Application"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </Shell>
@@ -2188,6 +2300,101 @@ function StyleBlock() {
       }
       .wz-primary:hover:not(:disabled) {
         background: #1d4ed8;
+      }
+      .wz-nav-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .wz-add-nav {
+        background: #eff6ff;
+        color: #1d4ed8;
+        border-color: #bfdbfe;
+      }
+      .wz-add-nav:hover:not(:disabled) {
+        background: #dbeafe;
+      }
+      .wz-file {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .wz-file-btn {
+        display: inline-flex;
+        align-items: center;
+        background: #2563eb;
+        color: #ffffff;
+        border: 1px solid #2563eb;
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .wz-file-btn:hover {
+        background: #1d4ed8;
+      }
+      .wz-file-btn.is-disabled {
+        background: #93b4f5;
+        border-color: #93b4f5;
+        cursor: not-allowed;
+      }
+      .wz-file-input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      .wz-file-name {
+        font-size: 13px;
+        color: #6b7280;
+        word-break: break-word;
+      }
+      .wz-file-name.has-file {
+        color: #111827;
+        font-weight: 600;
+      }
+      .wz-review-group {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: #fcfcfd;
+      }
+      .wz-review-group-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid #f1f5f9;
+        padding-bottom: 8px;
+      }
+      .wz-review-group-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #111827;
+        margin: 0;
+      }
+      .wz-edit {
+        background: transparent;
+        color: #2563eb;
+        border: 1px solid #bfdbfe;
+        border-radius: 7px;
+        padding: 5px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .wz-edit:hover {
+        background: #eff6ff;
       }
       @media (max-width: 560px) {
         .wz-grid,

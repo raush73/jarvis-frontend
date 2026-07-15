@@ -21,14 +21,35 @@ import type {
  * Postings hubs.
  */
 
+/**
+ * A lightweight view of an application attached to an applicant, used to render
+ * the recruiting-summary header (V2.1.6C). The detail (findOne) endpoint already
+ * includes the applicant's applications with their job posting.
+ */
+export type ApplicantApplicationSummary = {
+  id: string;
+  status: string;
+  hiringPipelineStage?: string | null;
+  submittedAt: string | null;
+  createdAt: string;
+  jobPosting: {
+    id: string;
+    title: string | null;
+    publicCode: string | null;
+  } | null;
+};
+
 export type Applicant = {
   id: string;
   email: string;
   firstName: string | null;
   lastName: string | null;
   phone: string | null;
+  // Mailing address (V2.1.6C). Editable via "Update Contact Information".
+  addressLine1: string | null;
   city: string | null;
   state: string | null;
+  postalCode: string | null;
   // Structured professional profile (V2.1.5A)
   professionalSummary: string | null;
   currentProfession: string | null;
@@ -40,6 +61,7 @@ export type Applicant = {
   createdAt: string;
   updatedAt: string;
   // Included by the detail (findOne) endpoint only (V2.1.5B / V2.1.5C).
+  applications?: ApplicantApplicationSummary[];
   workHistory?: WorkHistoryEntry[];
   education?: EducationEntry[];
   certifications?: CertificationEntry[];
@@ -59,8 +81,10 @@ export type ApplicantInput = {
   firstName?: string;
   lastName?: string;
   phone?: string;
+  addressLine1?: string;
   city?: string;
   state?: string;
+  postalCode?: string;
   // Structured profile fields (V2.1.5A). Null explicitly clears the value.
   professionalSummary?: string | null;
   currentProfession?: string | null;

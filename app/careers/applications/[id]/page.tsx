@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { CareersShell } from "@/components/careers/CareersShell";
 import { StatusBadge } from "@/components/careers/StatusBadge";
-import { WidgetPanel } from "@/components/careers/WidgetPanel";
 import { StatusTransitionDialog } from "@/components/careers/StatusTransitionDialog";
+import { ApplicationActivityModal } from "@/components/careers/ApplicationActivityModal";
 import { useStaffDirectory } from "@/components/careers/useStaffDirectory";
 import { formatDateTime } from "@/lib/careers/format";
 import { getApiErrorMessage } from "@/lib/careers/errors";
@@ -22,14 +22,18 @@ import {
   ALLOWED_TRANSITIONS,
   APPLICATION_STATUS_LABELS,
   Application,
+  ApplicationActivity,
   InternalApplicationStatus,
   SOURCE_LABELS,
   TRANSITION_ACTION_LABELS,
+  activityLabel,
   appliedAt,
   applicationStatusTone,
   getApplication,
   getResumeDownload,
   isDestructiveTransition,
+  isSystemActivity,
+  listApplicationActivities,
   transitionApplication,
 } from "@/lib/careers/applicationsApi";
 
@@ -51,6 +55,21 @@ export default function CareersApplicationDetailPage() {
 
   const [resumeBusy, setResumeBusy] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
+
+  const [activities, setActivities] = useState<ApplicationActivity[]>([]);
+  const [activitiesError, setActivitiesError] = useState<string | null>(null);
+  const [activityModalOpen, setActivityModalOpen] = useState(false);
+
+  const loadActivities = useCallback(async () => {
+    if (!id) return;
+    setActivitiesError(null);
+    try {
+      const res = await listApplicationActivities(id);
+      setActivities(res.items);
+    } catch (e) {
+      setActivitiesError(getApiErrorMessage(e, "Failed to load activity."));
+    }
+  }, [id]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -78,7 +97,8 @@ export default function CareersApplicationDetailPage() {
 
   useEffect(() => {
     load();
-  }, [load]);
+    loadActivities();
+  }, [load, loadActivities]);
 
   const handleConfirmTransition = async (reviewNote: string) => {
     if (!application || !toStatus) return;
@@ -92,6 +112,10 @@ export default function CareersApplicationDetailPage() {
       );
       setApplication(updated);
       setToStatus(null);
+      // A status transition writes an automatic Status Change activity (and,
+      // when a note was entered, a following Internal Note activity). Refresh
+      // the Application Activity log so both appear immediately.
+      loadActivities();
     } catch (e) {
       setTransitionError(getApiErrorMessage(e, "Failed to update status."));
     } finally {
@@ -120,6 +144,43 @@ export default function CareersApplicationDetailPage() {
     const user = staffById.get(uid);
     return user ? staffLabel(user) : uid;
   };
+
+  // Group the (newest-first) activity stream under calendar-date headings. The
+  // groups preserve incoming order, so the newest date appears first and entries
+  // within each date stay newest-first. Presentation only.
+  const activityGroups = useMemo(() => {
+    const groups: {
+      key: string;
+      label: string;
+      items: ApplicationActivity[];
+    }[] = [];
+    const byKey = new Map<string, (typeof groups)[number]>();
+    for (const a of activities) {
+      const d = new Date(a.at);
+      const valid = !Number.isNaN(d.getTime());
+      const key = valid
+        ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+        : "unknown";
+      let group = byKey.get(key);
+      if (!group) {
+        group = {
+          key,
+          label: valid
+            ? d.toLocaleDateString(undefined, {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })
+            : "Unknown date",
+          items: [],
+        };
+        byKey.set(key, group);
+        groups.push(group);
+      }
+      group.items.push(a);
+    }
+    return groups;
+  }, [activities]);
 
   if (loading) {
     return (
@@ -348,35 +409,85 @@ export default function CareersApplicationDetailPage() {
               <p className="field-empty">No cover note provided.</p>
             )}
           </div>
-
-          {/* Review Note */}
-          <div className="section-divider" />
-          <div className="field">
-            <span className="field-label">Review Note</span>
-            {application.reviewNote ? (
-              <p className="field-text prewrap">{application.reviewNote}</p>
-            ) : (
-              <p className="field-empty">
-                No review note yet. Add one when changing status.
-              </p>
-            )}
-          </div>
         </div>
       </section>
 
-      {/* Activity Timeline (reserved space; not implemented in this phase) */}
-      <div className="timeline-region">
-        <WidgetPanel
-          title="Activity Timeline"
-          note="Coming soon"
-          minHeight={140}
-        >
-          <div className="timeline-placeholder">
-            Status history, review notes, communications, interviews, and AI
-            summaries will appear here in a future release.
-          </div>
-        </WidgetPanel>
-      </div>
+      {/* Application Activity: permanent, append-only chronological history. */}
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Application Activity</h2>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setActivityModalOpen(true)}
+          >
+            + Add Activity
+          </button>
+        </div>
+        <div className="panel-body">
+          {activitiesError ? (
+            <div className="inline-error">{activitiesError}</div>
+          ) : null}
+          {activities.length === 0 ? (
+            <p className="field-empty">No activity recorded yet.</p>
+          ) : (
+            <div className="activity-log">
+              {activityGroups.map((g) => (
+                <div className="act-group" key={g.key}>
+                  <div className="act-date">{g.label}</div>
+                  <ol className="act-items">
+                    {g.items.map((a, i) => {
+                      const system = isSystemActivity(a);
+                      return (
+                        <li
+                          className={`act-item ${system ? "act-system" : "act-user"}`}
+                          key={a.id ?? `${a.type}-${a.at}-${i}`}
+                        >
+                          <span className="act-dot" />
+                          <div className="act-body">
+                            <div className="act-head">
+                              <span className="act-label">
+                                {activityLabel(a)}
+                              </span>
+                              {system ? (
+                                <span className="act-tag">System</span>
+                              ) : null}
+                            </div>
+                            {a.detail ? (
+                              <p className="act-detail">{a.detail}</p>
+                            ) : null}
+                            {a.note ? (
+                              <p className="act-note prewrap">{a.note}</p>
+                            ) : null}
+                            <span className="act-meta">
+                              {formatActivityTime(a.at)}
+                              {a.actorUserId
+                                ? ` · ${managerDisplay(a.actorUserId)}`
+                                : system
+                                  ? " · System"
+                                  : ""}
+                            </span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <ApplicationActivityModal
+        open={activityModalOpen}
+        applicationId={application.id}
+        onClose={() => setActivityModalOpen(false)}
+        onSaved={(items) => {
+          setActivities(items);
+          setActivityModalOpen(false);
+        }}
+      />
 
       <StatusTransitionDialog
         key={toStatus ?? "none"}
@@ -542,14 +653,106 @@ export default function CareersApplicationDetailPage() {
           justify-content: space-between;
           gap: 16px;
         }
-        .timeline-region {
-          margin-bottom: 8px;
+        .activity-log {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
         }
-        .timeline-placeholder {
+        .act-group {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .act-date {
+          font-size: 12px;
+          font-weight: 700;
+          color: #334155;
+          letter-spacing: 0.3px;
+          padding-bottom: 7px;
+          border-bottom: 1px solid #eef2f7;
+        }
+        .act-items {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+        }
+        .act-item {
+          display: flex;
+          gap: 12px;
+          padding-bottom: 16px;
+          position: relative;
+        }
+        .act-item:not(:last-child)::before {
+          content: "";
+          position: absolute;
+          left: 4px;
+          top: 14px;
+          bottom: 0;
+          width: 1px;
+          background: #e5e7eb;
+        }
+        .act-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+          margin-top: 4px;
+          flex-shrink: 0;
+          z-index: 1;
+        }
+        .act-user .act-dot {
+          background: #2563eb;
+        }
+        .act-system .act-dot {
+          background: #94a3b8;
+        }
+        .act-body {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          min-width: 0;
+        }
+        .act-head {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .act-label {
+          font-size: 13.5px;
+          font-weight: 700;
+          color: #111827;
+        }
+        .act-system .act-label {
+          color: #475569;
+        }
+        .act-tag {
+          font-size: 9.5px;
+          font-weight: 700;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+          color: #64748b;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          border-radius: 999px;
+          padding: 1px 7px;
+        }
+        .act-detail {
+          font-size: 12.5px;
+          color: #4b5563;
+          margin: 0;
+          word-break: break-word;
+        }
+        .act-note {
           font-size: 13px;
+          color: #111827;
+          line-height: 1.55;
+          margin: 0;
+          word-break: break-word;
+        }
+        .act-meta {
+          font-size: 11.5px;
           color: #9ca3af;
-          font-style: italic;
-          line-height: 1.6;
         }
         @media (max-width: 900px) {
           .two-col {
@@ -571,6 +774,16 @@ export default function CareersApplicationDetailPage() {
       `}</style>
     </CareersShell>
   );
+}
+
+/** Time-only label for an activity entry (the date lives in the group heading). */
+function formatActivityTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 const blockStyles = `

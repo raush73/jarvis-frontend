@@ -117,16 +117,42 @@ export async function deleteCertification(
 }
 
 // ----------------------------------------------------------- Military Service
+// Service Component options shown in the dropdown (V2.1.6C expansion). The
+// order here is the display order in the UI.
 export const MILITARY_SERVICE_TYPES = [
   "ACTIVE_DUTY",
-  "NATIONAL_GUARD",
-  "RESERVE",
+  "ARMY_NATIONAL_GUARD",
+  "ARMY_RESERVE",
+  "AIR_NATIONAL_GUARD",
+  "AIR_FORCE_RESERVE",
+  "NAVY_RESERVE",
+  "MARINE_CORPS_RESERVE",
+  "COAST_GUARD_RESERVE",
+  "SPACE_FORCE_RESERVE",
+  "NOT_ACTIVE_VETERAN",
 ] as const;
-export type MilitaryServiceType = (typeof MILITARY_SERVICE_TYPES)[number];
+
+// Legacy values retained for backward-compatible display of records created
+// before the V2.1.6C expansion. They are NOT offered in the dropdown.
+const LEGACY_MILITARY_SERVICE_TYPES = ["NATIONAL_GUARD", "RESERVE"] as const;
+
+export type MilitaryServiceType =
+  | (typeof MILITARY_SERVICE_TYPES)[number]
+  | (typeof LEGACY_MILITARY_SERVICE_TYPES)[number];
 
 export const MILITARY_SERVICE_TYPE_LABELS: Record<MilitaryServiceType, string> =
   {
     ACTIVE_DUTY: "Active Duty",
+    ARMY_NATIONAL_GUARD: "Army National Guard",
+    ARMY_RESERVE: "Army Reserve",
+    AIR_NATIONAL_GUARD: "Air National Guard",
+    AIR_FORCE_RESERVE: "Air Force Reserve",
+    NAVY_RESERVE: "Navy Reserve",
+    MARINE_CORPS_RESERVE: "Marine Corps Reserve",
+    COAST_GUARD_RESERVE: "Coast Guard Reserve",
+    SPACE_FORCE_RESERVE: "Space Force Reserve",
+    NOT_ACTIVE_VETERAN: "Not Active / Veteran",
+    // Legacy labels (display-only)
     NATIONAL_GUARD: "National Guard",
     RESERVE: "Reserve",
   };

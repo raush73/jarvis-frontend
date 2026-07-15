@@ -12,9 +12,11 @@ import { useDialogA11y } from "./useDialogA11y";
 /**
  * Jarvis Careers - Application status-transition dialog.
  *
- * A new component (not ConfirmDialog) because a review note must be captured
- * inline: the backend only persists `reviewNote` via the status-transition
- * endpoint, so the note field lives with the transition action.
+ * A note is captured inline with the transition. V2.1.7 refinement: the
+ * transition automatically writes a Status Change activity to the Application
+ * Activity log, and any comment entered here is recorded as an Internal Note
+ * activity immediately following it (the deprecated standalone reviewNote field
+ * is no longer written).
  */
 export function StatusTransitionDialog({
   open,
@@ -66,14 +68,14 @@ export function StatusTransitionDialog({
         </p>
 
         <label className="st-field">
-          <span className="st-label">Review note (optional)</span>
+          <span className="st-label">Comments (optional)</span>
           <textarea
             className="st-textarea"
             value={reviewNote}
             onChange={(e) => setReviewNote(e.target.value)}
             maxLength={5000}
             rows={4}
-            placeholder="Add context for this decision (visible to hiring staff)…"
+            placeholder="Add context for this decision — recorded as an Internal Note activity…"
           />
         </label>
 
