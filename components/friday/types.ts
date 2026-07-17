@@ -309,6 +309,12 @@ export type CallExecutionState =
   | 'COMPLETING'
   | 'BLOCKED';
 
+export interface StaleReviewCallback {
+  id: string;
+  dueAt: string;
+  hasExplicitTime: boolean;
+}
+
 export interface CallTarget {
   callTargetId: string;
   customerId: string;
@@ -320,6 +326,24 @@ export interface CallTarget {
   bucketReason: string;
   followUpContext: string | null;
   followUpDueAt: string | null;
+  // Stale Review Resolution Workflow: true only for STALE targets backed by an
+  // OPEN future callback; surfaces the "Reviewed - No Contact Needed" action.
+  staleReviewEligible?: boolean;
+  staleReviewCallback?: StaleReviewCallback | null;
+}
+
+export interface StaleReviewResult {
+  suppressionId: string;
+  customerId: string;
+  callbackFollowUpId: string;
+  suppressionDays: number;
+  suppressUntil: string;
+  updated: boolean;
+}
+
+export interface StaleReviewBounds {
+  defaultDays: number;
+  maxDays: number;
 }
 
 export interface SessionStatus {

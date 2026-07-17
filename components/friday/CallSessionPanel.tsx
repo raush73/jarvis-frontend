@@ -15,9 +15,20 @@ import {
   type CompanyContact,
   type FollowUp,
   type ConflictResponse,
+  type StaleReviewResult,
+  type StaleReviewBounds,
   BUCKET_LABELS,
   BUCKET_COLORS,
 } from './types';
+
+const SUPPRESSION_PRESETS = [7, 14, 21, 30] as const;
+
+// Response shape of GET /friday/call-session/next (NextCallableResponse).
+type NextCallableResult = {
+  ok: boolean;
+  target: CallTarget | null;
+  reason: string | null;
+};
 
 type PanelPhase =
   | 'idle'
@@ -73,6 +84,12 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
   const [showCustomDefer, setShowCustomDefer] = useState(false);
   const [customDeferValue, setCustomDeferValue] = useState('');
   const [deferConflict, setDeferConflict] = useState<DeferResult['conflict'] | null>(null);
+
+  // Stale Review Resolution Workflow: duration picker state.
+  const [showDurationPicker, setShowDurationPicker] = useState(false);
+  const [staleBounds, setStaleBounds] = useState<StaleReviewBounds | null>(null);
+  const [selectedDuration, setSelectedDuration] = useState<number | 'custom'>(14);
+  const [customDaysValue, setCustomDaysValue] = useState('');
 
   const mountedRef = useRef(true);
   const directConsumedRef = useRef(false);
@@ -233,6 +250,77 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
       syncState(res.data.state as CallExecutionState, res.data.currentCallEventId, res.data.nextTarget);
     } else {
       setError(res.error);
+    }
+  };
+
+  // Stale Review Resolution Workflow: open the duration picker. Loads the
+  // configured suppression bounds (default + max) and defaults the selection to
+  // the configured default value.
+  const handleOpenDurationPicker = async () => {
+    setError('');
+    setShowDurationPicker(true);
+    let bounds = staleBounds;
+    if (!bounds) {
+      const res = await fridayFetch<StaleReviewBounds>(
+        '/friday/intelligence/stale-review/config',
+      );
+      if (!mountedRef.current) return;
+      bounds = res.ok ? res.data : { defaultDays: 14, maxDays: 60 };
+      setStaleBounds(bounds);
+    }
+    const def = bounds.defaultDays;
+    if ((SUPPRESSION_PRESETS as readonly number[]).includes(def) && def <= bounds.maxDays) {
+      setSelectedDuration(def);
+      setCustomDaysValue('');
+    } else {
+      setSelectedDuration('custom');
+      setCustomDaysValue(String(def));
+    }
+  };
+
+  // Acknowledge the STALE reminder without calling. Suppresses ONLY the stale
+  // reminder for the selected duration (server validates against the max); the
+  // callback is left untouched. Then advance to the next target.
+  const handleConfirmReviewedNoContact = async () => {
+    if (!target?.customerId) return;
+    const maxDays = staleBounds?.maxDays ?? 60;
+    let days: number;
+    if (selectedDuration === 'custom') {
+      days = Number(customDaysValue);
+      if (!Number.isInteger(days) || days < 1) {
+        setError('Enter a whole number of days (1 or more).');
+        return;
+      }
+      if (days > maxDays) {
+        setError(`Suppression cannot exceed the configured maximum of ${maxDays} days.`);
+        return;
+      }
+    } else {
+      days = selectedDuration;
+    }
+
+    setBusy(true);
+    setError('');
+    const res = await fridayFetch<StaleReviewResult>(
+      `/friday/intelligence/queue/${target.customerId}/reviewed-no-contact`,
+      { method: 'POST', body: JSON.stringify({ suppressionDays: days }) },
+    );
+    if (!mountedRef.current) return;
+    if (!res.ok) {
+      setBusy(false);
+      setError(res.error);
+      return;
+    }
+    setShowDurationPicker(false);
+    const nextRes = await fridayFetch<NextCallableResult>('/friday/call-session/next');
+    setBusy(false);
+    if (!mountedRef.current) return;
+    if (nextRes.ok) {
+      setTarget(nextRes.data.target);
+      setEmptyReason(nextRes.data.target ? null : nextRes.data.reason);
+      setPhase('ready');
+    } else {
+      setError(nextRes.error);
     }
   };
 
@@ -484,9 +572,115 @@ export default function CallSessionPanel({ onTargetChange, directTargetCustomerI
               onClick={handleStartCall}
               disabled={busy}
             >
-              {busy ? 'Connecting...' : 'Start Call'}
+              {busy ? 'Connecting...' : target.staleReviewEligible ? 'Call Now' : 'Start Call'}
             </button>
           </div>
+
+          {/* Stale Review Resolution Workflow: only for STALE targets backed by
+              an OPEN future callback. */}
+          {target.staleReviewEligible && (
+            <div style={staleReviewSection}>
+              <div style={staleReviewRow}>
+                <span style={metaLabel}>Queue Reason</span>
+                <span style={bucketBadge(BUCKET_COLORS.STALE)}>
+                  {BUCKET_LABELS.STALE}
+                </span>
+              </div>
+              {target.staleReviewCallback && (
+                <div style={staleReviewRow}>
+                  <span style={metaLabel}>Existing Callback</span>
+                  <span style={metaValue}>
+                    {formatCallbackDateTime(target.staleReviewCallback)}
+                  </span>
+                </div>
+              )}
+
+              {!showDurationPicker && (
+                <button
+                  style={reviewedNoContactBtn}
+                  onClick={handleOpenDurationPicker}
+                  disabled={busy}
+                >
+                  Reviewed — No Contact Needed
+                </button>
+              )}
+
+              {showDurationPicker && (
+                <div style={durationPickerWrap}>
+                  <div style={deferLabel}>Suppress this STALE reminder for:</div>
+                  <div style={durationOptions}>
+                    {SUPPRESSION_PRESETS.filter(
+                      (d) => d <= (staleBounds?.maxDays ?? 60),
+                    ).map((d) => (
+                      <label key={d} style={durationOption}>
+                        <input
+                          type="radio"
+                          name="stale-suppression-duration"
+                          checked={selectedDuration === d}
+                          onChange={() => setSelectedDuration(d)}
+                        />
+                        {d} Days
+                      </label>
+                    ))}
+                    <label style={durationOption}>
+                      <input
+                        type="radio"
+                        name="stale-suppression-duration"
+                        checked={selectedDuration === 'custom'}
+                        onChange={() => setSelectedDuration('custom')}
+                      />
+                      Custom
+                    </label>
+                  </div>
+
+                  {selectedDuration === 'custom' && (
+                    <div style={customDaysWrap}>
+                      <span style={metaLabel}>Days</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={staleBounds?.maxDays ?? 60}
+                        step={1}
+                        value={customDaysValue}
+                        onChange={(e) => setCustomDaysValue(e.target.value)}
+                        style={customDaysInput}
+                      />
+                      <span style={{ fontSize: '0.6875rem', color: S.FC.textMuted }}>
+                        max {staleBounds?.maxDays ?? 60}
+                      </span>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                    <button
+                      style={{ ...reviewedNoContactBtn, flex: 1, marginTop: 0 }}
+                      onClick={handleConfirmReviewedNoContact}
+                      disabled={busy}
+                    >
+                      {busy ? 'Saving...' : 'Confirm — No Contact Needed'}
+                    </button>
+                    <button
+                      style={{ ...viewCallbackBtn, flex: 1 }}
+                      onClick={() => { setShowDurationPicker(false); setError(''); }}
+                      disabled={busy}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {onOpenCompanyDetail && target.customerId && (
+                <button
+                  style={viewCallbackBtn}
+                  onClick={() => onOpenCompanyDetail(target.customerId)}
+                  disabled={busy}
+                >
+                  View Callback
+                </button>
+              )}
+            </div>
+          )}
 
           {onOpenCompanyDetail && target.customerId && (
             <button
@@ -713,6 +907,24 @@ function toLocalInputMin(): string {
   d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatCallbackDateTime(cb: {
+  dueAt: string;
+  hasExplicitTime: boolean;
+}): string {
+  const d = new Date(cb.dueAt);
+  const datePart = d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  if (!cb.hasExplicitTime) return datePart;
+  const timePart = d.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return `${datePart} · ${timePart}`;
 }
 
 function conflictOptionLabel(opt: string): string {
@@ -989,6 +1201,87 @@ const conflictBtn: CSSProperties = {
   background: 'transparent',
   color: S.FC.accentAmber,
   cursor: 'pointer',
+};
+
+const staleReviewSection: CSSProperties = {
+  marginTop: 12,
+  padding: 12,
+  background: 'rgba(139, 92, 246, 0.06)',
+  border: '1px solid rgba(139, 92, 246, 0.22)',
+  borderRadius: 8,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+};
+
+const staleReviewRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+};
+
+const reviewedNoContactBtn: CSSProperties = {
+  width: '100%',
+  marginTop: 4,
+  padding: '10px 16px',
+  fontSize: '0.8125rem',
+  fontWeight: 600,
+  color: S.FC.accentAmber,
+  background: S.FC.accentAmberDim,
+  border: '1px solid rgba(245, 158, 11, 0.35)',
+  borderRadius: 6,
+  cursor: 'pointer',
+};
+
+const viewCallbackBtn: CSSProperties = {
+  width: '100%',
+  padding: '9px 16px',
+  fontSize: '0.8125rem',
+  fontWeight: 600,
+  color: S.FC.textSecondary,
+  background: 'transparent',
+  border: `1px solid ${S.FC.border}`,
+  borderRadius: 6,
+  cursor: 'pointer',
+};
+
+const durationPickerWrap: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  padding: '10px 0 2px',
+};
+
+const durationOptions: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 10,
+};
+
+const durationOption: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  fontSize: '0.8125rem',
+  color: S.FC.textPrimary,
+  cursor: 'pointer',
+};
+
+const customDaysWrap: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+};
+
+const customDaysInput: CSSProperties = {
+  width: 80,
+  padding: '6px 10px',
+  fontSize: '0.8125rem',
+  border: `1px solid ${S.FC.border}`,
+  borderRadius: 6,
+  background: S.FC.surface,
+  color: S.FC.textPrimary,
+  colorScheme: 'dark',
 };
 
 const companyDetailBtn: CSSProperties = {
