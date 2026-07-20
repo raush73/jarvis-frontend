@@ -22,9 +22,25 @@ import type {
  */
 
 /**
+ * Minimal resume Document shape included on an applicant's applications by the
+ * detail (findOne) endpoint. Storage-focused metadata only; the actual file is
+ * fetched via the authenticated presigned-download endpoint (never exposed
+ * directly). Defined inline here to avoid a circular import with applicationsApi.
+ */
+export type ApplicantResumeDocument = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  category: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
+/**
  * A lightweight view of an application attached to an applicant, used to render
  * the recruiting-summary header (V2.1.6C). The detail (findOne) endpoint already
- * includes the applicant's applications with their job posting.
+ * includes the applicant's applications with their job posting and (when present)
+ * the associated resume Document.
  */
 export type ApplicantApplicationSummary = {
   id: string;
@@ -37,6 +53,10 @@ export type ApplicantApplicationSummary = {
     title: string | null;
     publicCode: string | null;
   } | null;
+  // Included by the detail (findOne) endpoint. Resume remains OPTIONAL: an
+  // application may have no resume on file (resumeDocumentId is null).
+  resumeDocumentId?: string | null;
+  resumeDocument?: ApplicantResumeDocument | null;
 };
 
 export type Applicant = {

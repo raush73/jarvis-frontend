@@ -14,6 +14,7 @@ import {
 } from "@/lib/careers/applicantsApi";
 import {
   APPLICATION_STATUS_LABELS,
+  getResumeDownload,
   type InternalApplicationStatus,
 } from "@/lib/careers/applicationsApi";
 import { getPublicCareersConfig } from "@/lib/careers/careersConfigApi";
@@ -41,6 +42,8 @@ export default function CareersApplicantDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [contactOpen, setContactOpen] = useState(false);
   const [showCompensation, setShowCompensation] = useState(true);
+  const [resumeBusyId, setResumeBusyId] = useState<string | null>(null);
+  const [resumeError, setResumeError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -84,6 +87,55 @@ export default function CareersApplicantDetailPage() {
       new Date(a.submittedAt ?? a.createdAt).getTime();
     return [...apps].sort((a, b) => key(b) - key(a))[0];
   }, [applicant]);
+
+  // Distinct resumes on file across the applicant's applications. A single
+  // physical resume may back multiple applications, so we deduplicate by
+  // documentId and record which position(s) each is attached to. Resume remains
+  // optional: an empty list renders the "No resume on file" state.
+  const resumeDocuments = useMemo(() => {
+    const apps = applicant?.applications ?? [];
+    const byDoc = new Map<
+      string,
+      { id: string; fileName: string; positions: string[] }
+    >();
+    for (const app of apps) {
+      const doc = app.resumeDocument;
+      if (!doc) continue;
+      const positionTitle = app.jobPosting?.title ?? null;
+      const existing = byDoc.get(doc.id);
+      if (existing) {
+        if (positionTitle && !existing.positions.includes(positionTitle)) {
+          existing.positions.push(positionTitle);
+        }
+      } else {
+        byDoc.set(doc.id, {
+          id: doc.id,
+          fileName: doc.fileName,
+          positions: positionTitle ? [positionTitle] : [],
+        });
+      }
+    }
+    return Array.from(byDoc.values());
+  }, [applicant]);
+
+  // Securely open a resume via the existing authenticated download endpoint,
+  // which returns a short-lived presigned S3 GET URL (the object stays private;
+  // the app never proxies bytes). Reuses the same flow as the Application and
+  // Review detail pages.
+  const handleDownloadResume = useCallback(async (documentId: string) => {
+    setResumeBusyId(documentId);
+    setResumeError(null);
+    try {
+      const info = await getResumeDownload(documentId);
+      window.open(info.url, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      setResumeError(
+        getApiErrorMessage(e, "Failed to prepare resume download."),
+      );
+    } finally {
+      setResumeBusyId(null);
+    }
+  }, []);
 
   function formatMoney(raw: string | null): string | null {
     if (!raw) return null;
@@ -178,6 +230,42 @@ export default function CareersApplicantDetailPage() {
           <span className="summary-value">Unassigned</span>
         </div>
       </div>
+
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Documents</h2>
+        </div>
+        <div className="panel-body">
+          {resumeDocuments.length > 0 ? (
+            <div className="doc-list">
+              {resumeDocuments.map((doc) => (
+                <div key={doc.id} className="doc-row">
+                  <div className="doc-info">
+                    <span className="doc-name">{doc.fileName}</span>
+                    <span className="doc-meta">
+                      Resume
+                      {doc.positions.length > 0
+                        ? ` · ${doc.positions.join(", ")}`
+                        : ""}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => handleDownloadResume(doc.id)}
+                    disabled={resumeBusyId === doc.id}
+                  >
+                    {resumeBusyId === doc.id ? "Preparing…" : "Download Resume"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="wh-empty">No resume on file.</p>
+          )}
+          {resumeError ? <div className="doc-error">{resumeError}</div> : null}
+        </div>
+      </section>
 
       <section className="panel">
         <div className="panel-header">
@@ -784,6 +872,42 @@ export default function CareersApplicantDetailPage() {
           font-size: 13px;
           color: #9ca3af;
           margin: 0;
+        }
+        .doc-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .doc-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+          padding: 12px 14px;
+          background: #fcfcfd;
+        }
+        .doc-info {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          min-width: 0;
+        }
+        .doc-name {
+          font-size: 13px;
+          font-weight: 600;
+          color: #111827;
+          word-break: break-word;
+        }
+        .doc-meta {
+          font-size: 12px;
+          color: #6b7280;
+        }
+        .doc-error {
+          margin-top: 10px;
+          font-size: 12px;
+          color: #991b1b;
         }
         .panel-body {
           padding: 16px;
