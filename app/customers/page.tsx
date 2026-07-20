@@ -33,6 +33,27 @@ function formatUpdatedAt(value: any): string {
   return d.toLocaleString();
 }
 
+// Customer Owner display. Prefers the permanent/default registry salesperson.
+// When there is no permanent owner but the customer is under live Friday
+// temporary control (ACTIVE or AT_RISK), shows the current temporary controller
+// so the list clearly reflects who controls the customer. Falls back to em dash.
+function formatCustomerOwner(customer: any): string {
+  const registry = customer?.registrySalesperson;
+  if (registry) {
+    const name = `${registry.firstName ?? ""} ${registry.lastName ?? ""}`.trim();
+    return name || "\u2014";
+  }
+
+  const status = customer?.ownershipStatus;
+  const holdsTemporaryControl = status === "ACTIVE" || status === "AT_RISK";
+  if (holdsTemporaryControl && customer?.fridayOwner) {
+    const tempName = String(customer.fridayOwner.fullName ?? "").trim();
+    if (tempName) return `${tempName} (temporary)`;
+  }
+
+  return "\u2014";
+}
+
 const AZ_STRIP = ["All", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")] as const;
 type AzBucket = (typeof AZ_STRIP)[number];
 
@@ -393,11 +414,7 @@ export default function CustomersPage() {
                     </td>
                     <td>{customer.locationCity && customer.locationState ? `${customer.locationCity}, ${customer.locationState}` : customer.locationCity ?? customer.locationState ?? "\u2014"}</td>
                     <td>{customer.mainPhone ?? "\u2014"}</td>
-                    <td>
-                      {customer.registrySalesperson
-                        ? `${customer.registrySalesperson.firstName} ${customer.registrySalesperson.lastName}`
-                        : "\u2014"}
-                    </td>
+                    <td>{formatCustomerOwner(customer)}</td>
                     <td>{formatUpdatedAt(customer.updatedAt)}</td>
                   </tr>
                 ))}
@@ -445,11 +462,7 @@ export default function CustomersPage() {
                       </td>
                       <td>{customer.locationCity && customer.locationState ? `${customer.locationCity}, ${customer.locationState}` : customer.locationCity ?? customer.locationState ?? "\u2014"}</td>
                       <td>{customer.mainPhone ?? "\u2014"}</td>
-                      <td>
-                        {customer.registrySalesperson
-                          ? `${customer.registrySalesperson.firstName} ${customer.registrySalesperson.lastName}`
-                          : "\u2014"}
-                      </td>
+                      <td>{formatCustomerOwner(customer)}</td>
                       <td>{formatUpdatedAt(customer.updatedAt)}</td>
                     </tr>
                   </Fragment>
