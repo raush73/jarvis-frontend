@@ -6,10 +6,11 @@ import ModuleTabs from "./ModuleTabs";
 
 /**
  * Renders the internal Jarvis chrome (global top nav + module tabs). Suppressed
- * on public-facing surfaces such as the public Careers portal (`/jobs/*`), which
- * are intended for external applicants and must not display internal navigation.
+ * on public-facing surfaces such as the public Careers portal (`/jobs/*`) and the
+ * public Workforce Application (`/workforce/*`), which are intended for external
+ * applicants and must not display internal navigation.
  */
-const CHROMELESS_PREFIXES = ["/jobs"];
+const CHROMELESS_PREFIXES = ["/jobs", "/workforce"];
 
 export default function AppChrome() {
   const pathname = usePathname();
