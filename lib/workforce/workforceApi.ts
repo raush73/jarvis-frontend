@@ -11,6 +11,10 @@
  */
 
 import { API_BASE } from "@/lib/api";
+import type {
+  CatalogSelectionView,
+  CatalogView,
+} from "@/components/catalog/catalogContract";
 import {
   clearWorkerAuth,
   getWorkerToken,
@@ -373,15 +377,19 @@ export function saveIdentity(
 /*  Primary Trade                                                              */
 /* -------------------------------------------------------------------------- */
 
+/** Flat trade shape, still used by the Work History per-entry dropdown. */
 export type TradeOption = { id: string; name: string };
 
 export type PrimaryTradeStageView = {
   primaryTradeId: string | null;
   primaryTradeName: string | null;
+  /** True when the stored trade no longer resolves; the answer is kept and flagged (C4E §11.2). */
+  primaryTradeUnavailable: boolean;
 };
 
-export function getTradeRegistry(): Promise<TradeOption[]> {
-  return workerFetch<TradeOption[]>(
+/** C4E: the trade catalog, already ordered by the server. Trades carry no categories. */
+export function getTradeRegistry(): Promise<CatalogView> {
+  return workerFetch<CatalogView>(
     "/workforce/application/wizard/primary-trade/trades",
   );
 }
@@ -507,19 +515,14 @@ export function removeWorkHistoryEntry(
 /*  Certifications                                                             */
 /* -------------------------------------------------------------------------- */
 
-export type CertificationOption = {
-  id: string;
-  name: string;
-  category: string | null;
-};
-
 export type CertificationsStageView = {
   hasCertifications: boolean | null;
-  selections: { id: string; name: string | null; category: string | null }[];
+  selections: CatalogSelectionView[];
 };
 
-export function getCertificationRegistry(): Promise<CertificationOption[]> {
-  return workerFetch<CertificationOption[]>(
+/** C4E: the certification catalog, grouped by category and in curated order. */
+export function getCertificationRegistry(): Promise<CatalogView> {
+  return workerFetch<CatalogView>(
     "/workforce/application/wizard/certifications/registry",
   );
 }
@@ -552,23 +555,23 @@ export function saveCertifications(
 /*  Tools & PPE (one backend stage, two worker screens)                        */
 /* -------------------------------------------------------------------------- */
 
-export type RegistryOption = { id: string; name: string };
-
 export type ToolsPpeStageView = {
   hasTools: boolean | null;
-  tools: { id: string; name: string | null }[];
+  tools: CatalogSelectionView[];
   hasPpe: boolean | null;
-  ppe: { id: string; name: string | null }[];
+  ppe: CatalogSelectionView[];
 };
 
-export function getToolRegistry(): Promise<RegistryOption[]> {
-  return workerFetch<RegistryOption[]>(
+/** C4E: the tool catalog, grouped by category - which this stage previously discarded. */
+export function getToolRegistry(): Promise<CatalogView> {
+  return workerFetch<CatalogView>(
     "/workforce/application/wizard/tools-ppe/tools/registry",
   );
 }
 
-export function getPpeRegistry(): Promise<RegistryOption[]> {
-  return workerFetch<RegistryOption[]>(
+/** C4E: the PPE catalog, grouped by protective-function category. */
+export function getPpeRegistry(): Promise<CatalogView> {
+  return workerFetch<CatalogView>(
     "/workforce/application/wizard/tools-ppe/ppe/registry",
   );
 }

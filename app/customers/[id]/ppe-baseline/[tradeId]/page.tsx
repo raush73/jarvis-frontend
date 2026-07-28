@@ -4,18 +4,28 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 
-type ToolCategory = {
+/**
+ * C4E Amendment 2: this screen groups by the GLOBAL PPE categories.
+ *
+ * It previously synthesized a single fake "PPE" category because the catalog was flat. PPE
+ * categories now exist and classify by protective function with no customer or trade dimension, so
+ * a customer baseline selects from the global dictionary and never carries a categorization of its
+ * own. Grouping is presentational; the replace-all baseline relationship is unchanged.
+ */
+type PpeCategory = {
   id: string;
   name: string;
   isActive: boolean;
 };
 
-type Tool = {
+type PpeItem = {
   id: string;
   name: string;
   categoryId: string;
   isActive: boolean;
 };
+
+const UNCATEGORIZED_KEY = "__uncategorized__";
 
 type CustomerPPEBaselineResponse = {
   customerId: string;
@@ -35,8 +45,8 @@ export default function CustomerTradePPEBaselinePage() {
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const [categories, setCategories] = useState<ToolCategory[]>([]);
-  const [PPEByCategory, setPPEByCategory] = useState<Record<string, Tool[]>>({});
+  const [categories, setCategories] = useState<PpeCategory[]>([]);
+  const [PPEByCategory, setPPEByCategory] = useState<Record<string, PpeItem[]>>({});
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [initialSelectedIds, setInitialSelectedIds] = useState<Set<string>>(new Set());
@@ -71,22 +81,56 @@ export default function CustomerTradePPEBaselinePage() {
         const cust = await apiFetch<any>(`/customers/${customerId}`);
         if (cancelled) return;
         setCustomerName(cust?.name || "Customer");
-        // PPE dictionary (flat)
-        const ppeTypes = await apiFetch<Array<{ id: string; name: string; active?: boolean }>>("/ppe-types?activeOnly=true");
+        // PPE dictionary, grouped by the global categories. Both arrive in curated order and
+        // nothing here re-sorts them.
+        const [ppeTypes, ppeCategories] = await Promise.all([
+          apiFetch<
+            Array<{
+              id: string;
+              name: string;
+              isActive?: boolean;
+              categoryId?: string | null;
+            }>
+          >("/ppe-types?activeOnly=true"),
+          apiFetch<Array<{ id: string; name: string }>>(
+            "/ppe-categories?activeOnly=true"
+          ),
+        ]);
         if (cancelled) return;
 
-        setCategories([{ id: "all", name: "PPE", isActive: true }]);
+        const items = Array.isArray(ppeTypes) ? ppeTypes : [];
+        const grouped: Record<string, PpeItem[]> = {};
 
-        const toolMap: Record<string, Tool[]> = {
-          all: (Array.isArray(ppeTypes) ? ppeTypes : []).map((pt) => ({
+        for (const pt of items) {
+          const key = pt.categoryId ?? UNCATEGORIZED_KEY;
+          const entry: PpeItem = {
             id: pt.id,
             name: pt.name,
-            categoryId: "all",
-            isActive: pt.active ?? true,
-          })),
-        };
+            categoryId: key,
+            isActive: pt.isActive ?? true,
+          };
+          if (grouped[key]) grouped[key].push(entry);
+          else grouped[key] = [entry];
+        }
 
-        setPPEByCategory(toolMap);
+        // Only categories that actually hold something, in server order, with the
+        // uncategorized bucket trailing.
+        const visibleCategories: PpeCategory[] = (
+          Array.isArray(ppeCategories) ? ppeCategories : []
+        )
+          .filter((c) => grouped[c.id]?.length)
+          .map((c) => ({ id: c.id, name: c.name, isActive: true }));
+
+        if (grouped[UNCATEGORIZED_KEY]?.length) {
+          visibleCategories.push({
+            id: UNCATEGORIZED_KEY,
+            name: "Other",
+            isActive: true,
+          });
+        }
+
+        setCategories(visibleCategories);
+        setPPEByCategory(grouped);
 // Customer baseline (replace-all model)
         const baseline = await apiFetch<CustomerPPEBaselineResponse>(
           `/customers/${customerId}/ppe-baseline`

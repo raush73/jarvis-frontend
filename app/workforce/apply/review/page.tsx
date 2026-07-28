@@ -5,6 +5,10 @@ import { useCallback, useEffect, useState } from "react";
 import WorkforceWizardShell from "@/components/workforce/WorkforceWizardShell";
 import { stepPath } from "@/components/workforce/wizardSteps";
 import {
+  CATALOG_UNAVAILABLE_LABEL,
+  type CatalogSelectionView,
+} from "@/components/catalog/catalogContract";
+import {
   type FinalReviewView,
   WorkforceApiError,
   getReview,
@@ -50,13 +54,25 @@ function Group({
   );
 }
 
-function Tags({ names }: { names: (string | null)[] }) {
-  if (names.length === 0) return <p className="wf-entry-meta">None selected</p>;
+/**
+ * Selected catalog entries.
+ *
+ * C4E §11.2: an entry that no longer resolves is retained and rendered with the single
+ * platform-wide label, never dropped and never as a raw identifier. This screen previously used
+ * its own wording, which is one of the divergent behaviors the contract retires.
+ */
+function Tags({ selections }: { selections: CatalogSelectionView[] }) {
+  if (selections.length === 0)
+    return <p className="wf-entry-meta">None selected</p>;
   return (
     <ul className="wf-tags">
-      {names.map((name, i) => (
-        <li key={`${name}-${i}`} className="wf-tag">
-          {name ?? "No longer listed"}
+      {selections.map((selection) => (
+        <li key={selection.id} className="wf-tag">
+          {selection.unavailable
+            ? selection.name
+              ? `${selection.name} — ${CATALOG_UNAVAILABLE_LABEL}`
+              : CATALOG_UNAVAILABLE_LABEL
+            : selection.name}
         </li>
       ))}
     </ul>
@@ -182,7 +198,13 @@ export default function ReviewPage() {
             <dl className="wf-dl">
               <Row
                 label="Primary trade"
-                value={review.primaryTrade.primaryTradeName}
+                value={
+                  review.primaryTrade.primaryTradeUnavailable
+                    ? review.primaryTrade.primaryTradeName
+                      ? `${review.primaryTrade.primaryTradeName} — ${CATALOG_UNAVAILABLE_LABEL}`
+                      : CATALOG_UNAVAILABLE_LABEL
+                    : review.primaryTrade.primaryTradeName
+                }
               />
             </dl>
           </Group>
@@ -213,7 +235,7 @@ export default function ReviewPage() {
             {review.certifications.hasCertifications === false ? (
               <p className="wf-entry-meta">No certifications reported.</p>
             ) : (
-              <Tags names={review.certifications.selections.map((s) => s.name)} />
+              <Tags selections={review.certifications.selections} />
             )}
           </Group>
 
@@ -221,7 +243,7 @@ export default function ReviewPage() {
             {review.toolsPpe.hasTools === false ? (
               <p className="wf-entry-meta">No tools reported.</p>
             ) : (
-              <Tags names={review.toolsPpe.tools.map((t) => t.name)} />
+              <Tags selections={review.toolsPpe.tools} />
             )}
           </Group>
 
@@ -229,7 +251,7 @@ export default function ReviewPage() {
             {review.toolsPpe.hasPpe === false ? (
               <p className="wf-entry-meta">No equipment reported.</p>
             ) : (
-              <Tags names={review.toolsPpe.ppe.map((p) => p.name)} />
+              <Tags selections={review.toolsPpe.ppe} />
             )}
           </Group>
 

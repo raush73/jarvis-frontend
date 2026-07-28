@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 
@@ -8,46 +8,134 @@ type PpeType = {
   id: string;
   name: string;
   isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
+  categoryId: string | null;
+  sortOrder: number;
+};
+
+type PpeCategory = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  sortOrder: number;
+  itemCount: number;
+};
+
+/**
+ * A category and the items inside it. `category` is null for the uncategorized bucket, which is
+ * supported for edge cases and future additions but is not meant to be the primary experience -
+ * see Amendment 1.
+ */
+type PpeGroup = {
+  category: PpeCategory | null;
+  items: PpeType[];
 };
 
 type ModalMode = "create" | "edit";
+type StatusFilter = "All" | "Active Only" | "Inactive Only";
+
+const UNCATEGORIZED_KEY = "__uncategorized__";
 
 export default function PpeCatalogPage() {
   const [ppeTypes, setPpeTypes] = useState<PpeType[]>([]);
+  const [categories, setCategories] = useState<PpeCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>("create");
   const [editingItem, setEditingItem] = useState<PpeType | null>(null);
 
   const [formName, setFormName] = useState("");
+  const [formCategoryId, setFormCategoryId] = useState("");
+  const [formSortOrder, setFormSortOrder] = useState("");
   const [formIsActive, setFormIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
-  const fetchPpeTypes = useCallback(async () => {
+  const loadCatalog = useCallback(async () => {
     try {
       setFetchError(null);
-      const data = await apiFetch<PpeType[]>("/ppe-types");
-      setPpeTypes(data);
+      // Both endpoints return curated order with name as the fallback. Nothing here re-sorts.
+      const [categoryData, itemData] = await Promise.all([
+        apiFetch<PpeCategory[]>("/ppe-categories?withCounts=true"),
+        apiFetch<PpeType[]>("/ppe-types"),
+      ]);
+      setCategories(categoryData);
+      setPpeTypes(itemData);
     } catch (err: unknown) {
-      setFetchError(err instanceof Error ? err.message : "Failed to load PPE types");
+      setFetchError(err instanceof Error ? err.message : "Failed to load the PPE catalog");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchPpeTypes();
-  }, [fetchPpeTypes]);
+    loadCatalog();
+  }, [loadCatalog]);
+
+  /**
+   * Groups items into their category, walking categories in the order the server returned them.
+   * The uncategorized bucket always trails. No sorting happens here - display order is
+   * server-authoritative.
+   */
+  const groups = useMemo<PpeGroup[]>(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    const matches = (item: PpeType) => {
+      if (statusFilter === "Active Only" && !item.isActive) return false;
+      if (statusFilter === "Inactive Only" && item.isActive) return false;
+      if (!query) return true;
+      return item.name.toLowerCase().includes(query);
+    };
+
+    const visible = ppeTypes.filter(matches);
+    const byCategory = new Map<string, PpeType[]>();
+    for (const item of visible) {
+      const key = item.categoryId ?? UNCATEGORIZED_KEY;
+      const bucket = byCategory.get(key);
+      if (bucket) bucket.push(item);
+      else byCategory.set(key, [item]);
+    }
+
+    const result: PpeGroup[] = categories.map((category) => ({
+      category,
+      items: byCategory.get(category.id) ?? [],
+    }));
+
+    const orphans = byCategory.get(UNCATEGORIZED_KEY) ?? [];
+    if (orphans.length > 0) {
+      result.push({ category: null, items: orphans });
+    }
+
+    return result;
+  }, [categories, ppeTypes, searchQuery, statusFilter]);
+
+  const unclassifiedCount = useMemo(
+    () => ppeTypes.filter((item) => !item.categoryId).length,
+    [ppeTypes],
+  );
+
+  const visibleCount = groups.reduce((sum, group) => sum + group.items.length, 0);
+
+  const toggleGroup = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const openCreate = () => {
     setModalMode("create");
     setEditingItem(null);
     setFormName("");
+    setFormCategoryId("");
+    setFormSortOrder("");
     setFormIsActive(true);
     setModalError(null);
     setModalOpen(true);
@@ -57,6 +145,8 @@ export default function PpeCatalogPage() {
     setModalMode("edit");
     setEditingItem(item);
     setFormName(item.name);
+    setFormCategoryId(item.categoryId ?? "");
+    setFormSortOrder(item.sortOrder ? String(item.sortOrder) : "");
     setFormIsActive(item.isActive);
     setModalError(null);
     setModalOpen(true);
@@ -77,6 +167,12 @@ export default function PpeCatalogPage() {
       return;
     }
 
+    const parsedOrder = formSortOrder.trim() === "" ? undefined : Number(formSortOrder);
+    if (parsedOrder !== undefined && (!Number.isInteger(parsedOrder) || parsedOrder < 0)) {
+      setModalError("Display order must be a whole number of 0 or more.");
+      return;
+    }
+
     setSaving(true);
     setModalError(null);
 
@@ -84,17 +180,27 @@ export default function PpeCatalogPage() {
       if (modalMode === "create") {
         await apiFetch("/ppe-types", {
           method: "POST",
-          body: JSON.stringify({ name: trimmed }),
+          body: JSON.stringify({
+            name: trimmed,
+            categoryId: formCategoryId || undefined,
+            sortOrder: parsedOrder,
+          }),
         });
       } else if (editingItem) {
         await apiFetch(`/ppe-types/${editingItem.id}`, {
           method: "PATCH",
-          body: JSON.stringify({ name: trimmed, isActive: formIsActive }),
+          body: JSON.stringify({
+            name: trimmed,
+            isActive: formIsActive,
+            // Explicit null returns the item to the uncategorized bucket.
+            categoryId: formCategoryId || null,
+            sortOrder: parsedOrder,
+          }),
         });
       }
 
       closeModal();
-      await fetchPpeTypes();
+      await loadCatalog();
     } catch (err: unknown) {
       setModalError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -104,7 +210,6 @@ export default function PpeCatalogPage() {
 
   return (
     <div className="ppe-container">
-      {/* Header */}
       <div className="page-header">
         <div className="header-left">
           <Link href="/admin" className="back-link">
@@ -112,87 +217,154 @@ export default function PpeCatalogPage() {
           </Link>
           <h1>PPE Catalog</h1>
           <p className="subtitle">
-            Manage personal protective equipment types used across Jarvis Prime.
+            Personal protective equipment used across Jarvis Prime, grouped by protective function.
           </p>
         </div>
         <div className="header-actions">
+          <Link href="/admin/ppe/categories" className="btn-secondary">
+            Manage Categories
+          </Link>
           <button className="btn-add" onClick={openCreate}>
             + Create PPE
           </button>
         </div>
       </div>
 
-      {/* Error */}
-      {fetchError && (
-        <div className="fetch-error">{fetchError}</div>
+      {fetchError && <div className="fetch-error">{fetchError}</div>}
+
+      {!loading && unclassifiedCount > 0 && (
+        <div className="classification-notice">
+          <strong>{unclassifiedCount}</strong> item{unclassifiedCount !== 1 ? "s" : ""} not yet
+          assigned to a category. A fully classified catalog is a release requirement.
+        </div>
       )}
 
-      {/* Table */}
-      <div className="table-section">
-        <div className="table-wrap">
-          <table className="ppe-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Active</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={3} className="empty-row">Loading…</td>
-                </tr>
-              ) : ppeTypes.length === 0 && !fetchError ? (
-                <tr>
-                  <td colSpan={3} className="empty-row">No PPE types found</td>
-                </tr>
-              ) : (
-                ppeTypes.map((item) => (
-                  <tr key={item.id}>
-                    <td className="cell-name">{item.name}</td>
-                    <td>
-                      <span
-                        className="status-badge"
-                        style={{
-                          backgroundColor: item.isActive
-                            ? "rgba(34, 197, 94, 0.12)"
-                            : "rgba(107, 114, 128, 0.12)",
-                          color: item.isActive ? "#22c55e" : "#6b7280",
-                          borderColor: item.isActive
-                            ? "rgba(34, 197, 94, 0.25)"
-                            : "rgba(107, 114, 128, 0.25)",
-                        }}
-                      >
-                        {item.isActive ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                    <td className="cell-actions">
-                      <button className="action-btn" onClick={() => openEdit(item)}>
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      <div className="filters-section">
+        <div className="filter-group">
+          <label htmlFor="statusFilter">Status</label>
+          <select
+            id="statusFilter"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+          >
+            <option value="All">All</option>
+            <option value="Active Only">Active Only</option>
+            <option value="Inactive Only">Inactive Only</option>
+          </select>
+        </div>
+
+        <div className="filter-group search-group">
+          <label htmlFor="search">Search</label>
+          <input
+            id="search"
+            type="text"
+            placeholder="PPE name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+
+        <div className="filter-results">
+          {visibleCount} item{visibleCount !== 1 ? "s" : ""}
         </div>
       </div>
 
-      {/* Modal */}
+      {loading ? (
+        <div className="state-panel">Loading…</div>
+      ) : groups.every((group) => group.items.length === 0) ? (
+        <div className="state-panel">No PPE matches the current filters.</div>
+      ) : (
+        <div className="groups-section">
+          {groups.map((group) => {
+            const key = group.category?.id ?? UNCATEGORIZED_KEY;
+            const isCollapsed = collapsed.has(key);
+            const label = group.category?.name ?? "Uncategorized";
+            const isInactiveCategory = group.category ? !group.category.isActive : false;
+
+            // An empty category stays visible so an administrator can see where to classify.
+            return (
+              <div key={key} className="group-accordion">
+                <button
+                  type="button"
+                  className="group-header"
+                  onClick={() => toggleGroup(key)}
+                >
+                  <span className={`chevron ${isCollapsed ? "" : "chevron--open"}`}>▶</span>
+                  <span className="group-name">{label}</span>
+                  {isInactiveCategory && <span className="group-flag">Inactive category</span>}
+                  {!group.category && group.items.length > 0 && (
+                    <span className="group-flag group-flag--warn">Needs classification</span>
+                  )}
+                  <span className="group-count">
+                    {group.items.length} item{group.items.length !== 1 ? "s" : ""}
+                  </span>
+                </button>
+
+                {!isCollapsed && (
+                  <div className="group-body">
+                    {group.items.length === 0 ? (
+                      <div className="group-empty">No items in this category.</div>
+                    ) : (
+                      <table className="ppe-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Order</th>
+                            <th>Active</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.items.map((item) => (
+                            <tr key={item.id}>
+                              <td className="cell-name">{item.name}</td>
+                              <td className="cell-order">{item.sortOrder || "—"}</td>
+                              <td>
+                                <span
+                                  className="status-badge"
+                                  style={{
+                                    backgroundColor: item.isActive
+                                      ? "rgba(34, 197, 94, 0.12)"
+                                      : "rgba(107, 114, 128, 0.12)",
+                                    color: item.isActive ? "#22c55e" : "#6b7280",
+                                    borderColor: item.isActive
+                                      ? "rgba(34, 197, 94, 0.25)"
+                                      : "rgba(107, 114, 128, 0.25)",
+                                  }}
+                                >
+                                  {item.isActive ? "Active" : "Inactive"}
+                                </span>
+                              </td>
+                              <td className="cell-actions">
+                                <button className="action-btn" onClick={() => openEdit(item)}>
+                                  Edit
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {modalOpen && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{modalMode === "create" ? "Create PPE Type" : "Edit PPE Type"}</h2>
-              <button className="modal-close" onClick={closeModal}>×</button>
+              <button className="modal-close" onClick={closeModal}>
+                ×
+              </button>
             </div>
 
             <div className="modal-body">
-              {modalError && (
-                <div className="modal-error">{modalError}</div>
-              )}
+              {modalError && <div className="modal-error">{modalError}</div>}
 
               <div className="form-field">
                 <label>Name *</label>
@@ -203,6 +375,41 @@ export default function PpeCatalogPage() {
                   onChange={(e) => setFormName(e.target.value)}
                   autoFocus
                 />
+              </div>
+
+              <div className="form-field">
+                <label>Category</label>
+                <select
+                  value={formCategoryId}
+                  onChange={(e) => setFormCategoryId(e.target.value)}
+                >
+                  <option value="">Uncategorized</option>
+                  {categories
+                    .filter((category) => category.isActive || category.id === formCategoryId)
+                    .map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                        {category.isActive ? "" : " (inactive)"}
+                      </option>
+                    ))}
+                </select>
+                <p className="field-hint">
+                  Classify by what the equipment protects against. Where an item could fit two
+                  categories, the hazard-specific one wins: welding gloves are Welding Protection,
+                  not Hand Protection.
+                </p>
+              </div>
+
+              <div className="form-field">
+                <label>Display Order</label>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="Leave blank for name order"
+                  value={formSortOrder}
+                  onChange={(e) => setFormSortOrder(e.target.value)}
+                />
+                <p className="field-hint">Position within the category. Blank sorts by name.</p>
               </div>
 
               {modalMode === "edit" && (
@@ -233,11 +440,7 @@ export default function PpeCatalogPage() {
                 Cancel
               </button>
               <button className="btn-save" onClick={handleSubmit} disabled={saving}>
-                {saving
-                  ? "Saving…"
-                  : modalMode === "create"
-                    ? "Create"
-                    : "Save Changes"}
+                {saving ? "Saving…" : modalMode === "create" ? "Create" : "Save Changes"}
               </button>
             </div>
           </div>
@@ -289,6 +492,9 @@ export default function PpeCatalogPage() {
 
         .header-actions {
           padding-top: 28px;
+          display: flex;
+          gap: 10px;
+          align-items: center;
         }
 
         .btn-add {
@@ -307,6 +513,24 @@ export default function PpeCatalogPage() {
           background: #2563eb;
         }
 
+        .btn-secondary {
+          padding: 10px 18px;
+          font-size: 14px;
+          font-weight: 500;
+          color: rgba(255, 255, 255, 0.8);
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 8px;
+          text-decoration: none;
+          transition: all 0.15s ease;
+          white-space: nowrap;
+        }
+
+        .btn-secondary:hover {
+          color: #fff;
+          background: rgba(255, 255, 255, 0.1);
+        }
+
         .fetch-error {
           padding: 12px 16px;
           margin-bottom: 20px;
@@ -317,16 +541,160 @@ export default function PpeCatalogPage() {
           color: #ef4444;
         }
 
-        /* Table */
-        .table-section {
+        .classification-notice {
+          padding: 12px 16px;
+          margin-bottom: 20px;
+          background: rgba(234, 179, 8, 0.08);
+          border: 1px solid rgba(234, 179, 8, 0.25);
+          border-radius: 8px;
+          font-size: 13px;
+          color: #eab308;
+        }
+
+        .filters-section {
+          display: flex;
+          align-items: flex-end;
+          gap: 16px;
+          margin-bottom: 20px;
+          padding: 16px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 12px;
+        }
+
+        .filter-group {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .filter-group label {
+          font-size: 11px;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.5);
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+        }
+
+        .filter-group select,
+        .filter-group input {
+          padding: 8px 12px;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 6px;
+          font-size: 13px;
+          color: #fff;
+          min-width: 160px;
+        }
+
+        .search-group {
+          flex: 1;
+        }
+
+        .search-group input {
+          width: 100%;
+        }
+
+        .filter-group select:focus,
+        .filter-group input:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+
+        .filter-results {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.45);
+          padding-bottom: 9px;
+          white-space: nowrap;
+        }
+
+        .state-panel {
+          padding: 40px;
+          text-align: center;
+          font-size: 14px;
+          color: rgba(255, 255, 255, 0.4);
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 12px;
+        }
+
+        .groups-section {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .group-accordion {
           background: rgba(255, 255, 255, 0.02);
           border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 12px;
           overflow: hidden;
         }
 
-        .table-wrap {
-          overflow-x: auto;
+        .group-header {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 14px 16px;
+          background: rgba(255, 255, 255, 0.03);
+          border: none;
+          cursor: pointer;
+          text-align: left;
+        }
+
+        .group-header:hover {
+          background: rgba(59, 130, 246, 0.06);
+        }
+
+        .chevron {
+          font-size: 9px;
+          color: rgba(255, 255, 255, 0.4);
+          transition: transform 0.15s ease;
+        }
+
+        .chevron--open {
+          transform: rotate(90deg);
+        }
+
+        .group-name {
+          font-size: 13px;
+          font-weight: 600;
+          color: #fff;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+        }
+
+        .group-flag {
+          font-size: 11px;
+          font-weight: 600;
+          padding: 3px 8px;
+          border-radius: 4px;
+          color: #6b7280;
+          background: rgba(107, 114, 128, 0.12);
+          border: 1px solid rgba(107, 114, 128, 0.25);
+        }
+
+        .group-flag--warn {
+          color: #eab308;
+          background: rgba(234, 179, 8, 0.1);
+          border-color: rgba(234, 179, 8, 0.28);
+        }
+
+        .group-count {
+          margin-left: auto;
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.4);
+        }
+
+        .group-body {
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .group-empty {
+          padding: 20px 16px;
+          font-size: 13px;
+          color: rgba(255, 255, 255, 0.35);
         }
 
         .ppe-table {
@@ -334,23 +702,19 @@ export default function PpeCatalogPage() {
           border-collapse: collapse;
         }
 
-        .ppe-table thead {
-          background: rgba(255, 255, 255, 0.03);
-        }
-
         .ppe-table th {
-          padding: 14px 16px;
+          padding: 10px 16px;
           text-align: left;
           font-size: 11px;
           font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
+          color: rgba(255, 255, 255, 0.4);
           text-transform: uppercase;
           letter-spacing: 0.4px;
           border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         }
 
         .ppe-table td {
-          padding: 14px 16px;
+          padding: 12px 16px;
           font-size: 13px;
           color: rgba(255, 255, 255, 0.85);
           border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -369,6 +733,11 @@ export default function PpeCatalogPage() {
           color: #fff !important;
         }
 
+        .cell-order {
+          color: rgba(255, 255, 255, 0.45) !important;
+          width: 70px;
+        }
+
         .status-badge {
           display: inline-block;
           padding: 4px 10px;
@@ -380,6 +749,7 @@ export default function PpeCatalogPage() {
 
         .cell-actions {
           white-space: nowrap;
+          width: 90px;
         }
 
         .action-btn {
@@ -398,12 +768,6 @@ export default function PpeCatalogPage() {
           color: #fff;
           background: rgba(255, 255, 255, 0.08);
           border-color: rgba(255, 255, 255, 0.2);
-        }
-
-        .empty-row {
-          text-align: center;
-          color: rgba(255, 255, 255, 0.4) !important;
-          padding: 32px 16px !important;
         }
 
         /* Modal */
@@ -506,7 +870,8 @@ export default function PpeCatalogPage() {
           margin-bottom: 8px;
         }
 
-        .form-field input {
+        .form-field input,
+        .form-field select {
           width: 100%;
           padding: 10px 12px;
           background: rgba(255, 255, 255, 0.04);
@@ -516,13 +881,21 @@ export default function PpeCatalogPage() {
           color: #fff;
         }
 
-        .form-field input:focus {
+        .form-field input:focus,
+        .form-field select:focus {
           outline: none;
           border-color: #3b82f6;
         }
 
         .form-field input::placeholder {
           color: rgba(255, 255, 255, 0.3);
+        }
+
+        .field-hint {
+          margin: 8px 0 0;
+          font-size: 12px;
+          line-height: 1.5;
+          color: rgba(255, 255, 255, 0.4);
         }
 
         .toggle-group {

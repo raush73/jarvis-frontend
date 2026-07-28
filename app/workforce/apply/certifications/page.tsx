@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import WorkforceWizardShell from "@/components/workforce/WorkforceWizardShell";
 import DeclarationChoice from "@/components/workforce/DeclarationChoice";
-import RegistryPicker from "@/components/workforce/RegistryPicker";
+import CategorizedSelector from "@/components/catalog/CategorizedSelector";
+import type {
+  CatalogSelectionView,
+  CatalogView,
+} from "@/components/catalog/catalogContract";
 import {
-  type CertificationOption,
   WorkerSessionExpiredError,
   WorkforceApiError,
   getCertificationRegistry,
@@ -14,16 +17,25 @@ import {
   setCertificationsDeclaration,
 } from "@/lib/workforce/workforceApi";
 
+const EMPTY_CATALOG: CatalogView = {
+  catalogKey: "CERTIFICATION",
+  categorized: true,
+  groups: [],
+};
+
 /**
  * Certifications screen (backend stage CERTIFICATIONS_LICENSES).
  *
- * Options come from the canonical active Certification Registry; the draft stores only
- * the selected ids.
+ * Options come from the canonical active certification catalog; the draft stores only the selected
+ * ids.
+ *
+ * C4E: categories arrive in curated order rather than being alphabetized on the client.
  */
 export default function CertificationsPage() {
-  const [registry, setRegistry] = useState<CertificationOption[]>([]);
+  const [catalog, setCatalog] = useState<CatalogView>(EMPTY_CATALOG);
   const [declaration, setDeclaration] = useState<boolean | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [stale, setStale] = useState<CatalogSelectionView[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,14 +45,15 @@ export default function CertificationsPage() {
     let cancelled = false;
     async function load() {
       try {
-        const [options, stage] = await Promise.all([
+        const [view, stage] = await Promise.all([
           getCertificationRegistry(),
           getCertifications(),
         ]);
         if (cancelled) return;
-        setRegistry(options);
+        setCatalog(view);
         setDeclaration(stage.hasCertifications);
         setSelectedIds(stage.selections.map((s) => s.id));
+        setStale(stage.selections.filter((s) => s.unavailable));
       } catch (err) {
         if (!cancelled) setStageError(err);
       } finally {
@@ -60,6 +73,7 @@ export default function CertificationsPage() {
       const stage = await setCertificationsDeclaration(hasCertifications);
       setDeclaration(stage.hasCertifications);
       setSelectedIds(stage.selections.map((s) => s.id));
+      setStale(stage.selections.filter((s) => s.unavailable));
     } catch (err) {
       if (err instanceof WorkerSessionExpiredError) {
         setStageError(err);
@@ -130,12 +144,14 @@ export default function CertificationsPage() {
           <p className="wf-section-note">
             Select every certification you currently hold.
           </p>
-          <RegistryPicker
-            options={registry}
+          <CategorizedSelector
+            view={catalog}
             selectedIds={selectedIds}
             onToggle={toggle}
+            staleSelections={stale}
             searchPlaceholder="Search certifications"
             emptyText="No certifications are available to select right now."
+            ariaLabel="Certifications and licenses"
           />
         </div>
       ) : null}

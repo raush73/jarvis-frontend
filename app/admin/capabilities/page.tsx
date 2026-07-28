@@ -57,7 +57,15 @@ const EMPTY_CAT_MODAL: CatModalState = { open: false, mode: "create", name: "", 
 const EMPTY_CAP_MODAL: CapModalState = { open: false, mode: "create", name: "", description: "", isActive: true, categoryIds: [] };
 const UNCATEGORIZED_ID = "__uncategorized__";
 
+/**
+ * Buckets capabilities into their categories, walking categories in the order the server returned
+ * them. Nothing is sorted here: display order is curated and server-authoritative, so grouping
+ * alphabetically would override it. A capability in several categories appears under each.
+ *
+ * Governance: 02_backend/governance/MASTER_CATALOG_PRESENTATION_CONTRACT.md §7
+ */
 function buildGroups(categories: ApiCategory[], capabilities: ApiCapability[]): CategoryGroup[] {
+  // Insertion order carries the server's curated sequence, so this Map is the ordering.
   const byId = new Map<string, CategoryGroup>();
   for (const cat of categories) {
     byId.set(cat.id, { id: cat.id, name: cat.name, isActive: cat.isActive, capabilities: [] });
@@ -85,17 +93,18 @@ function buildGroups(categories: ApiCategory[], capabilities: ApiCapability[]): 
     }
   }
 
-  const sorted = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const groups = [...byId.values()];
 
+  // The uncategorized bucket always trails, regardless of any curated value.
   if (uncategorized.length > 0) {
-    sorted.push({
+    groups.push({
       id: UNCATEGORIZED_ID,
       name: "Uncategorized",
       isActive: true,
-      capabilities: uncategorized.sort((a, b) => a.name.localeCompare(b.name)),
+      capabilities: uncategorized,
     });
   }
-  return sorted;
+  return groups;
 }
 
 function statusStyle(isActive: boolean) {

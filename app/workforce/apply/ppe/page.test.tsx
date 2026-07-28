@@ -35,6 +35,26 @@ const setPpeDeclaration = vi.mocked(api.setPpeDeclaration);
 
 const PPE_QUESTION = "I have my own personal protective equipment";
 
+/** C4E: the stage now receives the grouped, server-ordered consumer projection. */
+const PPE_CATALOG: Awaited<ReturnType<typeof api.getPpeRegistry>> = {
+  catalogKey: "PPE",
+  categorized: true,
+  groups: [
+    {
+      category: "Head Protection",
+      displayOrder: 0,
+      options: [{ id: "ppe_1", name: "Hard hat", displayOrder: 0 }],
+    },
+  ],
+};
+
+const EMPTY_STAGE: Awaited<ReturnType<typeof api.getToolsPpe>> = {
+  hasTools: null,
+  tools: [],
+  hasPpe: null,
+  ppe: [],
+};
+
 describe("PPE stage", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -50,13 +70,8 @@ describe("PPE stage", () => {
   afterEach(cleanup);
 
   it("renders the stage when it loads", async () => {
-    getPpeRegistry.mockResolvedValue([{ id: "ppe_1", name: "Hard hat" }]);
-    getToolsPpe.mockResolvedValue({
-      hasTools: null,
-      tools: [],
-      hasPpe: null,
-      ppe: [],
-    } as Awaited<ReturnType<typeof api.getToolsPpe>>);
+    getPpeRegistry.mockResolvedValue(PPE_CATALOG);
+    getToolsPpe.mockResolvedValue(EMPTY_STAGE);
 
     render(<PpePage />);
 
@@ -96,13 +111,8 @@ describe("PPE stage", () => {
   });
 
   it("surfaces an expired session raised by answering the question", async () => {
-    getPpeRegistry.mockResolvedValue([{ id: "ppe_1", name: "Hard hat" }]);
-    getToolsPpe.mockResolvedValue({
-      hasTools: null,
-      tools: [],
-      hasPpe: null,
-      ppe: [],
-    } as Awaited<ReturnType<typeof api.getToolsPpe>>);
+    getPpeRegistry.mockResolvedValue(PPE_CATALOG);
+    getToolsPpe.mockResolvedValue(EMPTY_STAGE);
     setPpeDeclaration.mockRejectedValue(new WorkerSessionExpiredError());
 
     render(<PpePage />);

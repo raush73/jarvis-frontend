@@ -72,17 +72,6 @@ type CategoryFormState = {
   isActive: boolean;
 };
 
-const GOVERNANCE_CATEGORY_ORDER = [
-  "OSHA",
-  "MSHA",
-  "Welding",
-  "Crane",
-  "Rigging",
-  "Electrical",
-  "Medical",
-  "Security",
-] as const;
-
 function getStatusStyle(status: CertificationTypeStatus) {
   if (status === "Active") {
     return { bg: "rgba(34, 197, 94, 0.12)", color: "#22c55e", border: "rgba(34, 197, 94, 0.25)" };
@@ -90,10 +79,22 @@ function getStatusStyle(status: CertificationTypeStatus) {
   return { bg: "rgba(107, 114, 128, 0.12)", color: "#6b7280", border: "rgba(107, 114, 128, 0.25)" };
 }
 
+/**
+ * C4E: ordering is server-authoritative.
+ *
+ * This previously carried a GOVERNANCE_CATEGORY_ORDER array that encoded the curated category
+ * sequence in presentation source, synthesized phantom category rows for any governance category
+ * missing from the database, and re-sorted everything on the client. Curated order is data now:
+ * the API returns categories and types already sequenced by their curated order with name as the
+ * fallback, and this function only groups. It does not reorder, and it does not invent categories.
+ *
+ * Governance: 02_backend/governance/MASTER_CATALOG_PRESENTATION_CONTRACT.md section 7
+ */
 function mapCategoriesAndTypes(
   categories: ApiCertificationCategory[],
   types: ApiCertificationType[],
 ): CertificationCategory[] {
+  // Insertion order is the server's order, and Map preserves it.
   const byId = new Map<string, CertificationCategory>();
 
   for (const c of categories) {
@@ -104,19 +105,6 @@ function mapCategoriesAndTypes(
       isActive: c.isActive !== false,
       certificationTypes: [],
     });
-  }
-
-  for (const name of GOVERNANCE_CATEGORY_ORDER) {
-    const exists = [...byId.values()].some((c) => c.name === name);
-    if (!exists) {
-      byId.set(`governance-${name.toLowerCase()}`, {
-        id: `governance-${name.toLowerCase()}`,
-        name,
-        sortOrder: null,
-        isActive: true,
-        certificationTypes: [],
-      });
-    }
   }
 
   for (const t of types) {
@@ -148,26 +136,7 @@ function mapCategoriesAndTypes(
     }
   }
 
-  return [...byId.values()]
-    .sort((a, b) => {
-      const governanceA = GOVERNANCE_CATEGORY_ORDER.indexOf(a.name as (typeof GOVERNANCE_CATEGORY_ORDER)[number]);
-      const governanceB = GOVERNANCE_CATEGORY_ORDER.indexOf(b.name as (typeof GOVERNANCE_CATEGORY_ORDER)[number]);
-      const fallbackA = governanceA >= 0 ? governanceA + 1 : 1000;
-      const fallbackB = governanceB >= 0 ? governanceB + 1 : 1000;
-      const effectiveA = a.sortOrder ?? fallbackA;
-      const effectiveB = b.sortOrder ?? fallbackB;
-      if (effectiveA !== effectiveB) return effectiveA - effectiveB;
-      return a.name.localeCompare(b.name);
-    })
-    .map((category) => ({
-      ...category,
-      certificationTypes: category.certificationTypes.sort((x, y) => {
-        const sx = x.sortOrder ?? Number.MAX_SAFE_INTEGER;
-        const sy = y.sortOrder ?? Number.MAX_SAFE_INTEGER;
-        if (sx !== sy) return sx - sy;
-        return x.name.localeCompare(y.name);
-      }),
-    }));
+  return [...byId.values()];
 }
 
 export default function CertificationsPage() {

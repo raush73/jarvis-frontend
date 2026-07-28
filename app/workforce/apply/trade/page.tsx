@@ -1,39 +1,67 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import WorkforceWizardShell from "@/components/workforce/WorkforceWizardShell";
+import CategorizedSelector from "@/components/catalog/CategorizedSelector";
+import type {
+  CatalogSelectionView,
+  CatalogView,
+} from "@/components/catalog/catalogContract";
 import {
-  type TradeOption,
   WorkforceApiError,
   getPrimaryTrade,
   getTradeRegistry,
   savePrimaryTrade,
 } from "@/lib/workforce/workforceApi";
 
+const EMPTY_CATALOG: CatalogView = {
+  catalogKey: "TRADE",
+  categorized: false,
+  groups: [],
+};
+
 /**
  * Trade Selection screen (backend stage PRIMARY_TRADE).
  *
- * Trades come from the canonical active Trade Registry owned by Workforce
- * Administration; nothing is hardcoded here.
+ * Trades come from the canonical active trade catalog owned by Workforce Administration; nothing is
+ * hardcoded here.
+ *
+ * C4E: the shared selector renders this in single-select mode, so the search, ordering, and
+ * stale-selection behavior match every other catalog surface. Trades carry no categories, so the
+ * list arrives as one unlabelled group in curated order.
  */
 export default function TradePage() {
-  const [trades, setTrades] = useState<TradeOption[]>([]);
+  const [catalog, setCatalog] = useState<CatalogView>(EMPTY_CATALOG);
   const [selected, setSelected] = useState("");
+  const [stale, setStale] = useState<CatalogSelectionView[]>([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
   const [stageError, setStageError] = useState<unknown>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const [registry, current] = await Promise.all([
+        const [view, current] = await Promise.all([
           getTradeRegistry(),
           getPrimaryTrade(),
         ]);
         if (cancelled) return;
-        setTrades(registry);
+        setCatalog(view);
         setSelected(current.primaryTradeId ?? "");
+        // A trade retired since the worker chose it is shown as no longer available rather than
+        // leaving the stage looking unanswered.
+        setStale(
+          current.primaryTradeId && current.primaryTradeUnavailable
+            ? [
+                {
+                  id: current.primaryTradeId,
+                  name: current.primaryTradeName,
+                  category: null,
+                  unavailable: true,
+                },
+              ]
+            : [],
+        );
       } catch (err) {
         if (!cancelled) setStageError(err);
       } finally {
@@ -46,19 +74,16 @@ export default function TradePage() {
     };
   }, []);
 
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return needle
-      ? trades.filter((t) => t.name.toLowerCase().includes(needle))
-      : trades;
-  }, [query, trades]);
-
   const onSave = useCallback(async () => {
     if (!selected) {
       throw new WorkforceApiError("Please select your primary trade.", 400);
     }
-    await savePrimaryTrade(selected);
+    const stage = await savePrimaryTrade(selected);
+    // The save rejects an inactive trade, so a successful save clears any retired prior answer.
+    if (!stage.primaryTradeUnavailable) setStale([]);
   }, [selected]);
+
+  const choose = useCallback((id: string) => setSelected(id), []);
 
   return (
     <WorkforceWizardShell
@@ -69,35 +94,16 @@ export default function TradePage() {
       intro="Choose the single trade that best describes the work you are qualified to perform. You can list additional experience in your work history."
     >
       <div className="wf-section">
-        <input
-          className="wf-input"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search trades"
-          style={{ marginBottom: 10 }}
+        <CategorizedSelector
+          view={catalog}
+          selectionMode="single"
+          selectedIds={selected ? [selected] : []}
+          onToggle={choose}
+          staleSelections={stale}
+          searchPlaceholder="Search trades"
+          emptyText="No trades are available right now. Please try again later."
+          ariaLabel="Trades"
         />
-
-        {trades.length === 0 ? (
-          <p className="wf-empty">
-            No trades are available right now. Please try again later.
-          </p>
-        ) : visible.length === 0 ? (
-          <p className="wf-empty">No trades match &ldquo;{query}&rdquo;.</p>
-        ) : (
-          <div className="wf-picker">
-            {visible.map((trade) => (
-              <label key={trade.id} className="wf-option">
-                <input
-                  type="radio"
-                  name="primaryTrade"
-                  checked={selected === trade.id}
-                  onChange={() => setSelected(trade.id)}
-                />
-                <span>{trade.name}</span>
-              </label>
-            ))}
-          </div>
-        )}
       </div>
     </WorkforceWizardShell>
   );

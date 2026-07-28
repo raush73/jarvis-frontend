@@ -8,12 +8,35 @@ type PpeType = {
   id: string;
   name: string;
   isActive: boolean;
+  categoryId: string | null;
+};
+
+type PpeCategory = {
+  id: string;
+  name: string;
+};
+
+/**
+ * C4E Amendment 2: this screen groups by the GLOBAL PPE categories, matching how the trade tools
+ * baseline screen already groups by global tool categories.
+ *
+ * PPE categories are business-standard classifications by protective function and carry no trade
+ * dimension. This screen selects from the global dictionary and deliberately offers no way to
+ * create, rename, reorder, or deactivate a category - that lives on the PPE catalog admin surface.
+ * Grouping here is purely presentational; the underlying baseline relationship is unchanged.
+ */
+type PpeGroup = {
+  key: string;
+  name: string;
+  items: PpeType[];
 };
 
 type PpeBaselineResponse = {
   tradeId: string;
   ppeTypeIds: string[];
 };
+
+const UNCATEGORIZED_KEY = "__uncategorized__";
 
 export default function TradePpeTemplatePage() {
   const params = useParams<{ id: string }>();
@@ -26,6 +49,7 @@ export default function TradePpeTemplatePage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const [ppeTypes, setPpeTypes] = useState<PpeType[]>([]);
+  const [ppeCategories, setPpeCategories] = useState<PpeCategory[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [initialSelectedIds, setInitialSelectedIds] = useState<Set<string>>(
     new Set()
@@ -54,9 +78,14 @@ export default function TradePpeTemplatePage() {
       setError(null);
 
       try {
-        const allPpe = await apiFetch<PpeType[]>("/ppe-types?activeOnly=true");
+        // Both arrive in curated order; nothing on this page re-sorts them.
+        const [allPpe, categories] = await Promise.all([
+          apiFetch<PpeType[]>("/ppe-types?activeOnly=true"),
+          apiFetch<PpeCategory[]>("/ppe-categories?activeOnly=true"),
+        ]);
         if (cancelled) return;
         setPpeTypes(Array.isArray(allPpe) ? allPpe : []);
+        setPpeCategories(Array.isArray(categories) ? categories : []);
 
         const baseline = await apiFetch<PpeBaselineResponse>(
           `/trades/${tradeId}/ppe-baseline`
@@ -91,6 +120,36 @@ export default function TradePpeTemplatePage() {
       return true;
     });
   }, [ppeTypes, searchQuery, showSelectedOnly, selectedIds]);
+
+  /**
+   * Groups the filtered PPE into the global categories, walking them in the order the server
+   * returned. Empty groups are dropped because this is a selection surface, and the uncategorized
+   * bucket trails.
+   */
+  const groupedPpe = useMemo<PpeGroup[]>(() => {
+    const byCategory = new Map<string, PpeType[]>();
+    for (const item of filteredPpe) {
+      const key = item.categoryId ?? UNCATEGORIZED_KEY;
+      const bucket = byCategory.get(key);
+      if (bucket) bucket.push(item);
+      else byCategory.set(key, [item]);
+    }
+
+    const groups: PpeGroup[] = [];
+    for (const category of ppeCategories) {
+      const items = byCategory.get(category.id);
+      if (items?.length) {
+        groups.push({ key: category.id, name: category.name, items });
+      }
+    }
+
+    const orphans = byCategory.get(UNCATEGORIZED_KEY);
+    if (orphans?.length) {
+      groups.push({ key: UNCATEGORIZED_KEY, name: "Other", items: orphans });
+    }
+
+    return groups;
+  }, [filteredPpe, ppeCategories]);
 
   function toggle(id: string) {
     setSelectedIds((prev) => {
@@ -244,38 +303,47 @@ export default function TradePpeTemplatePage() {
             No PPE match your filters.
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold text-gray-900">PPE</div>
-                <div className="text-xs text-gray-500">
-                  {filteredPpe.filter((p) => selectedIds.has(p.id)).length}{" "}
-                  selected
+          <div className="space-y-4">
+            {groupedPpe.map((group) => (
+              <div
+                key={group.key}
+                className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden"
+              >
+                <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-gray-900">
+                      {group.name}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {group.items.filter((p) => selectedIds.has(p.id)).length} of{" "}
+                      {group.items.length} selected
+                    </div>
+                  </div>
+                </div>
+
+                <div className="divide-y divide-gray-100">
+                  {group.items.map((p) => {
+                    const selected = selectedIds.has(p.id);
+                    return (
+                      <label
+                        key={p.id}
+                        className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 ${
+                          selected ? "bg-blue-50/30" : ""
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggle(p.id)}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm text-gray-900">{p.name}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
-            </div>
-
-            <div className="divide-y divide-gray-100">
-              {filteredPpe.map((p) => {
-                const selected = selectedIds.has(p.id);
-                return (
-                  <label
-                    key={p.id}
-                    className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 ${
-                      selected ? "bg-blue-50/30" : ""
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      onChange={() => toggle(p.id)}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-900">{p.name}</span>
-                  </label>
-                );
-              })}
-            </div>
+            ))}
           </div>
         )}
       </div>

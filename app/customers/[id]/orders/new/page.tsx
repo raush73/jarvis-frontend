@@ -22,11 +22,20 @@ import {
   HEALTH_STATUS_COLORS,
   HEALTH_STATUS_LABELS,
 } from "@/lib/constants/margin-health";
+import CategorizedSelector from "@/components/catalog/CategorizedSelector";
+import {
+  CATALOG_UNAVAILABLE_LABEL,
+  type CatalogKey,
+  type CatalogSelectionView,
+  type CatalogView,
+} from "@/components/catalog/catalogContract";
+import {
+  EMPTY_CATALOG_VIEW,
+  getCatalog,
+  resolveCatalogSelections,
+} from "@/lib/catalog/catalogApi";
 
 type CommissionPlanOption = { id: string; name: string; isDefault: boolean };
-type PpeTypeOption = { id: string; name: string; active?: boolean };
-type ToolOption = { id: string; name: string; active?: boolean };
-type CertTypeOption = { id: string; name: string; code?: string; categoryId?: string };
 type ComplianceReqTypeOption = { id: string; name: string };
 type ComplianceVariantOption = { id: string; name: string; requirementTypeId: string };
 
@@ -43,9 +52,14 @@ const CONTACT_ROLES = [
 ];
 
 type SpecializationOption = { id: string; name: string; tradeId: string };
-type CapabilityOption = { id: string; name: string; categories?: Array<{ id: string; name: string; isActive?: boolean }> };
 
 type ReqItem = { typeId: string; enforcement: RequirementEnforcement; isBaseline?: boolean };
+
+/** The master catalogs a job order draws requirements from. */
+type RequirementCatalogKey = Extract<
+  CatalogKey,
+  "PPE" | "TOOL" | "CERTIFICATION" | "CAPABILITY"
+>;
 
 type BaselineSource = "MW4H" | "CUSTOMER" | null;
 
@@ -167,9 +181,19 @@ export default function CreateOrderPage() {
 
   // --- Registry data ---
   const [trades, setTrades] = useState<TradeListItem[]>([]);
-  const [ppeTypes, setPpeTypes] = useState<PpeTypeOption[]>([]);
-  const [tools, setTools] = useState<ToolOption[]>([]);
-  const [certTypes, setCertTypes] = useState<CertTypeOption[]>([]);
+  // C4E: PPE, Tools, and Certifications arrive from the master catalog presentation facade
+  // already grouped and ordered. Nothing here regroups or re-sorts them.
+  const [ppeCatalog, setPpeCatalog] = useState<CatalogView>(EMPTY_CATALOG_VIEW("PPE"));
+  const [toolCatalog, setToolCatalog] = useState<CatalogView>(EMPTY_CATALOG_VIEW("TOOL"));
+  const [certCatalog, setCertCatalog] = useState<CatalogView>(
+    EMPTY_CATALOG_VIEW("CERTIFICATION"),
+  );
+  /**
+   * Names for selected identifiers that the active catalog cannot account for - a baseline entry
+   * deactivated after the baseline was configured. Resolved by the facade and keyed
+   * "{catalogKey}:{id}", never inferred here and never replaced by a raw identifier.
+   */
+  const [resolvedStale, setResolvedStale] = useState<Record<string, CatalogSelectionView>>({});
   const [complianceReqTypes, setComplianceReqTypes] = useState<ComplianceReqTypeOption[]>([]);
   const [complianceVariants, setComplianceVariants] = useState<ComplianceVariantOption[]>([]);
   const [registryLoaded, setRegistryLoaded] = useState(false);
@@ -182,9 +206,12 @@ export default function CreateOrderPage() {
   const [specsLoading, setSpecsLoading] = useState<Record<string, boolean>>({});
 
   // --- Capabilities catalog ---
-  const [capabilities, setCapabilities] = useState<CapabilityOption[]>([]);
+  // Capabilities are many-to-many with their categories, so an entry appears under each of its
+  // groups. The shared component keys selection by identifier, which keeps those repeats in step.
+  const [capabilityCatalog, setCapabilityCatalog] = useState<CatalogView>(
+    EMPTY_CATALOG_VIEW("CAPABILITY"),
+  );
   const [capabilityModalIdx, setCapabilityModalIdx] = useState<number | null>(null);
-  const [capabilitySearch, setCapabilitySearch] = useState("");
 
   // --- Trade lines ---
   const [tradeLines, setTradeLines] = useState<TradeLineState[]>([]);
@@ -238,27 +265,27 @@ export default function CreateOrderPage() {
         const [tradesRes, ppeRes, toolsRes, certsRes, compReqRes, compVarRes, plansRes, contactsRes, custRes, capsRes] =
           await Promise.all([
             apiFetch<TradeListItem[]>("/trades").catch((e) => { errors.push(`Trades: ${e instanceof Error ? e.message : "failed"}`); return []; }),
-            apiFetch<PpeTypeOption[]>("/ppe-types?activeOnly=true").catch((e) => { errors.push(`PPE: ${e instanceof Error ? e.message : "failed"}`); return []; }),
-            apiFetch<ToolOption[]>("/tools?activeOnly=true").catch((e) => { errors.push(`Tools: ${e instanceof Error ? e.message : "failed"}`); return []; }),
-            apiFetch<CertTypeOption[]>("/certification-types").catch((e) => { errors.push(`Certifications: ${e instanceof Error ? e.message : "failed"}`); return []; }),
+            getCatalog("PPE").catch((e) => { errors.push(`PPE: ${e instanceof Error ? e.message : "failed"}`); return EMPTY_CATALOG_VIEW("PPE"); }),
+            getCatalog("TOOL").catch((e) => { errors.push(`Tools: ${e instanceof Error ? e.message : "failed"}`); return EMPTY_CATALOG_VIEW("TOOL"); }),
+            getCatalog("CERTIFICATION").catch((e) => { errors.push(`Certifications: ${e instanceof Error ? e.message : "failed"}`); return EMPTY_CATALOG_VIEW("CERTIFICATION"); }),
             apiFetch<ComplianceReqTypeOption[]>("/compliance-requirement-types").catch((e) => { errors.push(`Compliance Types: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<ComplianceVariantOption[]>("/compliance-variants").catch((e) => { errors.push(`Compliance Variants: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<CommissionPlanOption[]>("/commissions/plans").catch((e) => { errors.push(`Commission Plans: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<CustomerContactOption[]>(`/customer-contacts/customer/${customerId}`).catch((e) => { errors.push(`Customer Contacts: ${e instanceof Error ? e.message : "failed"}`); return []; }),
             apiFetch<any>(`/customers/${customerId}`).catch((e) => { errors.push(`Customer: ${e instanceof Error ? e.message : "failed"}`); return null; }),
-            apiFetch<CapabilityOption[]>("/capabilities?include=categories&activeOnly=true").catch((e) => { errors.push(`Capabilities: ${e instanceof Error ? e.message : "failed"}`); return []; }),
+            getCatalog("CAPABILITY").catch((e) => { errors.push(`Capabilities: ${e instanceof Error ? e.message : "failed"}`); return EMPTY_CATALOG_VIEW("CAPABILITY"); }),
           ]);
         if (!alive) return;
         const tradeList = Array.isArray(tradesRes) ? tradesRes : [];
         setTrades(tradeList);
-        setPpeTypes(Array.isArray(ppeRes) ? ppeRes : []);
-        setTools(Array.isArray(toolsRes) ? toolsRes : []);
-        setCertTypes(Array.isArray(certsRes) ? certsRes : []);
+        setPpeCatalog(ppeRes);
+        setToolCatalog(toolsRes);
+        setCertCatalog(certsRes);
         setComplianceReqTypes(Array.isArray(compReqRes) ? compReqRes : []);
         setComplianceVariants(Array.isArray(compVarRes) ? compVarRes : []);
         setCommissionPlans(Array.isArray(plansRes) ? plansRes : []);
         setCustomerContacts(Array.isArray(contactsRes) ? contactsRes : []);
-        setCapabilities(Array.isArray(capsRes) ? capsRes : []);
+        setCapabilityCatalog(capsRes);
         setTradeLines([createEmptyTradeLine(tradeList[0]?.id ?? "")]);
         if (tradeList[0]?.id) loadSpecsForTrade(tradeList[0].id);
 
@@ -281,6 +308,108 @@ export default function CreateOrderPage() {
     load();
     return () => { alive = false; };
   }, [customerId]);
+
+  // --- C4E catalog helpers ---
+  const activeIdsByCatalog = useMemo(() => {
+    const collect = (view: CatalogView) =>
+      new Set(view.groups.flatMap((group) => group.options.map((option) => option.id)));
+    return {
+      PPE: collect(ppeCatalog),
+      TOOL: collect(toolCatalog),
+      CERTIFICATION: collect(certCatalog),
+      CAPABILITY: collect(capabilityCatalog),
+    } satisfies Record<RequirementCatalogKey, Set<string>>;
+  }, [ppeCatalog, toolCatalog, certCatalog, capabilityCatalog]);
+
+  /**
+   * Name any selected identifier the active catalog does not contain, which on this screen means
+   * a baseline entry deactivated since the baseline was configured.
+   *
+   * Resolution is a facade call rather than a local fallback: the surface must not decide that an
+   * entry is stale, and must never render an identifier in place of a name it cannot resolve.
+   */
+  useEffect(() => {
+    if (!registryLoaded) return;
+    const wanted = new Map<RequirementCatalogKey, Set<string>>();
+    const want = (catalogKey: RequirementCatalogKey, ids: string[]) => {
+      const active = activeIdsByCatalog[catalogKey];
+      for (const id of ids) {
+        if (active.has(id) || resolvedStale[`${catalogKey}:${id}`]) continue;
+        const bucket = wanted.get(catalogKey) ?? new Set<string>();
+        bucket.add(id);
+        wanted.set(catalogKey, bucket);
+      }
+    };
+
+    for (const line of tradeLines) {
+      want("PPE", line.ppeItems.map((r) => r.typeId));
+      want("TOOL", line.toolItems.map((r) => r.typeId));
+      want("CERTIFICATION", line.certItems.map((r) => r.typeId));
+      want("CAPABILITY", line.capabilityIds);
+    }
+    if (wanted.size === 0) return;
+
+    let alive = true;
+    (async () => {
+      const resolved: Record<string, CatalogSelectionView> = {};
+      await Promise.all(
+        [...wanted].map(async ([catalogKey, ids]) => {
+          try {
+            const entries = await resolveCatalogSelections(catalogKey, [...ids]);
+            for (const entry of entries) resolved[`${catalogKey}:${entry.id}`] = entry;
+          } catch {
+            // A failed resolve leaves the entry unnamed rather than mislabeled; the selector
+            // still shows it as retained and unavailable.
+          }
+        }),
+      );
+      if (alive && Object.keys(resolved).length > 0) {
+        setResolvedStale((prev) => ({ ...prev, ...resolved }));
+      }
+    })();
+    return () => { alive = false; };
+  }, [tradeLines, activeIdsByCatalog, registryLoaded, resolvedStale]);
+
+  /** Retained selections for one trade line and catalog, in the order they were stored. */
+  const staleFor = (
+    catalogKey: RequirementCatalogKey,
+    ids: string[],
+  ): CatalogSelectionView[] => {
+    const active = activeIdsByCatalog[catalogKey];
+    return ids
+      .filter((id) => !active.has(id))
+      .map(
+        (id) =>
+          resolvedStale[`${catalogKey}:${id}`] ?? {
+            id,
+            name: null,
+            category: null,
+            unavailable: true,
+          },
+      );
+  };
+
+  /**
+   * Display name for a stored identifier. Falls back to the standard unavailable label, never to
+   * the identifier itself (§13.10).
+   */
+  const catalogLabel = (catalogKey: RequirementCatalogKey, id: string): string => {
+    const view =
+      catalogKey === "CAPABILITY"
+        ? capabilityCatalog
+        : catalogKey === "PPE"
+          ? ppeCatalog
+          : catalogKey === "TOOL"
+            ? toolCatalog
+            : certCatalog;
+    for (const group of view.groups) {
+      const hit = group.options.find((option) => option.id === id);
+      if (hit) return hit.name;
+    }
+    const resolved = resolvedStale[`${catalogKey}:${id}`];
+    if (resolved?.name) return `${resolved.name} — ${CATALOG_UNAVAILABLE_LABEL}`;
+    return CATALOG_UNAVAILABLE_LABEL;
+  };
 
   // --- Trade line helpers ---
   const updateTradeLine = (idx: number, patch: Partial<TradeLineState>) => {
@@ -321,6 +450,46 @@ export default function CreateOrderPage() {
     const next = tl[field].map((r) => (r.typeId === typeId ? { ...r, enforcement } : r));
     updateTradeLine(idx, { [field]: next });
   };
+
+  /**
+   * Enforcement mode and baseline provenance are job order semantics, not catalog presentation,
+   * so they ride in the selector's per-entry slot rather than being pushed into the catalog
+   * contract. Baseline entries stay enforcement-editable even though the entry itself is locked,
+   * which is the behavior this screen has always had.
+   *
+   * Provenance is only labelled once a baseline is in play; with no baseline every entry is
+   * order-specific and saying so on each row is noise. Certifications have no baseline at all.
+   */
+  const reqAdornment =
+    (
+      idx: number,
+      field: "ppeItems" | "toolItems" | "certItems",
+      items: ReqItem[],
+      baselineSource: BaselineSource = null,
+    ) =>
+    ({ id }: { id: string }) => {
+      const sel = items.find((r) => r.typeId === id);
+      if (!sel) return null;
+      return (
+        <>
+          {sel.isBaseline ? (
+            <span className="baseline-tag">baseline</span>
+          ) : baselineSource ? (
+            <span className="delta-tag">order-specific</span>
+          ) : null}
+          <select
+            className="enf-select"
+            value={sel.enforcement}
+            onChange={(e) =>
+              setReqEnforcement(idx, field, id, e.target.value as RequirementEnforcement)
+            }
+          >
+            <option value="FILTER">{ENFORCEMENT_LABELS.FILTER}</option>
+            <option value="FLAG">{ENFORCEMENT_LABELS.FLAG}</option>
+          </select>
+        </>
+      );
+    };
 
   const addComplianceItem = (idx: number) => {
     if (complianceReqTypes.length === 0) return;
@@ -1146,22 +1315,19 @@ export default function CreateOrderPage() {
                 <div className="cap-header-row">
                   <label className="form-label" style={{ marginBottom: 0 }}>Capabilities</label>
                   <button type="button" className="add-btn-sm"
-                    onClick={() => { setCapabilityModalIdx(idx); setCapabilitySearch(""); }}>
+                    onClick={() => setCapabilityModalIdx(idx)}>
                     + Add Capabilities
                   </button>
                 </div>
                 {tl.capabilityIds.length > 0 && (
                   <div className="cap-chips">
-                    {tl.capabilityIds.map((cid) => {
-                      const cap = capabilities.find((c) => c.id === cid);
-                      return (
-                        <span key={cid} className="cap-chip">
-                          {cap?.name ?? cid.slice(0, 8)}
-                          <button type="button" className="cap-chip-rm"
-                            onClick={() => updateTradeLine(idx, { capabilityIds: tl.capabilityIds.filter((id) => id !== cid) })}>×</button>
-                        </span>
-                      );
-                    })}
+                    {tl.capabilityIds.map((cid) => (
+                      <span key={cid} className="cap-chip">
+                        {catalogLabel("CAPABILITY", cid)}
+                        <button type="button" className="cap-chip-rm"
+                          onClick={() => updateTradeLine(idx, { capabilityIds: tl.capabilityIds.filter((id) => id !== cid) })}>×</button>
+                      </span>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1323,34 +1489,17 @@ export default function CreateOrderPage() {
                       <span className="delta-label">
                         {tl.ppeBaselineSource ? "PPE items (baseline + order-specific deltas)" : "PPE items for this order"}
                       </span>
-                      {ppeTypes.length === 0 ? (
-                        <span className="req-empty">{registryLoaded ? "No PPE types available" : "Loading..."}</span>
-                      ) : (
-                        <div className="req-list">
-                          {ppeTypes.map((item) => {
-                            const sel = tl.ppeItems.find((r) => r.typeId === item.id);
-                            const isBl = !!sel?.isBaseline;
-                            return (
-                              <div key={item.id} className={`req-row ${sel ? "req-row-active" : ""} ${isBl ? "req-row-baseline" : ""}`}>
-                                <label className={`req-check-label ${isBl ? "req-check-locked" : ""}`}>
-                                  <input type="checkbox" checked={!!sel}
-                                    disabled={isBl}
-                                    onChange={() => toggleReqItem(idx, "ppeItems", item.id)} />
-                                  <span>{item.name}</span>
-                                  {isBl && <span className="baseline-tag">baseline</span>}
-                                </label>
-                                {sel && (
-                                  <select className="enf-select" value={sel.enforcement}
-                                    onChange={(e) => setReqEnforcement(idx, "ppeItems", item.id, e.target.value as RequirementEnforcement)}>
-                                    <option value="FILTER">{ENFORCEMENT_LABELS.FILTER}</option>
-                                    <option value="FLAG">{ENFORCEMENT_LABELS.FLAG}</option>
-                                  </select>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                      <CategorizedSelector
+                        view={ppeCatalog}
+                        selectedIds={tl.ppeItems.map((r) => r.typeId)}
+                        lockedIds={tl.ppeItems.filter((r) => r.isBaseline).map((r) => r.typeId)}
+                        staleSelections={staleFor("PPE", tl.ppeItems.map((r) => r.typeId))}
+                        onToggle={(id) => toggleReqItem(idx, "ppeItems", id)}
+                        renderOptionAdornment={reqAdornment(idx, "ppeItems", tl.ppeItems, tl.ppeBaselineSource)}
+                        searchPlaceholder="Search PPE"
+                        ariaLabel="PPE requirements"
+                        emptyText={registryLoaded ? "No PPE types available" : "Loading…"}
+                      />
                     </div>
                   </div>
                 )}
@@ -1395,84 +1544,31 @@ export default function CreateOrderPage() {
                       )}
                     </div>
 
-                    {/* Baseline items rendered from state (visible even if registry fails) */}
-                    {tl.toolItems.filter((r) => r.isBaseline).length > 0 && (
-                      <div className="delta-area">
-                        <span className="delta-label">Baseline tools (locked)</span>
-                        <div className="req-list">
-                          {tl.toolItems.filter((r) => r.isBaseline).map((item) => {
-                            const toolMeta = tools.find((t) => t.id === item.typeId);
-                            return (
-                              <div key={item.typeId} className="req-row req-row-active req-row-baseline">
-                                <label className="req-check-label req-check-locked">
-                                  <input type="checkbox" checked disabled />
-                                  <span>{toolMeta?.name ?? `Tool ${item.typeId.slice(0, 8)}…`}</span>
-                                  <span className="baseline-tag">baseline</span>
-                                </label>
-                                <select className="enf-select" value={item.enforcement}
-                                  onChange={(e) => setReqEnforcement(idx, "toolItems", item.typeId, e.target.value as RequirementEnforcement)}>
-                                  <option value="FILTER">{ENFORCEMENT_LABELS.FILTER}</option>
-                                  <option value="FLAG">{ENFORCEMENT_LABELS.FLAG}</option>
-                                </select>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Order-specific delta items already selected */}
-                    {tl.toolItems.filter((r) => !r.isBaseline).length > 0 && (
-                      <div className="delta-area">
-                        <span className="delta-label">Order-specific tools (added)</span>
-                        <div className="req-list">
-                          {tl.toolItems.filter((r) => !r.isBaseline).map((item) => {
-                            const toolMeta = tools.find((t) => t.id === item.typeId);
-                            return (
-                              <div key={item.typeId} className="req-row req-row-active">
-                                <label className="req-check-label">
-                                  <input type="checkbox" checked
-                                    onChange={() => toggleReqItem(idx, "toolItems", item.typeId)} />
-                                  <span>{toolMeta?.name ?? `Tool ${item.typeId.slice(0, 8)}…`}</span>
-                                  <span className="delta-tag">order-specific</span>
-                                </label>
-                                <select className="enf-select" value={item.enforcement}
-                                  onChange={(e) => setReqEnforcement(idx, "toolItems", item.typeId, e.target.value as RequirementEnforcement)}>
-                                  <option value="FILTER">{ENFORCEMENT_LABELS.FILTER}</option>
-                                  <option value="FLAG">{ENFORCEMENT_LABELS.FLAG}</option>
-                                </select>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Delta-add checklist: non-baseline tools from registry */}
+                    {/*
+                      One list, grouped by tool category. The former split into "baseline",
+                      "order-specific", and "add" panels floated selected entries to the top,
+                      which reordered a catalog the server had already ordered. Baseline entries
+                      are now marked in place instead.
+                    */}
                     <div className="delta-area">
                       <span className="delta-label">
-                        {tl.toolBaselineSource ? "Add order-specific tools" : "Select tools for this order"}
+                        {tl.toolBaselineSource ? "Tools (baseline + order-specific deltas)" : "Tools for this order"}
                       </span>
-                      {tools.length === 0 ? (
-                        <span className="req-empty">{registryLoaded ? "Tool registry is empty or failed to load — check warnings above" : "Loading tool registry..."}</span>
-                      ) : (
-                        <div className="req-list">
-                          {tools
-                            .filter((item) => !tl.toolItems.find((r) => r.typeId === item.id))
-                            .map((item) => (
-                              <div key={item.id} className="req-row">
-                                <label className="req-check-label">
-                                  <input type="checkbox" checked={false}
-                                    onChange={() => toggleReqItem(idx, "toolItems", item.id)} />
-                                  <span>{item.name}</span>
-                                </label>
-                              </div>
-                            ))}
-                          {tools.filter((item) => !tl.toolItems.find((r) => r.typeId === item.id)).length === 0 && (
-                            <span className="req-empty">All available tools are already selected</span>
-                          )}
-                        </div>
-                      )}
+                      <CategorizedSelector
+                        view={toolCatalog}
+                        selectedIds={tl.toolItems.map((r) => r.typeId)}
+                        lockedIds={tl.toolItems.filter((r) => r.isBaseline).map((r) => r.typeId)}
+                        staleSelections={staleFor("TOOL", tl.toolItems.map((r) => r.typeId))}
+                        onToggle={(id) => toggleReqItem(idx, "toolItems", id)}
+                        renderOptionAdornment={reqAdornment(idx, "toolItems", tl.toolItems, tl.toolBaselineSource)}
+                        searchPlaceholder="Search tools"
+                        ariaLabel="Tool requirements"
+                        emptyText={
+                          registryLoaded
+                            ? "Tool catalog is empty or failed to load — check warnings above"
+                            : "Loading tool catalog…"
+                        }
+                      />
                     </div>
                   </div>
                 )}
@@ -1489,55 +1585,27 @@ export default function CreateOrderPage() {
                 </button>
                 {isExpanded(certKey) && (
                   <div className="req-body">
-                    {/* Already-selected certs shown at top */}
-                    {tl.certItems.length > 0 && (
-                      <div className="delta-area" style={{ marginBottom: 12 }}>
-                        <span className="delta-label">Selected certification requirements</span>
-                        <div className="req-list">
-                          {tl.certItems.map((item) => {
-                            const certMeta = certTypes.find((c) => c.id === item.typeId);
-                            return (
-                              <div key={item.typeId} className="req-row req-row-active">
-                                <label className="req-check-label">
-                                  <input type="checkbox" checked
-                                    onChange={() => toggleReqItem(idx, "certItems", item.typeId)} />
-                                  <span>{certMeta?.name ?? `Cert ${item.typeId.slice(0, 8)}…`}</span>
-                                </label>
-                                <select className="enf-select" value={item.enforcement}
-                                  onChange={(e) => setReqEnforcement(idx, "certItems", item.typeId, e.target.value as RequirementEnforcement)}>
-                                  <option value="FILTER">{ENFORCEMENT_LABELS.FILTER}</option>
-                                  <option value="FLAG">{ENFORCEMENT_LABELS.FLAG}</option>
-                                </select>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Available certs to add */}
+                    {/*
+                      Grouped by certification category in curated order. The previous
+                      selected-then-available split is gone for the same reason as tools: it
+                      reordered a served catalog.
+                    */}
                     <div className="delta-area">
-                      <span className="delta-label">Add certification requirements</span>
-                      {certTypes.length === 0 ? (
-                        <span className="req-empty">{registryLoaded ? "Certification registry is empty or failed to load — check warnings above" : "Loading certification types..."}</span>
-                      ) : (
-                        <div className="req-list">
-                          {certTypes
-                            .filter((item) => !tl.certItems.find((r) => r.typeId === item.id))
-                            .map((item) => (
-                              <div key={item.id} className="req-row">
-                                <label className="req-check-label">
-                                  <input type="checkbox" checked={false}
-                                    onChange={() => toggleReqItem(idx, "certItems", item.id)} />
-                                  <span>{item.name}</span>
-                                </label>
-                              </div>
-                            ))}
-                          {certTypes.filter((item) => !tl.certItems.find((r) => r.typeId === item.id)).length === 0 && tl.certItems.length > 0 && (
-                            <span className="req-empty">All available certifications are selected</span>
-                          )}
-                        </div>
-                      )}
+                      <span className="delta-label">Certification requirements for this order</span>
+                      <CategorizedSelector
+                        view={certCatalog}
+                        selectedIds={tl.certItems.map((r) => r.typeId)}
+                        staleSelections={staleFor("CERTIFICATION", tl.certItems.map((r) => r.typeId))}
+                        onToggle={(id) => toggleReqItem(idx, "certItems", id)}
+                        renderOptionAdornment={reqAdornment(idx, "certItems", tl.certItems)}
+                        searchPlaceholder="Search certifications"
+                        ariaLabel="Certification requirements"
+                        emptyText={
+                          registryLoaded
+                            ? "Certification catalog is empty or failed to load — check warnings above"
+                            : "Loading certification catalog…"
+                        }
+                      />
                     </div>
                   </div>
                 )}
@@ -1597,33 +1665,12 @@ export default function CreateOrderPage() {
       {capabilityModalIdx !== null && (() => {
         const tlForModal = tradeLines[capabilityModalIdx];
         if (!tlForModal) return null;
-        const selectedSet = new Set(tlForModal.capabilityIds);
-        const searchLower = capabilitySearch.toLowerCase();
-        const filtered = searchLower
-          ? capabilities.filter((c) => c.name.toLowerCase().includes(searchLower))
-          : capabilities;
-
-        const categoryMap = new Map<string, { name: string; items: CapabilityOption[] }>();
-        const uncategorized: CapabilityOption[] = [];
-        for (const cap of filtered) {
-          const cats = cap.categories ?? [];
-          if (cats.length === 0) {
-            uncategorized.push(cap);
-          } else {
-            for (const cat of cats) {
-              if (!categoryMap.has(cat.id)) categoryMap.set(cat.id, { name: cat.name, items: [] });
-              categoryMap.get(cat.id)!.items.push(cap);
-            }
-          }
-        }
-        const sortedGroups = [...categoryMap.entries()]
-          .sort((a, b) => a[1].name.localeCompare(b[1].name));
 
         const toggleCap = (capId: string) => {
-          const next = selectedSet.has(capId)
+          const next = tlForModal.capabilityIds.includes(capId)
             ? tlForModal.capabilityIds.filter((id) => id !== capId)
             : [...tlForModal.capabilityIds, capId];
-          updateTradeLine(capabilityModalIdx!, { capabilityIds: next });
+          updateTradeLine(capabilityModalIdx, { capabilityIds: next });
         };
 
         return (
@@ -1633,42 +1680,23 @@ export default function CreateOrderPage() {
                 <h3>Select Capabilities — Trade Line {capabilityModalIdx + 1}</h3>
                 <button type="button" className="cap-modal-close" onClick={() => setCapabilityModalIdx(null)}>×</button>
               </div>
-              <div className="cap-modal-search">
-                <input type="text" className="form-input" placeholder="Search capabilities…"
-                  value={capabilitySearch} onChange={(e) => setCapabilitySearch(e.target.value)}
-                  autoFocus />
-              </div>
               <div className="cap-modal-body">
-                {filtered.length === 0 && (
-                  <p className="cap-modal-empty">{capabilities.length === 0 ? "No capabilities loaded" : "No matches"}</p>
-                )}
-                {sortedGroups.map(([catId, group]) => (
-                  <div key={catId} className="cap-category-group">
-                    <div className="cap-category-name">{group.name}</div>
-                    {group.items.map((cap) => (
-                      <label key={cap.id} className={`cap-check-row ${selectedSet.has(cap.id) ? "cap-check-active" : ""}`}>
-                        <input type="checkbox" checked={selectedSet.has(cap.id)}
-                          onChange={() => toggleCap(cap.id)} />
-                        <span>{cap.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                ))}
-                {uncategorized.length > 0 && (
-                  <div className="cap-category-group">
-                    {sortedGroups.length > 0 && <div className="cap-category-name">Other</div>}
-                    {uncategorized.map((cap) => (
-                      <label key={cap.id} className={`cap-check-row ${selectedSet.has(cap.id) ? "cap-check-active" : ""}`}>
-                        <input type="checkbox" checked={selectedSet.has(cap.id)}
-                          onChange={() => toggleCap(cap.id)} />
-                        <span>{cap.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
+                {/*
+                  Grouping, ordering, search, and the multi-category repeat all belong to the
+                  shared component now. This modal previously grouped capabilities itself and
+                  sorted the groups alphabetically, which overrode curated category order.
+                */}
+                <CategorizedSelector
+                  view={capabilityCatalog}
+                  selectedIds={tlForModal.capabilityIds}
+                  staleSelections={staleFor("CAPABILITY", tlForModal.capabilityIds)}
+                  onToggle={toggleCap}
+                  searchPlaceholder="Search capabilities"
+                  ariaLabel="Capabilities"
+                  emptyText={registryLoaded ? "No capabilities available" : "Loading capabilities…"}
+                />
               </div>
               <div className="cap-modal-footer">
-                <span className="cap-modal-count">{tlForModal.capabilityIds.length} selected</span>
                 <button type="button" className="create-btn" onClick={() => setCapabilityModalIdx(null)}>Done</button>
               </div>
             </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
@@ -35,23 +35,23 @@ function NewToolFormInner() {
   const [toolSaving, setToolSaving] = useState(false);
   const [toolError, setToolError] = useState("");
 
-  useEffect(() => {
-    async function loadCategories() {
-      const token = window.localStorage.getItem("jp_accessToken");
-      if (!token) return;
+  const loadCategories = useCallback(async () => {
+    const token = window.localStorage.getItem("jp_accessToken");
+    if (!token) return;
 
-      const res = await fetch("/api/tool-categories", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+    const res = await fetch("/api/tool-categories", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-      if (res.ok) {
-        const cats = await res.json();
-        setCategories(cats ?? []);
-      }
+    if (res.ok) {
+      const cats = await res.json();
+      setCategories(cats ?? []);
     }
-
-    loadCategories();
   }, []);
+
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
 
   const canSaveCategory = categoryName.trim() !== "";
   const canSaveTool = toolName.trim() !== "" && toolCategory !== "";
@@ -81,8 +81,9 @@ function NewToolFormInner() {
       return;
     }
 
-    const created = await res.json();
-    setCategories((prev) => [...prev, { id: created.id, name: created.name }].sort((a, b) => a.name.localeCompare(b.name)));
+    // Re-read rather than splice the new category in locally: category order is curated and
+    // server-authoritative, so only the server knows where this one belongs.
+    await loadCategories();
     setCategorySaved(true);
     setCategoryName("");
     setCategorySaving(false);

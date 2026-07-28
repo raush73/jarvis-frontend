@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import WorkforceWizardShell from "@/components/workforce/WorkforceWizardShell";
 import DeclarationChoice from "@/components/workforce/DeclarationChoice";
-import RegistryPicker from "@/components/workforce/RegistryPicker";
+import CategorizedSelector from "@/components/catalog/CategorizedSelector";
+import type {
+  CatalogSelectionView,
+  CatalogView,
+} from "@/components/catalog/catalogContract";
 import {
-  type RegistryOption,
   WorkerSessionExpiredError,
   WorkforceApiError,
   getPpeRegistry,
@@ -14,13 +17,23 @@ import {
   setPpeDeclaration,
 } from "@/lib/workforce/workforceApi";
 
+const EMPTY_CATALOG: CatalogView = {
+  catalogKey: "PPE",
+  categorized: true,
+  groups: [],
+};
+
 /**
  * PPE screen - the PPE half of the backend TOOLS_PPE stage.
+ *
+ * C4E: PPE is a categorized catalog, so equipment arrives grouped by protective function rather
+ * than as one long flat list.
  */
 export default function PpePage() {
-  const [registry, setRegistry] = useState<RegistryOption[]>([]);
+  const [catalog, setCatalog] = useState<CatalogView>(EMPTY_CATALOG);
   const [declaration, setDeclaration] = useState<boolean | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [stale, setStale] = useState<CatalogSelectionView[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,14 +43,15 @@ export default function PpePage() {
     let cancelled = false;
     async function load() {
       try {
-        const [options, stage] = await Promise.all([
+        const [view, stage] = await Promise.all([
           getPpeRegistry(),
           getToolsPpe(),
         ]);
         if (cancelled) return;
-        setRegistry(options);
+        setCatalog(view);
         setDeclaration(stage.hasPpe);
         setSelectedIds(stage.ppe.map((p) => p.id));
+        setStale(stage.ppe.filter((p) => p.unavailable));
       } catch (err) {
         if (!cancelled) setStageError(err);
       } finally {
@@ -57,6 +71,7 @@ export default function PpePage() {
       const stage = await setPpeDeclaration(hasPpe);
       setDeclaration(stage.hasPpe);
       setSelectedIds(stage.ppe.map((p) => p.id));
+      setStale(stage.ppe.filter((p) => p.unavailable));
     } catch (err) {
       if (err instanceof WorkerSessionExpiredError) {
         setStageError(err);
@@ -125,12 +140,14 @@ export default function PpePage() {
         <div className="wf-section">
           <h2 className="wf-section-title">Your equipment</h2>
           <p className="wf-section-note">Select everything you have.</p>
-          <RegistryPicker
-            options={registry}
+          <CategorizedSelector
+            view={catalog}
             selectedIds={selectedIds}
             onToggle={toggle}
+            staleSelections={stale}
             searchPlaceholder="Search equipment"
             emptyText="No equipment types are available to select right now."
+            ariaLabel="Personal protective equipment"
           />
         </div>
       ) : null}

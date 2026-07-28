@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import WorkforceWizardShell from "@/components/workforce/WorkforceWizardShell";
 import DeclarationChoice from "@/components/workforce/DeclarationChoice";
-import RegistryPicker from "@/components/workforce/RegistryPicker";
+import CategorizedSelector from "@/components/catalog/CategorizedSelector";
+import type {
+  CatalogSelectionView,
+  CatalogView,
+} from "@/components/catalog/catalogContract";
 import {
-  type RegistryOption,
   WorkerSessionExpiredError,
   WorkforceApiError,
   getToolRegistry,
@@ -14,14 +17,24 @@ import {
   setToolsDeclaration,
 } from "@/lib/workforce/workforceApi";
 
+const EMPTY_CATALOG: CatalogView = {
+  catalogKey: "TOOL",
+  categorized: true,
+  groups: [],
+};
+
 /**
  * Tools screen - the tools half of the backend TOOLS_PPE stage, which already exposes
  * tools and PPE as separate endpoints. PPE is the next screen.
+ *
+ * C4E: the catalog arrives grouped by category and in curated order from the presentation facade,
+ * and is rendered by the shared selector. Tool categories were previously discarded here.
  */
 export default function ToolsPage() {
-  const [registry, setRegistry] = useState<RegistryOption[]>([]);
+  const [catalog, setCatalog] = useState<CatalogView>(EMPTY_CATALOG);
   const [declaration, setDeclaration] = useState<boolean | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [stale, setStale] = useState<CatalogSelectionView[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,14 +44,15 @@ export default function ToolsPage() {
     let cancelled = false;
     async function load() {
       try {
-        const [options, stage] = await Promise.all([
+        const [view, stage] = await Promise.all([
           getToolRegistry(),
           getToolsPpe(),
         ]);
         if (cancelled) return;
-        setRegistry(options);
+        setCatalog(view);
         setDeclaration(stage.hasTools);
         setSelectedIds(stage.tools.map((t) => t.id));
+        setStale(stage.tools.filter((t) => t.unavailable));
       } catch (err) {
         if (!cancelled) setStageError(err);
       } finally {
@@ -58,6 +72,7 @@ export default function ToolsPage() {
       const stage = await setToolsDeclaration(hasTools);
       setDeclaration(stage.hasTools);
       setSelectedIds(stage.tools.map((t) => t.id));
+      setStale(stage.tools.filter((t) => t.unavailable));
     } catch (err) {
       if (err instanceof WorkerSessionExpiredError) {
         setStageError(err);
@@ -126,12 +141,14 @@ export default function ToolsPage() {
         <div className="wf-section">
           <h2 className="wf-section-title">Your tools</h2>
           <p className="wf-section-note">Select every tool you can provide.</p>
-          <RegistryPicker
-            options={registry}
+          <CategorizedSelector
+            view={catalog}
             selectedIds={selectedIds}
             onToggle={toggle}
+            staleSelections={stale}
             searchPlaceholder="Search tools"
             emptyText="No tools are available to select right now."
+            ariaLabel="Tools"
           />
         </div>
       ) : null}
