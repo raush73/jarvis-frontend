@@ -22,6 +22,7 @@ export default function UnionPage() {
   const [unionName, setUnionName] = useState("");
   const [localNumber, setLocalNumber] = useState("");
   const [loading, setLoading] = useState(true);
+  const [stageError, setStageError] = useState<unknown>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,8 +33,8 @@ export default function UnionPage() {
         setAffiliated(stage.unionAffiliation.isUnionAffiliated);
         setUnionName(stage.unionAffiliation.unionName ?? "");
         setLocalNumber(stage.unionAffiliation.localNumber ?? "");
-      } catch {
-        // Save-time errors are surfaced by the shell.
+      } catch (err) {
+        if (!cancelled) setStageError(err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -69,6 +70,7 @@ export default function UnionPage() {
     <WorkforceWizardShell
       slug="union"
       loading={loading}
+      stageError={stageError}
       onSave={onSave}
       intro="This question is required. Your answer is recorded with your application for the recruiter reviewing it."
     >

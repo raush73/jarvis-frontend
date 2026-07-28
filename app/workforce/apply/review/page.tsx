@@ -76,6 +76,7 @@ export default function ReviewPage() {
   const router = useRouter();
   const [review, setReview] = useState<FinalReviewView | null>(null);
   const [loading, setLoading] = useState(true);
+  const [stageError, setStageError] = useState<unknown>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,8 +89,8 @@ export default function ReviewPage() {
           return;
         }
         setReview(value);
-      } catch {
-        // Submit-time errors are surfaced by the shell.
+      } catch (err) {
+        if (!cancelled) setStageError(err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -118,6 +119,7 @@ export default function ReviewPage() {
     <WorkforceWizardShell
       slug="review"
       loading={loading}
+      stageError={stageError}
       onSave={submit}
       continueLabel="Submit application"
       intro="Review your answers before submitting. Once submitted, your application cannot be changed."

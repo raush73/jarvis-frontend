@@ -21,6 +21,7 @@ export default function TradePage() {
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [stageError, setStageError] = useState<unknown>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,8 +34,8 @@ export default function TradePage() {
         if (cancelled) return;
         setTrades(registry);
         setSelected(current.primaryTradeId ?? "");
-      } catch {
-        // The shell reports failures on save; an empty list is visible on its own.
+      } catch (err) {
+        if (!cancelled) setStageError(err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -63,6 +64,7 @@ export default function TradePage() {
     <WorkforceWizardShell
       slug="trade"
       loading={loading}
+      stageError={stageError}
       onSave={onSave}
       intro="Choose the single trade that best describes the work you are qualified to perform. You can list additional experience in your work history."
     >

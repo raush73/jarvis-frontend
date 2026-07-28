@@ -54,6 +54,47 @@ export function saveWorkerSession(session: WorkerSession): void {
   notifyChange();
 }
 
+/**
+ * Slide the stored session onto a token the backend just reissued.
+ *
+ * Only the credential changes. The application session and any Candidate linkage are
+ * properties of the application itself and are untouched by renewal.
+ */
+export function renewWorkerSessionToken(token: string, expiresAt: string): void {
+  if (typeof window === "undefined") return;
+  if (!token || !expiresAt) return;
+  try {
+    // Renewal slides an EXISTING session; it must never conjure one where the applicant
+    // has no application session to belong to.
+    if (!localStorage.getItem(WORKER_APPLICATION_SESSION_KEY)) return;
+    localStorage.setItem(WORKER_TOKEN_KEY, token);
+    localStorage.setItem(WORKER_EXPIRES_KEY, expiresAt);
+  } catch {
+    // ignore
+  }
+  notifyChange();
+}
+
+/**
+ * Discard an unusable credential while KEEPING the application session identifier.
+ *
+ * The durable draft on the server is keyed by `applicationSessionId`. Erasing it because a
+ * JWT expired would orphan everything the applicant has entered, so an expired or rejected
+ * token clears only the token and its expiry. The identifier alone opens nothing: every
+ * draft route still demands a valid worker-session token.
+ */
+export function clearWorkerAuth(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(WORKER_TOKEN_KEY);
+    localStorage.removeItem(WORKER_EXPIRES_KEY);
+  } catch {
+    // ignore
+  }
+  notifyChange();
+}
+
+/** Erase the whole session, application session identifier included. */
 export function clearWorkerSession(): void {
   if (typeof window === "undefined") return;
   try {
@@ -89,6 +130,21 @@ export function getWorkerSession(): WorkerSession | null {
 
 export function getWorkerToken(): string | null {
   return getWorkerSession()?.token ?? null;
+}
+
+/**
+ * The durable application session identifier, which outlives the credential.
+ *
+ * Present without a usable token means the applicant's draft still exists on the server
+ * but this browser can no longer reach it.
+ */
+export function getApplicationSessionId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(WORKER_APPLICATION_SESSION_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function hasWorkerSession(): boolean {

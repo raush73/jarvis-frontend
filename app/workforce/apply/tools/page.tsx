@@ -6,6 +6,7 @@ import DeclarationChoice from "@/components/workforce/DeclarationChoice";
 import RegistryPicker from "@/components/workforce/RegistryPicker";
 import {
   type RegistryOption,
+  WorkerSessionExpiredError,
   WorkforceApiError,
   getToolRegistry,
   getToolsPpe,
@@ -24,6 +25,7 @@ export default function ToolsPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stageError, setStageError] = useState<unknown>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,8 +39,8 @@ export default function ToolsPage() {
         setRegistry(options);
         setDeclaration(stage.hasTools);
         setSelectedIds(stage.tools.map((t) => t.id));
-      } catch {
-        // Save-time errors are surfaced by the shell.
+      } catch (err) {
+        if (!cancelled) setStageError(err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -57,6 +59,10 @@ export default function ToolsPage() {
       setDeclaration(stage.hasTools);
       setSelectedIds(stage.tools.map((t) => t.id));
     } catch (err) {
+      if (err instanceof WorkerSessionExpiredError) {
+        setStageError(err);
+        return;
+      }
       setError(
         err instanceof WorkforceApiError
           ? err.message
@@ -95,6 +101,7 @@ export default function ToolsPage() {
     <WorkforceWizardShell
       slug="tools"
       loading={loading}
+      stageError={stageError}
       onSave={onSave}
       intro="Tell us which tools you own and can bring to a job site."
     >

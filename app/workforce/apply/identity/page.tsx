@@ -14,7 +14,7 @@ import { WorkforceApiError } from "@/lib/workforce/workforceApi";
  * blanks; the backend remains the authority on format and validity.
  */
 export default function IdentityPage() {
-  const { draft, setField, serverView, loading } = useLoadIdentity();
+  const { draft, setField, serverView, loading, loadError } = useLoadIdentity();
 
   const validate = useCallback(async () => {
     const missing: string[] = [];
@@ -37,6 +37,7 @@ export default function IdentityPage() {
     <WorkforceWizardShell
       slug="identity"
       loading={loading}
+      stageError={loadError}
       onSave={validate}
       continueLabel="Continue"
       intro="Enter your name exactly as it appears on your government-issued identification."

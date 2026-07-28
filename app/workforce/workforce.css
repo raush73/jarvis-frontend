@@ -193,6 +193,13 @@
   border-color: var(--color-accent-primary);
 }
 
+/* A field the worker still has to fill in, marked alongside the message naming it. */
+.wf-input[aria-invalid="true"],
+.wf-select[aria-invalid="true"],
+.wf-textarea[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
 .wf-textarea {
   min-height: 96px;
   resize: vertical;
@@ -204,6 +211,10 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.wf-choices[aria-invalid="true"] .wf-choice {
+  border-color: var(--color-danger);
 }
 
 .wf-choice {

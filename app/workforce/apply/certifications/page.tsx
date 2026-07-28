@@ -6,6 +6,7 @@ import DeclarationChoice from "@/components/workforce/DeclarationChoice";
 import RegistryPicker from "@/components/workforce/RegistryPicker";
 import {
   type CertificationOption,
+  WorkerSessionExpiredError,
   WorkforceApiError,
   getCertificationRegistry,
   getCertifications,
@@ -26,6 +27,7 @@ export default function CertificationsPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stageError, setStageError] = useState<unknown>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,8 +41,8 @@ export default function CertificationsPage() {
         setRegistry(options);
         setDeclaration(stage.hasCertifications);
         setSelectedIds(stage.selections.map((s) => s.id));
-      } catch {
-        // Save-time errors are surfaced by the shell.
+      } catch (err) {
+        if (!cancelled) setStageError(err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -59,6 +61,10 @@ export default function CertificationsPage() {
       setDeclaration(stage.hasCertifications);
       setSelectedIds(stage.selections.map((s) => s.id));
     } catch (err) {
+      if (err instanceof WorkerSessionExpiredError) {
+        setStageError(err);
+        return;
+      }
       setError(
         err instanceof WorkforceApiError
           ? err.message
@@ -97,6 +103,7 @@ export default function CertificationsPage() {
     <WorkforceWizardShell
       slug="certifications"
       loading={loading}
+      stageError={stageError}
       onSave={onSave}
       intro="Select the certifications and licenses you currently hold. You may be asked to provide documentation later."
     >

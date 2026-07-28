@@ -12,14 +12,23 @@
 
 import { API_BASE } from "@/lib/api";
 import {
-  clearWorkerSession,
+  clearWorkerAuth,
   getWorkerToken,
+  renewWorkerSessionToken,
   saveWorkerSession,
 } from "./workerSession";
 
 /* -------------------------------------------------------------------------- */
 /*  Transport                                                                  */
 /* -------------------------------------------------------------------------- */
+
+/** Response headers carrying a worker session the backend slid forward. */
+const RENEWED_TOKEN_HEADER = "X-Worker-Session-Token";
+const RENEWED_EXPIRES_HEADER = "X-Worker-Session-Expires-At";
+
+/** Stable worker-session failure codes returned by the backend. */
+export const WORKER_SESSION_EXPIRED_CODE = "WORKER_SESSION_EXPIRED";
+export const WORKER_SESSION_INVALID_CODE = "WORKER_SESSION_INVALID";
 
 /** A backend-reported problem, surfaced to the worker without leaking internals. */
 export class WorkforceApiError extends Error {
@@ -33,15 +42,59 @@ export class WorkforceApiError extends Error {
   }
 }
 
-/** Raised when the worker has no usable session, so the caller can route to entry. */
+/**
+ * Raised when the worker's secure session is no longer usable.
+ *
+ * `code` distinguishes a session that simply ran out - the ordinary outcome of a long
+ * application - from a credential the backend refused, because only the first is something
+ * the applicant did nothing wrong to cause.
+ */
 export class WorkerSessionExpiredError extends WorkforceApiError {
-  constructor() {
-    super("Your application session has ended. Please start again.", 401);
+  readonly code: string;
+
+  constructor(code: string = WORKER_SESSION_EXPIRED_CODE) {
+    super(
+      code === WORKER_SESSION_INVALID_CODE
+        ? "Your application session is no longer valid."
+        : "Your secure application session expired.",
+      401,
+    );
     this.name = "WorkerSessionExpiredError";
+    this.code = code;
+  }
+
+  /** True when the session ran out rather than being rejected. */
+  get expired(): boolean {
+    return this.code !== WORKER_SESSION_INVALID_CODE;
   }
 }
 
 type Envelope<T> = { ok: true; value: T };
+
+/** The backend's machine-readable failure code, when it sent one. */
+function extractCode(body: unknown): string | null {
+  if (body && typeof body === "object") {
+    const code = (body as Record<string, unknown>).code;
+    if (typeof code === "string" && code) return code;
+  }
+  return null;
+}
+
+function isWorkerSessionCode(code: string | null): boolean {
+  return code === WORKER_SESSION_EXPIRED_CODE || code === WORKER_SESSION_INVALID_CODE;
+}
+
+/**
+ * Adopt a session the backend slid forward on this response.
+ *
+ * Renewal rides on headers rather than in the body, so it applies uniformly to every
+ * authenticated call without any caller having to look for it.
+ */
+function absorbRenewedSession(res: Response): void {
+  const token = res.headers.get(RENEWED_TOKEN_HEADER);
+  const expiresAt = res.headers.get(RENEWED_EXPIRES_HEADER);
+  if (token && expiresAt) renewWorkerSessionToken(token, expiresAt);
+}
 
 function extractMessage(body: unknown): { message: string; fieldErrors: string[] } {
   if (body && typeof body === "object") {
@@ -80,12 +133,23 @@ async function workerFetch<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-  if (res.status === 401 || res.status === 403) {
-    if (authenticated) clearWorkerSession();
-    throw new WorkerSessionExpiredError();
-  }
+  if (authenticated) absorbRenewedSession(res);
 
   const payload = await res.json().catch(() => null);
+
+  if (res.status === 401 || res.status === 403) {
+    const code = extractCode(payload);
+    // A 403 that is not about the session is an authorization answer, not a broken
+    // credential: the token stays, and it surfaces as an ordinary backend error.
+    if (res.status === 403 && !isWorkerSessionCode(code)) {
+      const { message, fieldErrors } = extractMessage(payload);
+      throw new WorkforceApiError(message, res.status, fieldErrors);
+    }
+    // Drop the unusable credential ONLY. The application session identifier stays so the
+    // durable draft it keys is not orphaned.
+    if (authenticated) clearWorkerAuth();
+    throw new WorkerSessionExpiredError(code ?? WORKER_SESSION_EXPIRED_CODE);
+  }
 
   if (!res.ok) {
     const { message, fieldErrors } = extractMessage(payload);
@@ -341,6 +405,15 @@ export function savePrimaryTrade(
 /*  Work History                                                               */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * How the worker came to hold a position. A closed set; the staffing agency's own name is
+ * deliberately not part of the question and is never collected.
+ */
+export type WorkHistoryHiringMethod =
+  | "DIRECT_HIRE"
+  | "STAFFING_AGENCY"
+  | "UNION_HIRING_HALL";
+
 export type WorkHistoryEntryView = {
   id: string;
   employerName: string;
@@ -356,6 +429,8 @@ export type WorkHistoryEntryView = {
   supervisorPhone: string | null;
   description: string;
   reasonForLeaving: string | null;
+  /** Null only on an entry captured before the question existed. */
+  hiringMethod: WorkHistoryHiringMethod | null;
 };
 
 export type WorkHistoryStageView = {
@@ -376,6 +451,7 @@ export type WorkHistoryEntryInput = {
   supervisorPhone?: string;
   description: string;
   reasonForLeaving?: string;
+  hiringMethod: WorkHistoryHiringMethod;
 };
 
 export function getWorkHistoryTrades(): Promise<TradeOption[]> {

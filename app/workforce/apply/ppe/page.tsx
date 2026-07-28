@@ -6,6 +6,7 @@ import DeclarationChoice from "@/components/workforce/DeclarationChoice";
 import RegistryPicker from "@/components/workforce/RegistryPicker";
 import {
   type RegistryOption,
+  WorkerSessionExpiredError,
   WorkforceApiError,
   getPpeRegistry,
   getToolsPpe,
@@ -23,6 +24,7 @@ export default function PpePage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stageError, setStageError] = useState<unknown>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,8 +38,8 @@ export default function PpePage() {
         setRegistry(options);
         setDeclaration(stage.hasPpe);
         setSelectedIds(stage.ppe.map((p) => p.id));
-      } catch {
-        // Save-time errors are surfaced by the shell.
+      } catch (err) {
+        if (!cancelled) setStageError(err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -56,6 +58,10 @@ export default function PpePage() {
       setDeclaration(stage.hasPpe);
       setSelectedIds(stage.ppe.map((p) => p.id));
     } catch (err) {
+      if (err instanceof WorkerSessionExpiredError) {
+        setStageError(err);
+        return;
+      }
       setError(
         err instanceof WorkforceApiError
           ? err.message
@@ -94,6 +100,7 @@ export default function PpePage() {
     <WorkforceWizardShell
       slug="ppe"
       loading={loading}
+      stageError={stageError}
       onSave={onSave}
       intro="Tell us which personal protective equipment you already have. Not having your own PPE does not disqualify you."
     >

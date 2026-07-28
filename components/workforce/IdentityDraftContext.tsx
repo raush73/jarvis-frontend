@@ -169,15 +169,19 @@ export function useIdentityDraft(): IdentityDraftContextValue {
   return ctx;
 }
 
-/** Load the stored Identity stage once when a screen mounts. */
-export function useLoadIdentity(): IdentityDraftContextValue {
+/**
+ * Load the stored Identity stage once when a screen mounts.
+ *
+ * A failed prefill is returned as `loadError` rather than absorbed: an empty form after a
+ * dead session looks like a stage the worker never filled in, and saving it would replace
+ * real answers with blanks.
+ */
+export function useLoadIdentity(): IdentityDraftContextValue & { loadError: unknown } {
   const ctx = useIdentityDraft();
+  const [loadError, setLoadError] = useState<unknown>(null);
   useEffect(() => {
-    void ctx.load().catch(() => {
-      // The shell surfaces save/session failures; a failed prefill just leaves
-      // the form empty rather than blocking the worker.
-    });
+    void ctx.load().catch(setLoadError);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  return ctx;
+  return { ...ctx, loadError };
 }

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   type SubmissionReceipt,
+  WorkerSessionExpiredError,
   getReceipt,
 } from "@/lib/workforce/workforceApi";
 import { hasWorkerSession } from "@/lib/workforce/workerSession";
@@ -38,9 +39,15 @@ export default function ReceiptPage() {
         const value = await getReceipt();
         if (cancelled) return;
         setReceipt(value);
-      } catch {
+      } catch (err) {
         if (!cancelled) {
-          setError("We could not load your confirmation right now.");
+          // The application is already submitted, so an ended session costs the worker
+          // nothing but their view of the receipt. Say which happened.
+          setError(
+            err instanceof WorkerSessionExpiredError
+              ? "Your secure application session expired, so we cannot show your confirmation. Your application was submitted and is unaffected."
+              : "We could not load your confirmation right now.",
+          );
         }
       } finally {
         if (!cancelled) setLoading(false);

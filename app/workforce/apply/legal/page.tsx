@@ -20,6 +20,7 @@ export default function LegalPage() {
   const [items, setItems] = useState<AcknowledgmentView[]>([]);
   const [acceptedKeys, setAcceptedKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stageError, setStageError] = useState<unknown>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -31,8 +32,8 @@ export default function LegalPage() {
         setAcceptedKeys(
           stage.acknowledgments.filter((a) => a.accepted).map((a) => a.key),
         );
-      } catch {
-        // Save-time errors are surfaced by the shell.
+      } catch (err) {
+        if (!cancelled) setStageError(err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -64,6 +65,7 @@ export default function LegalPage() {
     <WorkforceWizardShell
       slug="legal"
       loading={loading}
+      stageError={stageError}
       onSave={onSave}
       intro="Please read each statement and confirm your agreement. All are required."
     >

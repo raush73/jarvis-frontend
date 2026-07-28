@@ -16,7 +16,7 @@ import { US_STATES } from "@/lib/careers/usStates";
  * reference data, reused rather than duplicated so there is one source for it.
  */
 export default function ContactPage() {
-  const { draft, setField, serverView, loading, save } = useLoadIdentity();
+  const { draft, setField, serverView, loading, save, loadError } = useLoadIdentity();
 
   const onSave = useCallback(async () => {
     await save();
@@ -26,6 +26,7 @@ export default function ContactPage() {
     <WorkforceWizardShell
       slug="contact"
       loading={loading}
+      stageError={loadError}
       onSave={onSave}
       intro="We use this information to contact you about your application and job opportunities."
     >

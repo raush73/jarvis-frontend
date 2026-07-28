@@ -8,6 +8,7 @@ import {
   MILITARY_SERVICE_COMPONENTS,
   type MilitaryBranch,
   type MilitaryServiceComponent,
+  WorkerSessionExpiredError,
   WorkforceApiError,
   getLegal,
   saveMilitary,
@@ -29,6 +30,7 @@ export default function MilitaryPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stageError, setStageError] = useState<unknown>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,8 +44,8 @@ export default function MilitaryPage() {
         setStartDate(stage.military.serviceStartDate ?? "");
         setEndDate(stage.military.serviceEndDate ?? "");
         setSpecialty(stage.military.occupationalSpecialty ?? "");
-      } catch {
-        // Save-time errors are surfaced by the shell.
+      } catch (err) {
+        if (!cancelled) setStageError(err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -68,6 +70,10 @@ export default function MilitaryPage() {
         setSpecialty("");
       }
     } catch (err) {
+      if (err instanceof WorkerSessionExpiredError) {
+        setStageError(err);
+        return;
+      }
       setError(
         err instanceof WorkforceApiError
           ? err.message
@@ -105,6 +111,7 @@ export default function MilitaryPage() {
     <WorkforceWizardShell
       slug="military"
       loading={loading}
+      stageError={stageError}
       onSave={onSave}
       intro="Military service is recorded as part of your application. Answering does not affect whether you are considered for work."
     >
