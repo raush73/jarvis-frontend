@@ -380,11 +380,35 @@ export function saveIdentity(
 /** Flat trade shape, still used by the Work History per-entry dropdown. */
 export type TradeOption = { id: string; name: string };
 
+/** A stored specialization answer resolved against the live taxonomy. */
+export type SpecializationSelectionView = {
+  id: string;
+  name: string | null;
+  unavailable: boolean;
+};
+
 export type PrimaryTradeStageView = {
   primaryTradeId: string | null;
   primaryTradeName: string | null;
   /** True when the stored trade no longer resolves; the answer is kept and flagged (C4E §11.2). */
   primaryTradeUnavailable: boolean;
+  specializationsOffered: boolean;
+  specializations: SpecializationSelectionView[];
+  skillSets: CatalogSelectionView[];
+};
+
+/** A specialization offered by a trade. Flat: specializations are not a catalog. */
+export type SpecializationOption = {
+  id: string;
+  name: string;
+  displayOrder: number;
+};
+
+export type TradeSpecializationsView = {
+  tradeId: string;
+  /** Stated by the server, so the page never infers it from the list length. */
+  specializationsOffered: boolean;
+  specializations: SpecializationOption[];
 };
 
 /** C4E: the trade catalog, already ordered by the server. Trades carry no categories. */
@@ -400,12 +424,40 @@ export function getPrimaryTrade(): Promise<PrimaryTradeStageView> {
   );
 }
 
+/** What the selected trade offers. Empty for a trade that defines no specializations. */
+export function getTradeSpecializations(
+  tradeId: string,
+): Promise<TradeSpecializationsView> {
+  return workerFetch<TradeSpecializationsView>(
+    `/workforce/application/wizard/primary-trade/specializations?tradeId=${encodeURIComponent(tradeId)}`,
+  );
+}
+
+/**
+ * The skill sets to present. The server decides whether these come from the selected
+ * specializations or from the trade, so the page asks the same way in both cases.
+ */
+export function getTradeSkillSets(
+  tradeId: string,
+  specializationIds: string[],
+): Promise<CatalogView> {
+  const params = new URLSearchParams({ tradeId });
+  if (specializationIds.length > 0) {
+    params.set("specializationIds", specializationIds.join(","));
+  }
+  return workerFetch<CatalogView>(
+    `/workforce/application/wizard/primary-trade/skill-sets?${params.toString()}`,
+  );
+}
+
 export function savePrimaryTrade(
   primaryTradeId: string,
+  specializationIds: string[] = [],
+  skillSetIds: string[] = [],
 ): Promise<PrimaryTradeStageView> {
   return workerFetch<PrimaryTradeStageView>(
     "/workforce/application/wizard/primary-trade",
-    { method: "PUT", body: { primaryTradeId } },
+    { method: "PUT", body: { primaryTradeId, specializationIds, skillSetIds } },
   );
 }
 

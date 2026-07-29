@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type CSSProperties } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { useParams } from "next/navigation";
@@ -73,6 +73,22 @@ const CLOSED_CAPS_MODAL: CapsModalState = {
   title: "",
   selectedIds: [],
 };
+
+/**
+ * The shared selector reads its colors from the app-wide tokens, which are defined for a light
+ * surface and render near-black on this page's dark modal. Rebinding the tokens on the modal
+ * body retints it through inheritance, leaving the component and every other consumer untouched.
+ * Values match the page's own input palette.
+ */
+const DARK_CATALOG_TOKENS = {
+  "--color-text-primary": "#fff",
+  "--color-text-muted": "rgba(255, 255, 255, 0.7)",
+  "--color-text-soft": "rgba(255, 255, 255, 0.5)",
+  "--color-bg-card": "rgba(255, 255, 255, 0.04)",
+  "--color-bg-main": "rgba(255, 255, 255, 0.08)",
+  "--color-border": "rgba(255, 255, 255, 0.1)",
+  "--color-border-strong": "rgba(255, 255, 255, 0.2)",
+} as CSSProperties;
 
 export default function TradeDetailPage() {
   const params = useParams();
@@ -622,8 +638,9 @@ export default function TradeDetailPage() {
         <div className="card-body">
           <p className="baseline-summary">{tradeCapCount} mapped</p>
           <p className="caps-help">
-            Skill sets every worker in this trade may claim, regardless of specialization.
-            Specialization skill sets are added on top of these rather than replacing them.
+            Trade Skill Sets are used only for trades that do not define active Specializations.
+            When a trade contains active Specializations, workers will see only the Skill Sets
+            associated with the Specializations they select.
           </p>
         </div>
       </div>
@@ -720,7 +737,7 @@ export default function TradeDetailPage() {
               <h2>{capsModal.title}</h2>
               <button className="modal-close" onClick={closeCapsModal}>&times;</button>
             </div>
-            <div className="modal-body">
+            <div className="modal-body" style={DARK_CATALOG_TOKENS}>
               {capsError && <div className="error-banner" style={{ marginBottom: 16 }}>{capsError}</div>}
               {capsLoading ? (
                 <div className="empty-state" style={{ margin: 0 }}>Loading skill sets…</div>
