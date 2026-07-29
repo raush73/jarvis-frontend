@@ -4,10 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import WorkforceWizardShell from "@/components/workforce/WorkforceWizardShell";
 import { stepPath } from "@/components/workforce/wizardSteps";
-import {
-  CATALOG_UNAVAILABLE_LABEL,
-  type CatalogSelectionView,
-} from "@/components/catalog/catalogContract";
+import { CATALOG_UNAVAILABLE_LABEL } from "@/components/catalog/catalogContract";
 import {
   type FinalReviewView,
   WorkforceApiError,
@@ -55,13 +52,19 @@ function Group({
 }
 
 /**
+ * What a tag needs to render. Satisfied by catalog selections and by specializations, which are a
+ * governed hierarchy under a Trade rather than a catalog and so carry no category.
+ */
+type TagSelection = { id: string; name: string | null; unavailable: boolean };
+
+/**
  * Selected catalog entries.
  *
  * C4E §11.2: an entry that no longer resolves is retained and rendered with the single
  * platform-wide label, never dropped and never as a raw identifier. This screen previously used
  * its own wording, which is one of the divergent behaviors the contract retires.
  */
-function Tags({ selections }: { selections: CatalogSelectionView[] }) {
+function Tags({ selections }: { selections: readonly TagSelection[] }) {
   if (selections.length === 0)
     return <p className="wf-entry-meta">None selected</p>;
   return (
@@ -206,6 +209,24 @@ export default function ReviewPage() {
                     : review.primaryTrade.primaryTradeName
                 }
               />
+              {/* Omitted entirely rather than shown empty: a trade whose taxonomy defines no
+                  specializations was never asked the question, so there is no answer to report. */}
+              {review.primaryTrade.specializations.length > 0 ? (
+                <>
+                  <dt className="wf-dt">Specializations</dt>
+                  <dd className="wf-dd">
+                    <Tags selections={review.primaryTrade.specializations} />
+                  </dd>
+                </>
+              ) : null}
+              {review.primaryTrade.skillSets.length > 0 ? (
+                <>
+                  <dt className="wf-dt">Skill sets</dt>
+                  <dd className="wf-dd">
+                    <Tags selections={review.primaryTrade.skillSets} />
+                  </dd>
+                </>
+              ) : null}
             </dl>
           </Group>
 
