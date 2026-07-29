@@ -8,32 +8,26 @@ export async function GET(
 ) {
   const { id } = await params;
   const auth = req.headers.get("authorization") ?? "";
-  // Forwarded so callers can request the nested structure projection (?include=structure),
-  // which returns a trade with its ordered specializations and both capability mappings.
-  const query = req.nextUrl.search;
-
-  const res = await fetch(`${BACKEND}/trades/${id}${query}`, {
+  const res = await fetch(`${BACKEND}/trades/${id}/capabilities`, {
     headers: { Authorization: auth },
     cache: "no-store",
   });
-
-  const data = await res.text();
-  return new NextResponse(data, {
+  const text = await res.text();
+  return new NextResponse(text, {
     status: res.status,
     headers: { "Content-Type": "application/json" },
   });
 }
 
-export async function PATCH(
+export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   const auth = req.headers.get("authorization") ?? "";
   const body = await req.text();
-
-  const res = await fetch(`${BACKEND}/trades/${id}`, {
-    method: "PATCH",
+  const res = await fetch(`${BACKEND}/trades/${id}/capabilities`, {
+    method: "PUT",
     headers: {
       "Content-Type": "application/json",
       Authorization: auth,
@@ -41,9 +35,8 @@ export async function PATCH(
     body,
     cache: "no-store",
   });
-
-  const data = await res.text();
-  return new NextResponse(data, {
+  const text = await res.text();
+  return new NextResponse(text, {
     status: res.status,
     headers: { "Content-Type": "application/json" },
   });

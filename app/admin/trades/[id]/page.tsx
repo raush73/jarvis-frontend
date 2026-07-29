@@ -4,6 +4,9 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { useParams } from "next/navigation";
+import CategorizedSelector from "@/components/catalog/CategorizedSelector";
+import { getCatalog, EMPTY_CATALOG_VIEW } from "@/lib/catalog/catalogApi";
+import type { CatalogView } from "@/components/catalog/catalogContract";
 
 interface Trade {
   id: string;
@@ -20,9 +23,18 @@ interface Specialization {
   name: string;
   description: string | null;
   isActive: boolean;
+  sortOrder: number;
   tradeId: string;
   createdAt: string;
   updatedAt: string;
+  /** Present on the ?include=structure projection; used for the mapped skill-set count. */
+  specializationCapabilities?: { capabilityId: string }[];
+}
+
+/** The ?include=structure projection of a trade. */
+interface TradeStructure extends Trade {
+  specializations?: Specialization[];
+  tradeCapabilities?: { capabilityId: string }[];
 }
 
 interface SpecModalState {
@@ -40,6 +52,26 @@ const EMPTY_SPEC_MODAL: SpecModalState = {
   name: "",
   description: "",
   isActive: true,
+};
+
+/**
+ * Skill-set mapping is the same operation at two scopes: capabilities the whole trade implies,
+ * and capabilities a single specialization adds. One modal serves both; `scope` decides which
+ * endpoint it reads and writes.
+ */
+interface CapsModalState {
+  open: boolean;
+  scope: "trade" | "spec";
+  specId?: string;
+  title: string;
+  selectedIds: string[];
+}
+
+const CLOSED_CAPS_MODAL: CapsModalState = {
+  open: false,
+  scope: "trade",
+  title: "",
+  selectedIds: [],
 };
 
 export default function TradeDetailPage() {
@@ -77,6 +109,16 @@ export default function TradeDetailPage() {
   const [specModal, setSpecModal] = useState<SpecModalState>(EMPTY_SPEC_MODAL);
   const [specSaving, setSpecSaving] = useState(false);
   const [specSaveError, setSpecSaveError] = useState("");
+  const [reordering, setReordering] = useState(false);
+
+  const [tradeCapCount, setTradeCapCount] = useState(0);
+  const [capabilityView, setCapabilityView] = useState<CatalogView>(
+    EMPTY_CATALOG_VIEW("CAPABILITY")
+  );
+  const [capsModal, setCapsModal] = useState<CapsModalState>(CLOSED_CAPS_MODAL);
+  const [capsLoading, setCapsLoading] = useState(false);
+  const [capsSaving, setCapsSaving] = useState(false);
+  const [capsError, setCapsError] = useState("");
 
   const syncDraft = (t: Trade) => {
     setDraftName(t.name);
@@ -160,13 +202,20 @@ export default function TradeDetailPage() {
     return () => { cancelled = true; };
   }, [tradeId, trade]);
 
+  /**
+   * One request returns the specializations in curated order plus both capability mappings, so
+   * the mapped skill-set counts need no per-row follow-up call. Order is rendered as served.
+   */
   const loadSpecs = useCallback(async () => {
     if (!tradeId) return;
     setSpecsLoading(true);
     setSpecsError("");
     try {
-      const data = await apiFetch<Specialization[]>(`/trades/${tradeId}/specializations`);
-      setSpecs(Array.isArray(data) ? data : []);
+      const data = await apiFetch<TradeStructure>(
+        `/trades/${tradeId}?include=structure`
+      );
+      setSpecs(Array.isArray(data?.specializations) ? data.specializations : []);
+      setTradeCapCount(data?.tradeCapabilities?.length ?? 0);
     } catch (e: any) {
       setSpecsError(e?.message ?? "Failed to load specializations.");
     } finally {
@@ -238,6 +287,10 @@ export default function TradeDetailPage() {
           body: JSON.stringify({
             name: specModal.name.trim(),
             description: specModal.description.trim() || null,
+            isActive: specModal.isActive,
+            // Appended to the end of the curated sequence rather than jumping to the front,
+            // which is what an unset 0 would do.
+            sortOrder: specs.length + 1,
           }),
         });
       } else {
@@ -256,6 +309,118 @@ export default function TradeDetailPage() {
       setSpecSaveError(e?.message ?? "Failed to save specialization.");
     } finally {
       setSpecSaving(false);
+    }
+  };
+
+  /**
+   * Moving a row rewrites the whole sequence to 1..n and saves only the rows whose position
+   * actually changed. Normalizing is necessary because rows created before curated ordering
+   * existed all carry 0, where a bare swap would be a no-op.
+   */
+  const moveSpec = async (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (reordering || target < 0 || target >= specs.length) return;
+
+    const next = [...specs];
+    [next[index], next[target]] = [next[target], next[index]];
+
+    const changed = next
+      .map((s, i) => ({ id: s.id, order: i + 1, previous: s.sortOrder }))
+      .filter((row) => row.previous !== row.order);
+
+    setReordering(true);
+    setSpecsError("");
+    setSpecs(next.map((s, i) => ({ ...s, sortOrder: i + 1 })));
+    try {
+      for (const row of changed) {
+        await apiFetch(`/trades/${tradeId}/specializations/${row.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ sortOrder: row.order }),
+        });
+      }
+    } catch (e: any) {
+      setSpecsError(e?.message ?? "Failed to reorder specializations.");
+    } finally {
+      setReordering(false);
+      // Re-read so the displayed order is the server's, not the optimistic guess.
+      await loadSpecs();
+    }
+  };
+
+  const ensureCapabilityCatalog = useCallback(async () => {
+    if (capabilityView.groups.length > 0) return;
+    setCapabilityView(await getCatalog("CAPABILITY"));
+  }, [capabilityView.groups.length]);
+
+  const openCapsModal = async (
+    scope: "trade" | "spec",
+    spec?: Specialization
+  ) => {
+    setCapsError("");
+    setCapsLoading(true);
+    setCapsModal({
+      open: true,
+      scope,
+      specId: spec?.id,
+      title: scope === "trade" ? `${trade?.name ?? "Trade"} Skill Sets` : `${spec?.name} Skill Sets`,
+      selectedIds: [],
+    });
+    try {
+      await ensureCapabilityCatalog();
+      const path =
+        scope === "trade"
+          ? `/trades/${tradeId}/capabilities`
+          : `/trades/${tradeId}/specializations/${spec!.id}/capabilities`;
+      const current = await apiFetch<{
+        capabilities: { id: string; name: string }[];
+      }>(path);
+      setCapsModal((m) => ({
+        ...m,
+        selectedIds: (current?.capabilities ?? []).map((c) => c.id),
+      }));
+    } catch (e: any) {
+      setCapsError(e?.message ?? "Failed to load skill sets.");
+    } finally {
+      setCapsLoading(false);
+    }
+  };
+
+  const closeCapsModal = () => {
+    setCapsModal(CLOSED_CAPS_MODAL);
+    setCapsError("");
+  };
+
+  const toggleCap = (id: string) => {
+    setCapsModal((m) => ({
+      ...m,
+      selectedIds: m.selectedIds.includes(id)
+        ? m.selectedIds.filter((x) => x !== id)
+        : [...m.selectedIds, id],
+    }));
+  };
+
+  /**
+   * The backend replaces the mapping wholesale, so the complete selected set is always sent -
+   * never a delta.
+   */
+  const saveCaps = async () => {
+    setCapsSaving(true);
+    setCapsError("");
+    try {
+      const path =
+        capsModal.scope === "trade"
+          ? `/trades/${tradeId}/capabilities`
+          : `/trades/${tradeId}/specializations/${capsModal.specId}/capabilities`;
+      await apiFetch(path, {
+        method: "PUT",
+        body: JSON.stringify({ capabilityIds: capsModal.selectedIds }),
+      });
+      closeCapsModal();
+      await loadSpecs();
+    } catch (e: any) {
+      setCapsError(e?.message ?? "Failed to save skill sets.");
+    } finally {
+      setCapsSaving(false);
     }
   };
 
@@ -386,32 +551,80 @@ export default function TradeDetailPage() {
             <table className="specs-table">
               <thead>
                 <tr>
+                  <th className="col-order">Order</th>
                   <th>Name</th>
                   <th>Description</th>
+                  <th>Skill Sets</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {specs.map((s) => (
-                  <tr key={s.id}>
-                    <td className="cell-name">{s.name}</td>
-                    <td className="cell-desc">{s.description || "—"}</td>
-                    <td>
-                      <span className="status-badge" style={{
-                        backgroundColor: s.isActive ? "rgba(34,197,94,0.12)" : "rgba(107,114,128,0.12)",
-                        color: s.isActive ? "#22c55e" : "#6b7280",
-                        borderColor: s.isActive ? "rgba(34,197,94,0.25)" : "rgba(107,114,128,0.25)",
-                      }}>{s.isActive ? "Active" : "Inactive"}</span>
-                    </td>
-                    <td className="cell-actions">
-                      <button type="button" className="action-btn" onClick={() => openEditSpec(s)}>Edit</button>
-                    </td>
-                  </tr>
-                ))}
+                {specs.map((s, i) => {
+                  const mapped = s.specializationCapabilities?.length ?? 0;
+                  return (
+                    <tr key={s.id}>
+                      <td className="cell-order">
+                        <div className="order-controls">
+                          <button
+                            type="button"
+                            className="order-btn"
+                            onClick={() => moveSpec(i, -1)}
+                            disabled={i === 0 || reordering}
+                            aria-label={`Move ${s.name} up`}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="order-btn"
+                            onClick={() => moveSpec(i, 1)}
+                            disabled={i === specs.length - 1 || reordering}
+                            aria-label={`Move ${s.name} down`}
+                          >
+                            ↓
+                          </button>
+                        </div>
+                      </td>
+                      <td className="cell-name">{s.name}</td>
+                      <td className="cell-desc">{s.description || "—"}</td>
+                      <td>
+                        <span className={`caps-count ${mapped === 0 ? "is-empty" : ""}`}>
+                          {mapped === 0 ? "None mapped" : `${mapped} mapped`}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="status-badge" style={{
+                          backgroundColor: s.isActive ? "rgba(34,197,94,0.12)" : "rgba(107,114,128,0.12)",
+                          color: s.isActive ? "#22c55e" : "#6b7280",
+                          borderColor: s.isActive ? "rgba(34,197,94,0.25)" : "rgba(107,114,128,0.25)",
+                        }}>{s.isActive ? "Active" : "Inactive"}</span>
+                      </td>
+                      <td className="cell-actions">
+                        <button type="button" className="action-btn" onClick={() => openCapsModal("spec", s)}>Skill Sets</button>
+                        <button type="button" className="action-btn" onClick={() => openEditSpec(s)}>Edit</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
+        </div>
+      </div>
+
+      {/* Trade Skill Sets (capabilities the trade implies on its own) */}
+      <div className="detail-card">
+        <div className="card-header spec-header">
+          <h2>Trade Skill Sets</h2>
+          <button type="button" className="btn-add-sm" onClick={() => openCapsModal("trade")}>Map Skill Sets</button>
+        </div>
+        <div className="card-body">
+          <p className="baseline-summary">{tradeCapCount} mapped</p>
+          <p className="caps-help">
+            Skill sets every worker in this trade may claim, regardless of specialization.
+            Specialization skill sets are added on top of these rather than replacing them.
+          </p>
         </div>
       </div>
 
@@ -475,20 +688,58 @@ export default function TradeDetailPage() {
                 <label>Description</label>
                 <textarea value={specModal.description} onChange={(e) => setSpecModal((m) => ({ ...m, description: e.target.value }))} placeholder="Optional description" rows={3} />
               </div>
-              {specModal.mode === "edit" && (
-                <div className="form-field">
-                  <label>Active</label>
-                  <div className="toggle-group">
-                    <button type="button" className={`toggle-btn ${specModal.isActive ? "active" : ""}`} onClick={() => setSpecModal((m) => ({ ...m, isActive: true }))}>Active</button>
-                    <button type="button" className={`toggle-btn ${!specModal.isActive ? "active" : ""}`} onClick={() => setSpecModal((m) => ({ ...m, isActive: false }))}>Inactive</button>
-                  </div>
+              <div className="form-field">
+                <label>Active</label>
+                <div className="toggle-group">
+                  <button type="button" className={`toggle-btn ${specModal.isActive ? "active" : ""}`} onClick={() => setSpecModal((m) => ({ ...m, isActive: true }))}>Active</button>
+                  <button type="button" className={`toggle-btn ${!specModal.isActive ? "active" : ""}`} onClick={() => setSpecModal((m) => ({ ...m, isActive: false }))}>Inactive</button>
                 </div>
-              )}
+                {specModal.mode === "create" && !specModal.isActive && (
+                  <p className="field-help">
+                    Created inactive. Map its skill sets first, then activate when this trade is
+                    ready for workers to see it.
+                  </p>
+                )}
+              </div>
             </div>
             <div className="modal-footer">
               <button type="button" className="btn-cancel" onClick={closeSpecModal}>Cancel</button>
               <button type="button" className="btn-save" onClick={handleSpecSave} disabled={!specModal.name.trim() || specSaving}>
                 {specSaving ? "Saving\u2026" : specModal.mode === "create" ? "Create" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Skill Set Mapping Modal (trade scope and specialization scope) */}
+      {capsModal.open && (
+        <div className="modal-overlay" onClick={closeCapsModal}>
+          <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{capsModal.title}</h2>
+              <button className="modal-close" onClick={closeCapsModal}>&times;</button>
+            </div>
+            <div className="modal-body">
+              {capsError && <div className="error-banner" style={{ marginBottom: 16 }}>{capsError}</div>}
+              {capsLoading ? (
+                <div className="empty-state" style={{ margin: 0 }}>Loading skill sets…</div>
+              ) : (
+                <CategorizedSelector
+                  view={capabilityView}
+                  selectedIds={capsModal.selectedIds}
+                  onToggle={toggleCap}
+                  searchPlaceholder="Search skill sets"
+                  emptyText="No skill sets available. Create them under Admin → Capabilities first."
+                  ariaLabel={capsModal.title}
+                  disabled={capsSaving}
+                />
+              )}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn-cancel" onClick={closeCapsModal}>Cancel</button>
+              <button type="button" className="btn-save" onClick={saveCaps} disabled={capsLoading || capsSaving}>
+                {capsSaving ? "Saving\u2026" : "Save Skill Sets"}
               </button>
             </div>
           </div>
@@ -601,6 +852,27 @@ const detailStyles = `
     text-overflow: ellipsis;
   }
   .cell-actions { white-space: nowrap; text-align: right; }
+  .cell-actions .action-btn + .action-btn { margin-left: 8px; }
+
+  .col-order { width: 70px; }
+  .cell-order { width: 70px; }
+  .order-controls { display: flex; gap: 4px; }
+  .order-btn {
+    width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; line-height: 1;
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px; cursor: pointer; transition: all 0.15s ease;
+  }
+  .order-btn:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, 0.08); }
+  .order-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .caps-count { font-size: 12px; color: rgba(255, 255, 255, 0.75); }
+  .caps-count.is-empty { color: rgba(255, 255, 255, 0.35); font-style: italic; }
+  .caps-help { font-size: 12px; color: rgba(255, 255, 255, 0.5); margin: 0; line-height: 1.5; }
+  .field-help { font-size: 12px; color: rgba(255, 255, 255, 0.5); margin: 8px 0 0; line-height: 1.5; }
+  .modal-wide { width: 640px; }
   .action-btn {
     padding: 5px 12px;
     font-size: 12px;
