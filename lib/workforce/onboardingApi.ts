@@ -211,7 +211,14 @@ function extractMessage(body: unknown): { message: string; fieldErrors: string[]
   return { message: "Request failed", fieldErrors: [] };
 }
 
-async function workerFetch<T>(
+/**
+ * The one authenticated transport for every onboarding request.
+ *
+ * Exported so the Phase 1 runtime client reuses it rather than growing a third copy of
+ * session handling: a second copy is a second place for expiry, renewal, and refusal
+ * classification to drift.
+ */
+export async function onboardingWorkerFetch<T>(
   path: string,
   init: { method?: string; body?: unknown } = {},
 ): Promise<T> {
@@ -265,14 +272,14 @@ async function workerFetch<T>(
  * internal surface.
  */
 export async function getCurrentOnboarding(): Promise<OnboardingInvocation> {
-  return workerFetch<OnboardingInvocation>("/workforce/onboarding");
+  return onboardingWorkerFetch<OnboardingInvocation>("/workforce/onboarding");
 }
 
 /** Read a module's captured input within the worker's own packet. */
 export async function getOnboardingModuleDraft(
   moduleKey: string,
 ): Promise<OnboardingModuleDraft> {
-  return workerFetch<OnboardingModuleDraft>(
+  return onboardingWorkerFetch<OnboardingModuleDraft>(
     `/workforce/onboarding/modules/${encodeURIComponent(moduleKey)}/draft`,
   );
 }
@@ -282,7 +289,7 @@ export async function saveOnboardingModuleDraft(
   moduleKey: string,
   data: Record<string, unknown>,
 ): Promise<OnboardingModuleDraft> {
-  return workerFetch<OnboardingModuleDraft>(
+  return onboardingWorkerFetch<OnboardingModuleDraft>(
     `/workforce/onboarding/modules/${encodeURIComponent(moduleKey)}/draft`,
     { method: "PUT", body: { data } },
   );
@@ -294,13 +301,24 @@ export async function saveOnboardingModuleDraft(
  *
  * `confirmNoChange` records that a re-presented record needed no change. It updates
  * nothing: the existing record stays effective and the confirmation is audited.
+ *
+ * `invocationId` states which packet the caller captured its answers against. The server
+ * still resolves the packet from the session - this is not an authorization input - but
+ * stating it means a caller holding a stale packet context is REFUSED rather than having
+ * its completion recorded in a packet the answers were never saved into.
  */
 export async function completeOnboardingModule(
   moduleKey: string,
-  options: { confirmNoChange?: boolean } = {},
+  options: { confirmNoChange?: boolean; invocationId?: string } = {},
 ): Promise<OnboardingModuleCompletionResult> {
-  return workerFetch<OnboardingModuleCompletionResult>(
+  return onboardingWorkerFetch<OnboardingModuleCompletionResult>(
     `/workforce/onboarding/modules/${encodeURIComponent(moduleKey)}/complete`,
-    { method: "POST", body: { confirmNoChange: options.confirmNoChange ?? false } },
+    {
+      method: "POST",
+      body: {
+        confirmNoChange: options.confirmNoChange ?? false,
+        ...(options.invocationId ? { invocationId: options.invocationId } : {}),
+      },
+    },
   );
 }

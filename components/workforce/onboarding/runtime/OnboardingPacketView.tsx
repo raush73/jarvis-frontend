@@ -1,0 +1,126 @@
+"use client";
+
+/**
+ * Phase 1 - one packet, in full.
+ *
+ * The worker's whole obligation for this packet: every module required of him, each with
+ * its recorded status and its entry action, plus what re-entering the packet would do.
+ *
+ * Where the runtime holds more than one packet, this is also the selection surface's
+ * destination: the worker chooses a packet and lands here. Where exactly one packet exists,
+ * nothing asks him to choose - the dashboard sends him straight on.
+ */
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import {
+  ONBOARDING_HOME,
+  getOnboardingPacket,
+  resumePath,
+} from "@/lib/workforce/onboardingRuntimeApi";
+import { useOnboardingRuntime } from "./OnboardingRuntimeContext";
+import OnboardingErrorNotice from "./OnboardingErrorNotice";
+import OnboardingProgress from "./OnboardingProgress";
+import ModuleCard from "./ModuleCard";
+import RestartNotice from "./RestartNotice";
+import { formatActivity } from "./PacketCard";
+
+export function OnboardingPacketView({ invocationId }: { invocationId: string }) {
+  const { runtime, loading, error, reload, findPacket } = useOnboardingRuntime();
+  const packet = findPacket(invocationId);
+
+  /*
+    A packet identifier that is not in this worker's projection is put to the SERVER rather
+    than answered here. The refusal that comes back is the authoritative one and is audited
+    as a refused access attempt, so a fabricated identifier leaves a record instead of only
+    a client-side dead end. Nothing about the outcome depends on this request: the identifier
+    was already unreachable, and no read of another worker's packet is possible either way.
+  */
+  const [refusal, setRefusal] = useState<unknown>(null);
+  useEffect(() => {
+    if (!runtime || packet) return;
+    let abandoned = false;
+    void getOnboardingPacket(invocationId).catch((err: unknown) => {
+      if (!abandoned) setRefusal(err);
+    });
+    return () => {
+      abandoned = true;
+    };
+  }, [runtime, packet, invocationId]);
+
+  if (loading && !runtime) {
+    return <p className="wf-loading">Loading your onboarding.</p>;
+  }
+
+  if (error && !runtime) {
+    return <OnboardingErrorNotice error={error} onRetry={() => void reload()} />;
+  }
+
+  if (!packet) {
+    if (refusal) return <OnboardingErrorNotice error={refusal} />;
+    return (
+      <div className="wf-error" role="alert" data-error-kind="NOT_ROUTABLE">
+        <p className="wf-error-title">We could not find that onboarding.</p>
+        <p>
+          It may not be part of what was assigned to you. Your onboarding home shows
+          everything that is outstanding.
+        </p>
+        <div className="wf-btn-row" style={{ marginTop: 16 }}>
+          <Link className="wf-btn wf-btn-primary" href={ONBOARDING_HOME}>
+            Go to my onboarding
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const lastActivity = formatActivity(packet.lastActivityAt);
+
+  return (
+    <div className="ob-packet-view">
+      <header className="wf-head">
+        <p className="wf-eyebrow">Onboarding</p>
+        <h1 className="wf-title">Your sections</h1>
+        <p className="wf-intro">{packet.invocationReason}</p>
+        <OnboardingProgress completion={packet.completion} />
+        {lastActivity ? (
+          <p className="wf-section-note">Last activity {lastActivity}</p>
+        ) : null}
+      </header>
+
+      <div className="wf-card">
+        <RestartNotice restart={packet.restart} subject="This onboarding" />
+
+        {packet.resume ? (
+          <div className="ob-next-action">
+            <Link className="wf-btn wf-btn-primary" href={resumePath(packet.resume)}>
+              Continue where I left off
+            </Link>
+          </div>
+        ) : null}
+
+        {/*
+          The complete required set, in the order the server resolved. Out-of-order
+          completion renders correctly because each card carries its own recorded status.
+        */}
+        <ul className="ob-module-list">
+          {packet.modules.map((module) => (
+            <ModuleCard
+              key={module.moduleKey}
+              invocationId={packet.invocationId}
+              module={module}
+            />
+          ))}
+        </ul>
+      </div>
+
+      <div className="wf-btn-row">
+        <Link className="wf-btn wf-btn-ghost wf-btn-sm" href={ONBOARDING_HOME}>
+          Back to my onboarding
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+export default OnboardingPacketView;
