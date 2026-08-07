@@ -14,8 +14,8 @@
 
 import type { OnboardingAdminModule } from "@/lib/workforce/onboardingAdminApi";
 import { OnboardingAdminTimestamp } from "./DetailPanel";
-import { OnboardingAdminModuleStatusBadge } from "./StatusPresentation";
 import { OnboardingAdminEmpty } from "../OnboardingAdminNotice";
+import OnboardingStatusCell from "@/components/workforce/onboarding/status/OnboardingStatusCell";
 
 export function OnboardingAdminPacketModuleTable({
   modules,
@@ -67,7 +67,11 @@ export function OnboardingAdminPacketModuleTable({
               ) : null}
             </td>
             <td>
-              <OnboardingAdminModuleStatusBadge status={module.status} />
+              {/*
+                The Phase 3 status the server derived, in the same words the worker's own
+                runtime shows him for this record.
+              */}
+              <OnboardingStatusCell status={module.derivedStatus} />
             </td>
             <td>{module.requirementReason.replace(/_/g, " ").toLowerCase()}</td>
             <td>

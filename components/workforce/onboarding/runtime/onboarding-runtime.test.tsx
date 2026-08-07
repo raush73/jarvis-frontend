@@ -42,6 +42,17 @@ vi.mock("@/lib/workforce/onboardingApi", async (importOriginal) => {
   return { ...actual, completeOnboardingModule: vi.fn() };
 });
 
+// Phase 3. The dashboard now asks the status authority what is waiting on MW4H.
+vi.mock("@/lib/workforce/onboardingStatusApi", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/workforce/onboardingStatusApi")>();
+  return {
+    ...actual,
+    getOnboardingWorkerStatus: vi.fn(),
+    getOnboardingWorkerCompletionDetail: vi.fn(),
+  };
+});
+
 const {
   getOnboardingRuntime,
   getOnboardingPacket,
@@ -50,6 +61,9 @@ const {
 } = await import("@/lib/workforce/onboardingRuntimeApi");
 const { completeOnboardingModule, OnboardingApiError } = await import(
   "@/lib/workforce/onboardingApi"
+);
+const { getOnboardingWorkerStatus, getOnboardingWorkerCompletionDetail } = await import(
+  "@/lib/workforce/onboardingStatusApi"
 );
 
 const { OnboardingRuntimeProvider } = await import("./OnboardingRuntimeContext");
@@ -65,6 +79,7 @@ const {
   fixtureModule,
   fixturePacket,
   fixtureRuntime,
+  fixtureStatus,
   step,
   twoModulePacket,
   RESTART_CLOSED,
@@ -143,6 +158,28 @@ beforeEach(() => {
     alreadyComplete: false,
     completion: { complete: false, requiredCount: 2, completeCount: 1 },
     nextModuleKey: "FIXTURE_BETA",
+  });
+  // Nothing waiting on MW4H unless a test says otherwise, so the dashboard's Phase 3 panel
+  // stays silent and these Phase 1 assertions keep testing what they were written to test.
+  vi.mocked(getOnboardingWorkerStatus).mockResolvedValue({
+    candidateId: "candidate-fixture-1",
+    audience: "WORKER",
+    packets: [],
+    awaitingAdministrativeAction: [],
+    generatedAt: new Date().toISOString(),
+  });
+  vi.mocked(getOnboardingWorkerCompletionDetail).mockResolvedValue({
+    candidateId: "candidate-fixture-1",
+    audience: "WORKER",
+    published: {
+      state: "NOT_YET_PUBLISHED",
+      publishedAt: null,
+      packetId: null,
+      packetVersion: null,
+      label: "Onboarding has not published a completion",
+    },
+    modules: [],
+    generatedAt: new Date().toISOString(),
   });
   registerFixtureRenderers();
 });
@@ -490,6 +527,12 @@ describe("out-of-order completion", () => {
           actionable: false,
           restart: RESTART_RE_ENTERABLE,
           steps: [step("first", "Beta question one", true)],
+          derivedStatus: fixtureStatus({
+            state: "COMPLETE",
+            label: "Complete",
+            outstanding: false,
+            workerActionable: false,
+          }),
         }),
       ],
     });
@@ -501,9 +544,10 @@ describe("out-of-order completion", () => {
     const alpha = document.querySelector('[data-module-key="FIXTURE_ALPHA"]');
     const beta = document.querySelector('[data-module-key="FIXTURE_BETA"]');
 
-    // Position in the list decides nothing. Each card shows its own recorded status.
-    expect(alpha?.querySelector('[data-status="PENDING"]')).toBeTruthy();
-    expect(beta?.querySelector('[data-status="COMPLETE"]')).toBeTruthy();
+    // Position in the list decides nothing. Each card shows its own recorded status, in the
+    // state the server derived for it.
+    expect(alpha?.querySelector('[data-state="NOT_STARTED"]')).toBeTruthy();
+    expect(beta?.querySelector('[data-state="COMPLETE"]')).toBeTruthy();
   });
 
   it("offers re-entry into a completed module, and says what re-entry does", async () => {
@@ -706,6 +750,41 @@ describe("progress, packet, and module visualization", () => {
 
     expect(await screen.findByText("You have no onboarding to complete")).toBeTruthy();
     expect(document.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("offers the shared completion drill-down, fed by the worker status projection", async () => {
+    vi.mocked(getOnboardingWorkerCompletionDetail).mockResolvedValue({
+      candidateId: "candidate-fixture-1",
+      audience: "WORKER",
+      published: {
+        state: "NOT_YET_PUBLISHED",
+        publishedAt: null,
+        packetId: null,
+        packetVersion: null,
+        label: "Onboarding has not published a completion",
+      },
+      modules: [
+        {
+          moduleKey: "FIXTURE_ALPHA",
+          moduleNumber: "F1",
+          title: "Fixture Alpha",
+          status: { state: "COMPLETE", label: "Complete", outstanding: false },
+          recordedOutcome: null,
+          completedAt: "2026-03-01T11:00:00.000Z",
+        },
+      ],
+      generatedAt: new Date().toISOString(),
+    });
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(fixtureRuntime());
+
+    renderWithRuntime(<OnboardingDashboard />);
+
+    // Reachable from the worker runtime, and rendered by the shared Phase 3 panel rather
+    // than by anything the runtime words for itself.
+    const panel = await screen.findByTestId("worker-completion-detail");
+    expect(panel.querySelector(".obs-detail-list")).toBeTruthy();
+    expect(panel.textContent).toContain("F1 Fixture Alpha");
+    expect(panel.textContent).toContain("Complete");
   });
 });
 

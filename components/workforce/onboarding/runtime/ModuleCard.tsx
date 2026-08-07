@@ -15,7 +15,7 @@ import {
   modulePath,
   type OnboardingRuntimeModule,
 } from "@/lib/workforce/onboardingRuntimeApi";
-import OnboardingStatusBadge from "./OnboardingStatusBadge";
+import OnboardingModuleStatus from "../status/OnboardingModuleStatus";
 
 type Props = {
   invocationId: string;
@@ -39,7 +39,12 @@ export function ModuleCard({ invocationId, module }: Props) {
     <li className="ob-module-card" data-module-key={module.moduleKey}>
       <div className="ob-module-card-head">
         <h3 className="ob-module-card-title">{module.title}</h3>
-        <OnboardingStatusBadge status={module.status} />
+        {/*
+          The status the SERVER derived, in the server's words. A governed outcome - a
+          decline, a not-required determination - renders as the completion it is rather
+          than as a card with nothing in it.
+        */}
+        <OnboardingModuleStatus status={module.derivedStatus} />
       </div>
 
       <p className="ob-module-card-meta">

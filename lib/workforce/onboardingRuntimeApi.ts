@@ -22,6 +22,7 @@ import {
   type OnboardingPacketState,
   type OnboardingInvocationKind,
 } from "./onboardingApi";
+import type { OnboardingModuleStatusFacts } from "./onboardingStatusApi";
 
 /* -------------------------------------------------------------------------- */
 /*  Contract types (mirror of the backend wire contract)                       */
@@ -58,6 +59,14 @@ export type OnboardingRuntimeModule = OnboardingModule & {
   actionable: boolean;
   lastActivityAt: string | null;
   restart: OnboardingRestartInfo;
+  /**
+   * Phase 3 status, supplied by the server's single read authority.
+   *
+   * The runtime does not derive this and the client does not word it. It is here so the
+   * worker sees the same status, in the same words, that an operator sees for the same
+   * record.
+   */
+  derivedStatus: OnboardingModuleStatusFacts;
 };
 
 export type OnboardingResumeTarget = {

@@ -20,6 +20,10 @@ import type {
   OnboardingAdminWorker,
   OnboardingAdminWorkerProjection,
 } from "@/lib/workforce/onboardingAdminApi";
+import type {
+  OnboardingAdministrativeStatus,
+  OnboardingModuleStatusFacts,
+} from "@/lib/workforce/onboardingStatusApi";
 import type { SessionInfo } from "@/lib/auth/useSession";
 
 export const CANDIDATE_ID = "cand_fixture_1";
@@ -73,6 +77,27 @@ export function fixtureModule(
     mw4hPhaseRecordedAt: null,
     outstanding: true,
     producesGeneratedArtifact: false,
+    derivedStatus: fixtureStatus(),
+    ...overrides,
+  };
+}
+
+/**
+ * The Phase 3 status a module carries when a fixture does not state one.
+ *
+ * A fixture VALUE, not a derivation: the words are the server's, so a fixture that computed
+ * a label from a state would be exactly the local derivation this phase forbids.
+ */
+export function fixtureStatus(
+  overrides: Partial<OnboardingModuleStatusFacts> = {},
+): OnboardingModuleStatusFacts {
+  return {
+    state: "NOT_STARTED",
+    label: "Not started",
+    outstanding: true,
+    recordedOutcome: null,
+    workerActionable: true,
+    awaitingAdministrativeAction: false,
     ...overrides,
   };
 }
@@ -95,6 +120,12 @@ export function fixturePacket(
       mw4hPhaseNature: "VERIFICATION",
       mw4hPhaseGatesCompletion: true,
       mw4hPhaseRecorded: false,
+      derivedStatus: fixtureStatus({
+        state: "COMPLETE",
+        label: "Complete",
+        outstanding: false,
+        workerActionable: false,
+      }),
     }),
   ];
   const completeCount = modules.filter((module) => !module.outstanding).length;
@@ -127,6 +158,74 @@ export function fixturePacket(
       invocationReason: "FIXTURE_REASON",
       createdAt: "2026-02-01T09:00:00.000Z",
     },
+    ...overrides,
+  };
+}
+
+/**
+ * The Phase 3 administrative projection, as the status authority would return it for the
+ * fixture packet.
+ *
+ * Built from `fixturePacket` so the two agree by construction rather than by coincidence:
+ * the panel and the packet workspace are looking at the same worker, and a fixture in which
+ * they disagreed would hide the very inconsistency the phase exists to prevent.
+ */
+export function fixtureAdministrativeStatus(
+  overrides: Partial<OnboardingAdministrativeStatus> = {},
+): OnboardingAdministrativeStatus {
+  const packet = fixturePacket();
+
+  return {
+    candidateId: CANDIDATE_ID,
+    audience: "ADMINISTRATIVE",
+    published: {
+      state: "NOT_YET_PUBLISHED",
+      publishedAt: null,
+      packetId: null,
+      packetVersion: null,
+      label: "Onboarding has not published a completion",
+    },
+    packets: [
+      {
+        packetId: packet.packetId,
+        invocationId: packet.invocation?.invocationId ?? null,
+        packetVersion: packet.packetVersion,
+        packetState: packet.packetState,
+        progress: packet.progress,
+        outstandingModuleKeys: packet.outstandingModuleKeys,
+        active: true,
+        closed: false,
+        createdAt: packet.createdAt,
+        updatedAt: packet.updatedAt,
+        modules: packet.modules.map((module) => ({
+          moduleKey: module.moduleKey,
+          moduleNumber: module.moduleNumber,
+          title: module.title,
+          governanceSection: module.governanceSection,
+          position: module.position,
+          status: {
+            state: module.derivedStatus.state,
+            label: module.derivedStatus.label,
+            outstanding: module.derivedStatus.outstanding,
+          },
+          recordedOutcome: module.derivedStatus.recordedOutcome,
+          recordStatus: module.status,
+          requirementReason: module.requirementReason,
+          requiredQualifier: module.requiredQualifier,
+          completionGranularity: module.completionGranularity,
+          completionId: module.completionId,
+          completedAt: module.completedAt,
+          hasWorkerPhase: module.hasWorkerPhase,
+          mw4hPhaseNature: module.mw4hPhaseNature,
+          mw4hPhaseGatesCompletion: module.mw4hPhaseGatesCompletion,
+          mw4hPhaseRecorded: module.mw4hPhaseRecorded,
+          mw4hPhaseRecordedAt: module.mw4hPhaseRecordedAt,
+          producesGeneratedArtifact: module.producesGeneratedArtifact,
+          historyModuleKey: module.moduleKey,
+        })),
+      },
+    ],
+    generatedAt: "2026-02-02T10:05:00.000Z",
     ...overrides,
   };
 }
@@ -209,6 +308,14 @@ export function fixtureDashboard(
     outstandingCount: 2,
     noRegisteredWork: false,
     noAuthorizedWork: false,
+    // Phase 3. The server's status-authority summary, supplied like any other server field:
+    // a fixture that omitted it would let a component invent one.
+    onboardingStatus: {
+      workersInScope: 2,
+      workersWithOnboardingOutstanding: 1,
+      workersWithOnboardingComplete: 1,
+      derived: true,
+    },
     categories: [
       {
         moduleKey: "FIXTURE_ALPHA",

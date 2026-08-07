@@ -14,6 +14,7 @@ import type {
   OnboardingRuntimePacket,
   OnboardingRuntimeStep,
 } from "@/lib/workforce/onboardingRuntimeApi";
+import type { OnboardingModuleStatusFacts } from "@/lib/workforce/onboardingStatusApi";
 
 export const INVOCATION_ID = "inv-fixture-1";
 export const PACKET_ID = "pkt-fixture-1";
@@ -63,6 +64,26 @@ export function step(
   return { slug, title, satisfied };
 }
 
+/**
+ * The Phase 3 status a module carries when a fixture does not state one.
+ *
+ * The words are the server's, copied here as a fixture VALUE rather than derived, because a
+ * fixture that computed a label would be the very local derivation the phase forbids.
+ */
+export function fixtureStatus(
+  overrides: Partial<OnboardingModuleStatusFacts> = {},
+): OnboardingModuleStatusFacts {
+  return {
+    state: "NOT_STARTED",
+    label: "Not started",
+    outstanding: true,
+    recordedOutcome: null,
+    workerActionable: true,
+    awaitingAdministrativeAction: false,
+    ...overrides,
+  };
+}
+
 export function fixtureModule(
   overrides: Partial<OnboardingRuntimeModule> & { moduleKey: string },
 ): OnboardingRuntimeModule {
@@ -85,6 +106,7 @@ export function fixtureModule(
     actionable: true,
     lastActivityAt: null,
     restart: RESTART_OUTSTANDING,
+    derivedStatus: fixtureStatus(),
     ...overrides,
   };
 }

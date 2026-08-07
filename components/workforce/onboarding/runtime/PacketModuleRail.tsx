@@ -13,7 +13,7 @@ import {
   modulePath,
   type OnboardingRuntimeModule,
 } from "@/lib/workforce/onboardingRuntimeApi";
-import OnboardingStatusBadge from "./OnboardingStatusBadge";
+import OnboardingStatusCell from "../status/OnboardingStatusCell";
 
 type Props = {
   invocationId: string;
@@ -58,7 +58,7 @@ export function PacketModuleRail({
               ) : (
                 <span className="ob-rail-label">{module.title}</span>
               )}
-              <OnboardingStatusBadge status={module.status} />
+              <OnboardingStatusCell status={module.derivedStatus} />
             </li>
           );
         })}

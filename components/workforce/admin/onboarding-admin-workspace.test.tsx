@@ -42,6 +42,14 @@ vi.mock("@/lib/workforce/onboardingAdminApi", async (importOriginal) => {
   };
 });
 
+// Phase 3. The workspace now reads status from the status authority rather than wording it,
+// so the workspace suite has to stand that read up the same way it stands up every other.
+vi.mock("@/lib/workforce/onboardingStatusApi", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/workforce/onboardingStatusApi")>();
+  return { ...actual, getOnboardingAdministrativeStatus: vi.fn() };
+});
+
 const session = vi.fn();
 vi.mock("@/lib/auth/useSession", () => ({ useSession: () => session() }));
 
@@ -57,6 +65,10 @@ const {
   getOnboardingAdminPacketAudit,
   executeOnboardingAdminAction,
 } = await import("@/lib/workforce/onboardingAdminApi");
+
+const { getOnboardingAdministrativeStatus } = await import(
+  "@/lib/workforce/onboardingStatusApi"
+);
 
 const { default: OnboardingAdminDashboard } = await import(
   "./surfaces/OnboardingAdminDashboard"
@@ -92,6 +104,7 @@ const {
   QUEUE_KEY,
   ONBOARDING_ADMIN_ALL_GRANTS,
   fixtureAction,
+  fixtureAdministrativeStatus,
   fixtureAudit,
   fixtureDashboard,
   fixtureInvestigation,
@@ -108,6 +121,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetOnboardingAdminPanels();
   session.mockReturnValue(fixtureSession(ONBOARDING_ADMIN_ALL_GRANTS));
+  vi.mocked(getOnboardingAdministrativeStatus).mockResolvedValue(
+    fixtureAdministrativeStatus(),
+  );
 });
 
 afterEach(() => {
@@ -174,6 +190,51 @@ describe("administrative dashboard", () => {
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByText(/ADMIN_FUNCTION_NOT_AUTHORIZED/)).toBeTruthy();
+  });
+
+  it("reports onboarding status from the server projection, not from the queue counts", async () => {
+    vi.mocked(getOnboardingAdminDashboard).mockResolvedValue(
+      fixtureDashboard({
+        outstandingCount: 9,
+        onboardingStatus: {
+          workersInScope: 4,
+          workersWithOnboardingOutstanding: 3,
+          workersWithOnboardingComplete: 1,
+          derived: true,
+        },
+      }),
+    );
+
+    render(<OnboardingAdminDashboard />);
+
+    // Two different facts, and the dashboard reports each as itself. Nine queue items and
+    // three workers with onboarding outstanding are not the same number and never were.
+    expect(await screen.findByText("Workers with onboarding outstanding")).toBeTruthy();
+    expect(screen.getByText("3")).toBeTruthy();
+    expect(screen.getByText(/Of 4 on your queues/)).toBeTruthy();
+    expect(screen.getByText("9")).toBeTruthy();
+  });
+
+  it("moves the onboarding figure only when the server projection moves", async () => {
+    vi.mocked(getOnboardingAdminDashboard).mockResolvedValue(
+      fixtureDashboard({
+        outstandingCount: 9,
+        onboardingStatus: {
+          workersInScope: 4,
+          workersWithOnboardingOutstanding: 0,
+          workersWithOnboardingComplete: 4,
+          derived: true,
+        },
+      }),
+    );
+
+    render(<OnboardingAdminDashboard />);
+    await screen.findByText("Workers with onboarding outstanding");
+
+    // Queue work is unchanged at nine; onboarding outstanding is zero. A dashboard deriving
+    // completion for itself could not produce that pair, which is the point.
+    expect(screen.getByText("0")).toBeTruthy();
+    expect(screen.getByText(/Of 4 on your queues/)).toBeTruthy();
   });
 });
 
@@ -359,9 +420,82 @@ describe("worker workspace", () => {
     render(<OnboardingAdminWorkerWorkspace candidateId={CANDIDATE_ID} />);
 
     expect(await screen.findByText("Module completion in effect")).toBeTruthy();
-    expect(screen.getByText("Fixture Beta")).toBeTruthy();
+    expect(screen.getAllByText("Fixture Beta").length).toBeGreaterThan(0);
     expect(screen.getByText("FIXTURE_ALPHA")).toBeTruthy();
-    expect(screen.getByText(/1 of 2 modules complete/)).toBeTruthy();
+    // The packets table and the Phase 3 status panel both show this worker's progress, and
+    // both take it from the server, so both say the same thing.
+    await waitFor(() =>
+      expect(screen.getAllByText(/1 of 2 modules complete/).length).toBe(2),
+    );
+  });
+
+  it("reads status from the status authority instead of wording it here", async () => {
+    vi.mocked(getOnboardingAdminWorker).mockResolvedValue(fixtureProjection());
+
+    render(<OnboardingAdminWorkerWorkspace candidateId={CANDIDATE_ID} />);
+
+    expect(await screen.findByText("Onboarding status")).toBeTruthy();
+    await waitFor(() =>
+      expect(document.querySelector(".oba-status-packet")).toBeTruthy(),
+    );
+
+    expect(vi.mocked(getOnboardingAdministrativeStatus)).toHaveBeenCalledWith(
+      CANDIDATE_ID,
+    );
+    // The words are the server's, and they are the same words the worker reads.
+    const row = document.querySelector(
+      '.oba-status-packet [data-module-key="FIXTURE_BETA"]',
+    );
+    expect(row?.textContent).toContain("Complete");
+  });
+
+  it("renders the drill-down through the shared completion panel, not a table of its own", async () => {
+    vi.mocked(getOnboardingAdminWorker).mockResolvedValue(fixtureProjection());
+
+    render(<OnboardingAdminWorkerWorkspace candidateId={CANDIDATE_ID} />);
+    await waitFor(() =>
+      expect(document.querySelector(".oba-status-packet")).toBeTruthy(),
+    );
+
+    // Section 11 requires the completion detail panel to be used identically by the worker
+    // runtime and this workspace. `obs-` is the shared Phase 3 presentation; a second table
+    // here would be this workspace saying the same thing its own way.
+    const packet = document.querySelector(".oba-status-packet")!;
+    expect(packet.querySelector(".obs-detail-list")).toBeTruthy();
+    expect(packet.querySelector("table")).toBeNull();
+    expect(
+      packet.querySelector('.obs-detail-row[data-module-key="FIXTURE_BETA"]'),
+    ).toBeTruthy();
+  });
+
+  it("reports an absent publication as an absence rather than as incomplete", async () => {
+    vi.mocked(getOnboardingAdminWorker).mockResolvedValue(fixtureProjection());
+
+    render(<OnboardingAdminWorkerWorkspace candidateId={CANDIDATE_ID} />);
+
+    expect(
+      await screen.findByText("Onboarding has not published a completion"),
+    ).toBeTruthy();
+    expect(document.querySelector('[data-state="PUBLISHED_COMPLETE"]')).toBeNull();
+  });
+
+  it("tells an operator the status read was refused rather than showing another status", async () => {
+    const { OnboardingAdminApiError } = await import("@/lib/workforce/onboardingAdminApi");
+    vi.mocked(getOnboardingAdminWorker).mockResolvedValue(fixtureProjection());
+    vi.mocked(getOnboardingAdministrativeStatus).mockRejectedValue(
+      new OnboardingAdminApiError({
+        status: 403,
+        code: "ADMIN_FUNCTION_NOT_AUTHORIZED",
+        message: "refused",
+      }),
+    );
+
+    render(<OnboardingAdminWorkerWorkspace candidateId={CANDIDATE_ID} />);
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText(/ADMIN_FUNCTION_NOT_AUTHORIZED/)).toBeTruthy();
+    // No fallback: the panel does not assemble a status from the Phase 2 packet read.
+    expect(document.querySelector(".oba-status-packet")).toBeNull();
   });
 
   it("shows a worker with no packet as an empty state, not a failure", async () => {
@@ -396,7 +530,9 @@ describe("packet workspace", () => {
     expect(await screen.findByText("Required modules")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Fixture Alpha" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Fixture Beta" })).toBeTruthy();
-    expect(screen.getByText("Outstanding")).toBeTruthy();
+    // Both labels are the server's own words, carried through from the Phase 3 projection.
+    // The workspace no longer has a status vocabulary of its own to disagree with.
+    expect(screen.getByText("Not started")).toBeTruthy();
     expect(screen.getByText("Complete")).toBeTruthy();
     // The administrative phase Fixture Beta declares is shown as outstanding, and as gating.
     expect(screen.getByText("Required, outstanding")).toBeTruthy();
@@ -615,5 +751,38 @@ describe("module independence", () => {
     // what kind of work it is.
     expect(await screen.findByLabelText("Reason (required)")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Confirm" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("keeps a queue's declared workflow vocabulary out of the onboarding status vocabulary", async () => {
+    vi.mocked(getOnboardingAdminQueue).mockResolvedValue(
+      fixtureQueue({
+        availableStatuses: ["AWAITING_VERIFICATION"],
+        items: [
+          {
+            candidateId: CANDIDATE_ID,
+            worker: fixtureWorker(),
+            packetId: PACKET_ID,
+            moduleKey: "FIXTURE_ALPHA",
+            status: "AWAITING_VERIFICATION",
+            waitingSince: "2026-01-01T09:00:00.000Z",
+            waitingDays: 12,
+            detail: null,
+          },
+        ],
+        total: 1,
+      }),
+    );
+
+    render(<OnboardingAdminQueueView queueKey="FIXTURE_ALPHA_REVIEW" />);
+    await screen.findByText("AWAITING VERIFICATION");
+
+    // Two governed facts, not two renderings of one. The queue column is the contributing
+    // module's own workflow vocabulary; onboarding completion is derived and lives in the
+    // Phase 3 projection. Rendering a completion chip here would put "Complete" in a column
+    // that means "awaiting verification" and would misstate both.
+    const badge = document.querySelector(".oba-badge-queue");
+    expect(badge?.textContent).toBe("AWAITING VERIFICATION");
+    expect(document.querySelector(".oba-badge-queue .obs-chip")).toBeNull();
+    expect(document.querySelector('.oba-badge-queue [data-state]')).toBeNull();
   });
 });

@@ -20,6 +20,7 @@
  */
 
 import { API_BASE, clearAccessToken, getAccessToken } from "@/lib/api";
+import type { OnboardingModuleStatusFacts } from "./onboardingStatusApi";
 
 /* -------------------------------------------------------------------------- */
 /*  Contract types (mirror of the backend wire contract)                       */
@@ -89,6 +90,13 @@ export type OnboardingAdminModule = {
   mw4hPhaseRecordedAt: string | null;
   outstanding: boolean;
   producesGeneratedArtifact: boolean;
+  /**
+   * Phase 3 status, supplied by the server's single read authority.
+   *
+   * The workspace does not derive this and does not word it. It is here so an operator and
+   * the worker see the same status for the same record.
+   */
+  derivedStatus: OnboardingModuleStatusFacts;
 };
 
 /** Derived packet progress. `requiredCount` is the only legitimate denominator. */
@@ -186,6 +194,21 @@ export type OnboardingAdminDashboardCategory = {
   queues: Array<OnboardingAdminQueueDescriptor & { outstandingCount: number }>;
 };
 
+/**
+ * Where the workers behind this operator's queues stand, per the Phase 3 status authority.
+ *
+ * Not the same fact as `outstandingCount`, which counts administrative queue items. This
+ * counts workers whose ONBOARDING still owes something, which only the status authority
+ * answers. The server derives it; nothing here recomputes it.
+ */
+export type OnboardingAdminDashboardStatusSummary = {
+  workersInScope: number;
+  workersWithOnboardingOutstanding: number;
+  workersWithOnboardingComplete: number;
+  /** Always true: onboarding completion is derived, never a stored flag. */
+  derived: true;
+};
+
 export type OnboardingAdminDashboard = {
   outstandingCount: number;
   categories: OnboardingAdminDashboardCategory[];
@@ -193,6 +216,7 @@ export type OnboardingAdminDashboard = {
   noRegisteredWork: boolean;
   /** Work exists, but none of it belongs to this operator's functions. */
   noAuthorizedWork: boolean;
+  onboardingStatus: OnboardingAdminDashboardStatusSummary;
 };
 
 export type OnboardingAdminActionResult = {

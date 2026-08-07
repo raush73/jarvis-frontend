@@ -41,6 +41,7 @@ import {
 } from "../panels/StatusPresentation";
 import { OnboardingAdminSummary } from "../panels/SummaryPanel";
 import { OnboardingAdminWorkerContextHeader } from "../panels/WorkerContextHeader";
+import { OnboardingAdminStatusPanel } from "../panels/OnboardingStatusPanel";
 
 export default function OnboardingAdminWorkerWorkspace({
   candidateId,
@@ -100,6 +101,8 @@ export default function OnboardingAdminWorkerWorkspace({
               },
             ]}
           />
+
+          <OnboardingAdminStatusPanel candidateId={data.worker.candidateId} />
 
           <OnboardingAdminPanel
             title="Packets"

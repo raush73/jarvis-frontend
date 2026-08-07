@@ -18,6 +18,8 @@ import { useOnboardingRuntime } from "./OnboardingRuntimeContext";
 import OnboardingErrorNotice from "./OnboardingErrorNotice";
 import OnboardingPacketSelection from "./OnboardingPacketSelection";
 import PacketCard from "./PacketCard";
+import OnboardingWorkerStatusSummary from "../status/OnboardingWorkerStatusSummary";
+import OnboardingWorkerCompletionDetail from "../status/OnboardingWorkerCompletionDetail";
 
 export function OnboardingDashboard() {
   const { runtime, loading, error, reload } = useOnboardingRuntime();
@@ -68,6 +70,13 @@ export function OnboardingDashboard() {
       {error ? <OnboardingErrorNotice error={error} onRetry={() => void reload()} /> : null}
 
       {/*
+        Phase 3. What is finished on his side and waiting on ours - the one part of his
+        onboarding the packet cards cannot honestly show him, because only the status
+        authority knows it. Renders nothing when nothing is waiting.
+      */}
+      <OnboardingWorkerStatusSummary />
+
+      {/*
         One obvious next action, pointing exactly where the server said to resume -
         including part-way through a section.
       */}
@@ -112,6 +121,13 @@ export function OnboardingDashboard() {
           </div>
         </section>
       ) : null}
+
+      {/*
+        Phase 3. The shared completion drill-down - the same component the administrative
+        workspace renders, so what he reads here and what an operator reads there cannot be
+        two different accounts of one record.
+      */}
+      <OnboardingWorkerCompletionDetail />
     </div>
   );
 }

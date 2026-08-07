@@ -52,6 +52,16 @@ export default function OnboardingAdminDashboard() {
                 value: data.categories.length,
                 hint: "One per module that registered work",
               },
+              // Phase 3. A DIFFERENT fact from the two above, which count administrative
+              // queue items. This counts the workers behind them who still owe onboarding,
+              // and the server reads it from the status authority - the same authority
+              // behind the drill-down an operator opens from here, so the figure and the
+              // detail cannot tell him two different things.
+              {
+                label: "Workers with onboarding outstanding",
+                value: data.onboardingStatus.workersWithOnboardingOutstanding,
+                hint: `Of ${data.onboardingStatus.workersInScope} on your queues · derived from completion records`,
+              },
             ]}
           />
 
