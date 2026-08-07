@@ -39,6 +39,8 @@ vi.mock("@/lib/workforce/onboardingAdminApi", async (importOriginal) => {
     getOnboardingAdminPacketAudit: vi.fn(),
     executeOnboardingAdminAction: vi.fn(),
     revealOnboardingAdminSsn: vi.fn(),
+    // Phase 4. The worker workspace now carries a document panel, which is a read of its own.
+    getOnboardingAdminWorkerDocuments: vi.fn(),
   };
 });
 
@@ -64,6 +66,7 @@ const {
   getOnboardingAdminPacket,
   getOnboardingAdminPacketAudit,
   executeOnboardingAdminAction,
+  getOnboardingAdminWorkerDocuments,
 } = await import("@/lib/workforce/onboardingAdminApi");
 
 const { getOnboardingAdministrativeStatus } = await import(
@@ -124,6 +127,7 @@ beforeEach(() => {
   vi.mocked(getOnboardingAdministrativeStatus).mockResolvedValue(
     fixtureAdministrativeStatus(),
   );
+  vi.mocked(getOnboardingAdminWorkerDocuments).mockResolvedValue([]);
 });
 
 afterEach(() => {

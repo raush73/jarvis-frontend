@@ -249,3 +249,84 @@
 .ob-progress {
   margin-top: 8px;
 }
+
+/* ------------------------------------------------- Phase 4 document capture */
+
+.ob-doc-section {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ob-doc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ob-doc-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ob-doc-slot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ob-doc-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--color-bg-subtle, #f1f3f6);
+  color: var(--color-text-muted, #5b6472);
+  border: 1px solid var(--color-border, #d9dee5);
+}
+
+.ob-doc-badge-done {
+  background: #e8f5ec;
+  color: #1d6b39;
+  border-color: #b7dcc4;
+}
+
+.ob-doc-capture {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/*
+  The file control is sized for a thumb, not a cursor: the whole point of this surface is a
+  worker photographing a document on a phone.
+*/
+.ob-doc-capture .wf-input[type="file"] {
+  padding: 10px;
+  min-height: 44px;
+}
+
+.ob-doc-capture .wf-btn-row {
+  flex-wrap: wrap;
+}
+
+.ob-doc-capture .wf-status {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--color-text-muted, #5b6472);
+  min-height: 1.2em;
+}
+
+.ob-doc-capture .wf-field-error {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #a12a2a;
+}

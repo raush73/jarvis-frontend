@@ -11,6 +11,7 @@ import type {
   OnboardingAdminAction,
   OnboardingAdminAudit,
   OnboardingAdminDashboard,
+  OnboardingAdminDocument,
   OnboardingAdminInvestigation,
   OnboardingAdminModule,
   OnboardingAdminModuleHistory,
@@ -38,6 +39,7 @@ export const ONBOARDING_ADMIN_ALL_GRANTS = [
   "workforce.onboarding.admin.access",
   "workforce.onboarding.admin.worker.read",
   "workforce.onboarding.admin.audit.read",
+  "workforce.onboarding.document.read",
   "workforce.ssn.reveal",
 ] as const;
 
@@ -228,6 +230,53 @@ export function fixtureAdministrativeStatus(
     generatedAt: "2026-02-02T10:05:00.000Z",
     ...overrides,
   };
+}
+
+/**
+ * Phase 4. A governed artifact on a FIXTURE slot of a FIXTURE module.
+ *
+ * Uploaded by default; pass a `generation` for a produced one. No real document type appears
+ * here, for the same reason no real module does: the panel must work without one existing.
+ */
+export function fixtureDocument(
+  overrides: Partial<OnboardingAdminDocument> = {},
+): OnboardingAdminDocument {
+  return {
+    onboardingDocumentId: "obdoc_fixture_1",
+    moduleKey: "FIXTURE_ALPHA",
+    slotKey: "FIXTURE_EVIDENCE",
+    origin: "UPLOADED",
+    fileName: "fixture-evidence.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 2048,
+    capturedAt: "2026-02-02T10:00:00.000Z",
+    supersededAt: null,
+    supersedesId: null,
+    generation: null,
+    createdAt: "2026-02-02T09:59:00.000Z",
+    ...overrides,
+  };
+}
+
+export function fixtureGeneratedDocument(
+  overrides: Partial<OnboardingAdminDocument> = {},
+): OnboardingAdminDocument {
+  return fixtureDocument({
+    onboardingDocumentId: "obdoc_fixture_generated",
+    slotKey: "FIXTURE_GENERATED",
+    origin: "GENERATED",
+    fileName: "fixture-acknowledgement.pdf",
+    generation: {
+      formKey: "FIXTURE_ACKNOWLEDGEMENT",
+      formRevision: "2026.1",
+      ruleRevision: "R2026.1",
+      sourceKind: "FIXTURE_MODULE_COMPLETION",
+      sourceRef: "cmp_beta",
+      sourceHash: "9f2c4a1b7e30d5ac6b8f",
+      generatedAt: "2026-02-02T10:01:00.000Z",
+    },
+    ...overrides,
+  });
 }
 
 export function fixtureAction(

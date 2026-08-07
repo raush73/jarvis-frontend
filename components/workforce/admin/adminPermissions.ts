@@ -23,6 +23,8 @@ export const ONBOARDING_ADMIN_PERMISSIONS = {
   access: "workforce.onboarding.admin.access",
   workerRead: "workforce.onboarding.admin.worker.read",
   auditRead: "workforce.onboarding.admin.audit.read",
+  /** Phase 4. Governed onboarding artifacts: the listing, and authorized retrieval. */
+  documentRead: "workforce.onboarding.document.read",
   /** The delivered secure-identity grant. Never bypassed by a role. */
   ssnReveal: "workforce.ssn.reveal",
 } as const;
@@ -35,6 +37,8 @@ export type OnboardingAdminPermissionState = {
   canOpenWorkspace: boolean;
   canReadWorkers: boolean;
   canReadAudit: boolean;
+  /** May list a worker's governed artifacts and ask for an authorized retrieval. */
+  canReadDocuments: boolean;
   /**
    * May reveal a full sensitive value.
    *
@@ -57,6 +61,7 @@ export function useOnboardingAdminPermissions(
     canOpenWorkspace: holds(ONBOARDING_ADMIN_PERMISSIONS.access),
     canReadWorkers: holds(ONBOARDING_ADMIN_PERMISSIONS.workerRead),
     canReadAudit: holds(ONBOARDING_ADMIN_PERMISSIONS.auditRead),
+    canReadDocuments: holds(ONBOARDING_ADMIN_PERMISSIONS.documentRead),
     canRevealSensitiveValues: session.permissions.includes(
       ONBOARDING_ADMIN_PERMISSIONS.ssnReveal,
     ),

@@ -24,6 +24,7 @@ import OnboardingProgress from "./OnboardingProgress";
 import ModuleCard from "./ModuleCard";
 import RestartNotice from "./RestartNotice";
 import { formatActivity } from "./PacketCard";
+import OnboardingDocumentCapture from "../documents/OnboardingDocumentCapture";
 
 export function OnboardingPacketView({ invocationId }: { invocationId: string }) {
   const { runtime, loading, error, reload, findPacket } = useOnboardingRuntime();
@@ -113,6 +114,17 @@ export function OnboardingPacketView({ invocationId }: { invocationId: string })
           ))}
         </ul>
       </div>
+
+      {/*
+        Phase 4. Renders only what the server declared for this packet, and renders nothing
+        at all when no module has declared a document slot - which is every packet in this
+        phase. Whether documents may be CHANGED is the same answer the sections use: a packet
+        that has left the worker's hands is shown, never written to.
+      */}
+      <OnboardingDocumentCapture
+        invocationId={packet.invocationId}
+        changeable={packet.restart.posture !== "CLOSED"}
+      />
 
       <div className="wf-btn-row">
         <Link className="wf-btn wf-btn-ghost wf-btn-sm" href={ONBOARDING_HOME}>

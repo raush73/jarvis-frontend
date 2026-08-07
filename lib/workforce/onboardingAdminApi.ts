@@ -42,6 +42,45 @@ export type OnboardingAdminModuleStatus =
 
 export type OnboardingAdminActorType = "WORKER" | "MW4H" | "SYSTEM";
 
+/**
+ * Phase 4. One governed artifact, as the workspace sees it.
+ *
+ * Mirrors the backend's `OnboardingDocumentResponse`. `generation` is what makes a produced
+ * document auditable: which form, at which revision, under which rules, from which
+ * authoritative source, bound by hash. It is null for anything a worker uploaded.
+ */
+export type OnboardingAdminDocument = {
+  onboardingDocumentId: string;
+  moduleKey: string;
+  slotKey: string;
+  origin: "UPLOADED" | "GENERATED";
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  /** Null until storage proved the object exists. */
+  capturedAt: string | null;
+  supersededAt: string | null;
+  supersedesId: string | null;
+  generation: {
+    formKey: string;
+    formRevision: string;
+    ruleRevision: string;
+    sourceKind: string;
+    sourceRef: string;
+    sourceHash: string;
+    generatedAt: string | null;
+  } | null;
+  createdAt: string;
+};
+
+export type OnboardingAdminDocumentDownload = {
+  onboardingDocumentId: string;
+  fileName: string;
+  mimeType: string;
+  url: string;
+  expiresIn: number;
+};
+
 /** A worker as every administrative surface shows him: masked. */
 export type OnboardingAdminWorker = {
   candidateId: string;
@@ -548,6 +587,41 @@ export async function revealOnboardingAdminSsn(
   return onboardingAdminFetch<OnboardingAdminReveal>(
     `${BASE}/workers/${encodeURIComponent(candidateId)}/reveal-ssn`,
     { method: "POST", body: { purpose } },
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Phase 4 - governed document review                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A worker's governed onboarding artifacts.
+ *
+ * A LISTING. It carries no bucket, no storage key, and no retrieval capability: seeing that
+ * an artifact exists is a different thing from opening it, and the server treats them as
+ * different authorizations too.
+ */
+export async function getOnboardingAdminWorkerDocuments(
+  candidateId: string,
+): Promise<OnboardingAdminDocument[]> {
+  return onboardingAdminFetch<OnboardingAdminDocument[]>(
+    `${BASE}/workers/${encodeURIComponent(candidateId)}/documents`,
+  );
+}
+
+/**
+ * A short-lived, authorized retrieval of one artifact.
+ *
+ * Fetched at the moment of viewing rather than held on the page, so a URL cannot outlive its
+ * expiry in a rendered document. The bytes are served by private storage directly to the
+ * browser; they do not pass through Jarvis. Every call is audited server-side against the
+ * worker the artifact belongs to.
+ */
+export async function getOnboardingAdminDocumentDownload(
+  onboardingDocumentId: string,
+): Promise<OnboardingAdminDocumentDownload> {
+  return onboardingAdminFetch<OnboardingAdminDocumentDownload>(
+    `${BASE}/documents/${encodeURIComponent(onboardingDocumentId)}/download`,
   );
 }
 
