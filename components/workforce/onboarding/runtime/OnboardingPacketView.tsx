@@ -25,6 +25,7 @@ import ModuleCard from "./ModuleCard";
 import RestartNotice from "./RestartNotice";
 import { formatActivity } from "./PacketCard";
 import OnboardingDocumentCapture from "../documents/OnboardingDocumentCapture";
+import OnboardingExecutionCapture from "../execution/OnboardingExecutionCapture";
 
 export function OnboardingPacketView({ invocationId }: { invocationId: string }) {
   const { runtime, loading, error, reload, findPacket } = useOnboardingRuntime();
@@ -122,6 +123,24 @@ export function OnboardingPacketView({ invocationId }: { invocationId: string })
         that has left the worker's hands is shown, never written to.
       */}
       <OnboardingDocumentCapture
+        invocationId={packet.invocationId}
+        changeable={packet.restart.posture !== "CLOSED"}
+      />
+
+      {/*
+        Phase 5, and a SIBLING of the section above rather than a part of it. Both involve
+        something a worker supplies; they answer to different authorities, and merging them
+        would put one refusal vocabulary in charge of two kinds of record.
+
+        Same posture as the documents: only what the server declared, nothing at all when no
+        module has declared anything to execute - which is every packet in this phase - and
+        the same answer about whether a closed packet may still be written to.
+
+        It reports no completion. What finishes a module or a packet is the server's
+        derivation, rendered above from the runtime projection, and an act performed here does
+        not add a second opinion about it.
+      */}
+      <OnboardingExecutionCapture
         invocationId={packet.invocationId}
         changeable={packet.restart.posture !== "CLOSED"}
       />

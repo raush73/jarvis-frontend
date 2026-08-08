@@ -330,3 +330,173 @@
   font-size: 0.88rem;
   color: #a12a2a;
 }
+
+/* ------------------------------------------- Phase 5 execution and signature */
+
+.ob-exec-section {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ob-exec-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ob-exec-subject {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ob-exec-subject-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ob-exec-badge {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--color-surface-muted, #eef1f5);
+  color: var(--color-text-muted, #5b6472);
+  white-space: nowrap;
+}
+
+.ob-exec-badge-done {
+  background: #e6f4ea;
+  color: #1e6b34;
+}
+
+/*
+  The governed wording, bounded and scrollable.
+
+  The height cap is what makes reaching the end of a long document a real act rather than an
+  incidental one, and the region is focusable so that end is reachable with a keyboard alone.
+  A worker who cannot scroll it cannot satisfy the read requirement, which would be the one
+  failure this surface must not have.
+*/
+.ob-exec-content {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border, #d8dee7);
+  border-radius: 8px;
+  background: var(--color-surface, #fff);
+  line-height: 1.55;
+}
+
+.ob-exec-content:focus-visible {
+  outline: 2px solid var(--color-accent, #1f5fa9);
+  outline-offset: 2px;
+}
+
+.ob-exec-content-title {
+  margin: 0 0 8px;
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.ob-exec-line {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+}
+
+.ob-exec-field {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #5b6472);
+}
+
+.ob-exec-act {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ob-exec-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+/* Sized for a thumb, for the same reason the document control is. */
+.ob-exec-act .wf-btn {
+  min-height: 44px;
+}
+
+.ob-exec-history {
+  font-size: 0.88rem;
+  color: var(--color-text-muted, #5b6472);
+}
+
+.ob-exec-history-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/*
+  The drawing surface.
+
+  `touch-action: none` is load-bearing rather than cosmetic: without it a finger dragged across
+  the canvas scrolls the page instead of drawing, which on a phone makes the surface unusable.
+*/
+.ob-exec-capture {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ob-exec-pad {
+  width: 100%;
+  display: block;
+  touch-action: none;
+  border: 1px dashed var(--color-border, #d8dee7);
+  border-radius: 8px;
+  background: var(--color-surface, #fff);
+}
+
+.ob-exec-pad[data-disabled="true"] {
+  opacity: 0.6;
+}
+
+.ob-exec-pad-initials {
+  max-width: 220px;
+  height: 110px;
+}
+
+.ob-exec-pad-signature {
+  height: 160px;
+}
+
+.ob-exec-assistance {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--color-text-muted, #5b6472);
+}
+
+@media (max-width: 860px) {
+  .ob-exec-content {
+    max-height: 260px;
+  }
+
+  .ob-exec-pad-initials {
+    max-width: none;
+  }
+}
