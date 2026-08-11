@@ -21,6 +21,7 @@ import {
   EXECUTION_ALREADY_RECORDED_CODE,
   EXECUTION_CONTENT_STALE_CODE,
   EXECUTION_EVIDENCE_INVALID_CODE,
+  EXECUTION_INFRASTRUCTURE_UNAVAILABLE_CODES,
   EXECUTION_SUBJECT_GONE_CODES,
   submitOnboardingExecution,
   type SubmitOnboardingExecutionInput,
@@ -88,6 +89,11 @@ function classify(error: unknown): ExecutionRefusal {
   if (code === EXECUTION_CONTENT_STALE_CODE) return STALE;
   if (code && EXECUTION_SUBJECT_GONE_CODES.includes(code)) return GONE;
   if (code === EXECUTION_EVIDENCE_INVALID_CODE) return EVIDENCE;
+  // Checked BEFORE the catch-all below. These arrive as ordinary refusals, but nothing about
+  // the subject or the worker's act became invalid, so treating them as "no longer part of
+  // your onboarding" would be both wrong and destructive: it would clear a signature the
+  // server is perfectly willing to accept on the next attempt.
+  if (code && EXECUTION_INFRASTRUCTURE_UNAVAILABLE_CODES.includes(code)) return RETRYABLE;
   // A form mismatch or a malformed payload is this client's own defect. The worker is told
   // something neutral and the section is refreshed rather than left holding a dead control.
   if (error.status === 400) return GONE;

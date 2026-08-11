@@ -1661,3 +1661,103 @@ describe("what never reaches the worker", () => {
     }
   });
 });
+
+/**
+ * Gate 5F - a refusal about the server's own machinery.
+ *
+ * These two arrive as ordinary refusals and say nothing about the worker, the subject, or what
+ * he produced. Reading them as "this item is no longer part of your onboarding" would clear a
+ * signature the server would happily have accepted a moment later, so they are the one class
+ * of refusal that keeps the worker's work and invites him to press the same control again.
+ */
+describe("when the server cannot complete the act", () => {
+  it.each([
+    ["the evidence cannot be protected", "EXECUTION_EVIDENCE_PROTECTION_UNAVAILABLE"],
+    ["the executed document cannot be retained", "EXECUTION_ARTIFACT_RETENTION_UNAVAILABLE"],
+  ])("keeps the drawing and retries when %s", async (_label, code) => {
+    let attempt = 0;
+    const { calls } = server({
+      subjects: () =>
+        envelope([subjectFixture({ requiredForm: "ELECTRONIC_SIGNATURE" })]),
+      submit: () => {
+        attempt += 1;
+        return attempt === 1 ? refusal(code) : envelope(executionFixture());
+      },
+    });
+    await renderSection();
+
+    await draw(line(6));
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-execution-refusal="RETRYABLE"]'),
+      ).not.toBeNull(),
+    );
+    // Nothing was discarded and nothing was declared gone: the mark is still on the pad and
+    // the same control completes the act on the second attempt.
+    expect(pad().dataset.hasMark).toBe("true");
+    expect(document.querySelector('[data-execution-refusal="GONE"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("no longer part of your onboarding");
+
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+    expect(submissions(calls)).toHaveLength(2);
+    expect(document.querySelector("[data-execution-refusal]")).toBeNull();
+  });
+
+  it("still treats an unrecognized refusal as something that moved on", async () => {
+    // The narrow correction above must not have widened into "retry everything". A refusal
+    // this client does not recognise still refreshes the section rather than inviting a
+    // second attempt against content that may no longer exist.
+    server({
+      subjects: () =>
+        envelope([subjectFixture({ requiredForm: "ELECTRONIC_SIGNATURE" })]),
+      submit: () => refusal("EXECUTION_FORM_NOT_SATISFIED"),
+    });
+    await renderSection();
+
+    await draw(line(6));
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-execution-refusal="GONE"]'),
+      ).not.toBeNull(),
+    );
+  });
+
+  it("names no code, no cause, and no infrastructure", async () => {
+    server({
+      subjects: () =>
+        envelope([subjectFixture({ requiredForm: "ELECTRONIC_SIGNATURE" })]),
+      submit: () => refusal("EXECUTION_ARTIFACT_RETENTION_UNAVAILABLE"),
+    });
+    await renderSection();
+
+    await draw(line(6));
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-execution-refusal]")).not.toBeNull(),
+    );
+    const shown = document.body.textContent ?? "";
+    for (const internal of [
+      "EXECUTION_ARTIFACT_RETENTION_UNAVAILABLE",
+      "artifact",
+      "retention",
+      "document",
+      "storage",
+      "S3",
+    ]) {
+      expect(shown.toLowerCase()).not.toContain(internal.toLowerCase());
+    }
+  });
+});

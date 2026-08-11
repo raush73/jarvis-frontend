@@ -189,6 +189,18 @@ export const EXECUTION_SUBJECT_GONE_CODES: readonly string[] = [
   "EXECUTION_CONTENT_UNAVAILABLE",
   "MODULE_NOT_IN_PACKET",
 ];
+/**
+ * Something the server needs in order to complete the act was unavailable.
+ *
+ * A refusal about the ENVIRONMENT rather than about the worker, the subject, or what he
+ * produced. Nothing on his screen became wrong, so what he drew or ticked stays where it is
+ * and the same attempt is worth repeating - which is the whole difference between these and
+ * the codes above, where the thing he was acting on is gone.
+ */
+export const EXECUTION_INFRASTRUCTURE_UNAVAILABLE_CODES: readonly string[] = [
+  "EXECUTION_EVIDENCE_PROTECTION_UNAVAILABLE",
+  "EXECUTION_ARTIFACT_RETENTION_UNAVAILABLE",
+];
 
 /* -------------------------------------------------------------------------- */
 /*  Surface                                                                    */
