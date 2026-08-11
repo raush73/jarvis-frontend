@@ -269,6 +269,27 @@
   color: var(--color-text-muted, #8a97a6);
 }
 
+/*
+  Phase 5. A governed subject heading inside the execution evidence table, so a worker's acts
+  read as a history of THINGS he executed rather than as one undifferentiated chronology. The
+  heading is left-aligned and normally cased, unlike the column headers above it, because it
+  names a subject rather than labelling a column.
+*/
+.oba-evidence-subject th {
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 14px;
+  color: var(--color-text, #1f2b3a);
+  background: var(--color-bg-subtle, #f1f4f8);
+  padding-top: 12px;
+}
+
+.oba-evidence-subject .oba-cell-detail {
+  display: block;
+  font-weight: 400;
+}
+
 /* ------------------------------------------------------------------ badges */
 
 .oba-badge {

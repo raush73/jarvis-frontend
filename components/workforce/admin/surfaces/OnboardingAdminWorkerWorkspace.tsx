@@ -43,6 +43,7 @@ import { OnboardingAdminSummary } from "../panels/SummaryPanel";
 import { OnboardingAdminWorkerContextHeader } from "../panels/WorkerContextHeader";
 import { OnboardingAdminStatusPanel } from "../panels/OnboardingStatusPanel";
 import { OnboardingAdminDocumentsPanel } from "../panels/OnboardingDocumentsPanel";
+import { OnboardingExecutionEvidencePanel } from "../panels/OnboardingExecutionEvidencePanel";
 
 export default function OnboardingAdminWorkerWorkspace({
   candidateId,
@@ -106,6 +107,8 @@ export default function OnboardingAdminWorkerWorkspace({
           <OnboardingAdminStatusPanel candidateId={data.worker.candidateId} />
 
           <OnboardingAdminDocumentsPanel candidateId={data.worker.candidateId} />
+
+          <OnboardingExecutionEvidencePanel candidateId={data.worker.candidateId} />
 
           <OnboardingAdminPanel
             title="Packets"

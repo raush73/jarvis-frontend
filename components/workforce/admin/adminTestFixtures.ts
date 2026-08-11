@@ -12,6 +12,7 @@ import type {
   OnboardingAdminAudit,
   OnboardingAdminDashboard,
   OnboardingAdminDocument,
+  OnboardingAdminExecution,
   OnboardingAdminInvestigation,
   OnboardingAdminModule,
   OnboardingAdminModuleHistory,
@@ -275,6 +276,77 @@ export function fixtureGeneratedDocument(
       sourceHash: "9f2c4a1b7e30d5ac6b8f",
       generatedAt: "2026-02-02T10:01:00.000Z",
     },
+    ...overrides,
+  });
+}
+
+/**
+ * Phase 5. One act of execution against a FIXTURE subject of a FIXTURE module.
+ *
+ * An attestation by default, retaining nothing: the simplest act there is, so a test that
+ * wants a drawing or an artifact asks for one explicitly. No governed subject appears here,
+ * for the same reason no real module does - the panel must work before one exists.
+ */
+export function fixtureExecution(
+  overrides: Partial<OnboardingAdminExecution> = {},
+): OnboardingAdminExecution {
+  return {
+    executionId: "exe_fixture_1",
+    moduleKey: "FIXTURE_ALPHA",
+    subjectKey: "FIXTURE_NOTICE",
+    subjectTitle: "Fixture Reading Attestation",
+    executionForm: "READ_ACKNOWLEDGEMENT",
+    executedAt: "2026-02-02T10:00:00.000Z",
+    candidateId: CANDIDATE_ID,
+    packetId: PACKET_ID,
+    invocationId: "inv_fixture_1",
+    executedContent: {
+      kind: "GOVERNED_TEXT",
+      ref: "FIXTURE_NOTICE",
+      revision: "2026.1",
+      ruleRevision: "2026.1",
+      contentHash: "aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999",
+    },
+    evidenceKind: "ATTESTATION",
+    evidenceHash: null,
+    evidence: null,
+    onboardingDocumentId: null,
+    artifactRetained: false,
+    supersedesId: null,
+    supersededAt: null,
+    current: true,
+    actorType: "WORKER",
+    actorId: CANDIDATE_ID,
+    createdAt: "2026-02-02T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A natively captured act over a governed form that DID retain an executed artifact. */
+export function fixtureSignedExecution(
+  overrides: Partial<OnboardingAdminExecution> = {},
+): OnboardingAdminExecution {
+  return fixtureExecution({
+    executionId: "exe_fixture_signed",
+    subjectKey: "FIXTURE_SIGNED_FORM",
+    subjectTitle: "Fixture Signed Form",
+    executionForm: "ELECTRONIC_SIGNATURE",
+    executedContent: {
+      kind: "GOVERNED_FORM",
+      ref: "FIXTURE_ACKNOWLEDGEMENT",
+      revision: "2026.1",
+      ruleRevision: "R2026.1",
+      contentHash: "1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff",
+    },
+    evidenceKind: "NATIVE_CAPTURE",
+    evidenceHash: "ffffeeeeddddccccbbbbaaaa00009999888877776666555544443333222211110",
+    evidence: {
+      strokeCount: 2,
+      captureDurationMs: 1234,
+      createdAt: "2026-02-02T10:00:00.000Z",
+    },
+    onboardingDocumentId: "obdoc_fixture_generated",
+    artifactRetained: true,
     ...overrides,
   });
 }

@@ -21,6 +21,17 @@
 
 import { API_BASE, clearAccessToken, getAccessToken } from "@/lib/api";
 import type { OnboardingModuleStatusFacts } from "./onboardingStatusApi";
+/**
+ * Phase 5. The governed execution vocabulary, ratified by architecture 4.6.9 and already
+ * mirrored once for the worker who performs the act. A staff surface that redeclared it would
+ * be a second answer to what the four forms ARE, free to drift from the first. Types only:
+ * nothing of the worker client's transport, session, or capture is reachable from here.
+ */
+import type {
+  OnboardingExecutionContentKind,
+  OnboardingExecutionEvidenceKind,
+  OnboardingExecutionForm,
+} from "./onboardingExecutionApi";
 
 /* -------------------------------------------------------------------------- */
 /*  Contract types (mirror of the backend wire contract)                       */
@@ -79,6 +90,55 @@ export type OnboardingAdminDocumentDownload = {
   mimeType: string;
   url: string;
   expiresIn: number;
+};
+
+/**
+ * Phase 5. One immutable act of execution, as authorized staff may read it.
+ *
+ * Mirrors the backend's `OnboardingStaffExecutionResponse`. Note what is deliberately absent
+ * and cannot be requested from anywhere: the drawing itself, in any encoding; the envelope
+ * that protects it; and any storage location. `evidenceHash` is the binding the execution
+ * record HOLDS - a fingerprint written at the act - and not a proof re-derived on this read.
+ *
+ * `onboardingDocumentId` is an identifier. Opening the artifact behind it goes through the
+ * existing Phase 4 retrieval call, which is separately authorized and separately audited.
+ */
+export type OnboardingAdminExecution = {
+  executionId: string;
+  moduleKey: string;
+  subjectKey: string;
+  /** Null where the declaring module no longer declares the subject. */
+  subjectTitle: string | null;
+  executionForm: OnboardingExecutionForm;
+  executedAt: string;
+  candidateId: string;
+  packetId: string;
+  invocationId: string | null;
+  /** Exact governed-content identity AT THE ACT, never what is current now. */
+  executedContent: {
+    kind: OnboardingExecutionContentKind;
+    ref: string;
+    revision: string;
+    ruleRevision: string;
+    contentHash: string;
+  };
+  evidenceKind: OnboardingExecutionEvidenceKind;
+  evidenceHash: string | null;
+  /** Says that a drawing exists and is plausible. Nothing here narrows what was drawn. */
+  evidence: {
+    strokeCount: number;
+    captureDurationMs: number;
+    createdAt: string;
+  } | null;
+  onboardingDocumentId: string | null;
+  artifactRetained: boolean;
+  supersedesId: string | null;
+  supersededAt: string | null;
+  /** Whether this act is in force. PHASE 5 supersession only, never the document's. */
+  current: boolean;
+  actorType: OnboardingAdminActorType;
+  actorId: string | null;
+  createdAt: string;
 };
 
 /** A worker as every administrative surface shows him: masked. */
@@ -622,6 +682,37 @@ export async function getOnboardingAdminDocumentDownload(
 ): Promise<OnboardingAdminDocumentDownload> {
   return onboardingAdminFetch<OnboardingAdminDocumentDownload>(
     `${BASE}/documents/${encodeURIComponent(onboardingDocumentId)}/download`,
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Phase 5 - authorized execution-evidence review                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A worker's immutable execution history, newest first.
+ *
+ * HISTORY, not state: superseded acts are returned alongside the ones in force, each still
+ * reporting the governed revision it was executed against. A surface that showed only the
+ * current act would be answering a different question from the one an auditor asks.
+ *
+ * Behind its own grant server-side, and it carries no capture, no envelope, no storage
+ * location, and no retrieval capability.
+ */
+export async function getOnboardingAdminWorkerExecutions(
+  candidateId: string,
+): Promise<OnboardingAdminExecution[]> {
+  return onboardingAdminFetch<OnboardingAdminExecution[]>(
+    `${BASE}/workers/${encodeURIComponent(candidateId)}/executions`,
+  );
+}
+
+/** The same history, narrowed to one packet. */
+export async function getOnboardingAdminPacketExecutions(
+  packetId: string,
+): Promise<OnboardingAdminExecution[]> {
+  return onboardingAdminFetch<OnboardingAdminExecution[]>(
+    `${BASE}/packets/${encodeURIComponent(packetId)}/executions`,
   );
 }
 
