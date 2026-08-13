@@ -15,6 +15,10 @@
 import type { ReactNode } from "react";
 import { OnboardingRuntimeProvider } from "@/components/workforce/onboarding/runtime/OnboardingRuntimeContext";
 import OnboardingSessionWatch from "@/components/workforce/onboarding/runtime/OnboardingSessionWatch";
+// Module capsules register their own renderers here, for the side effect only. The runtime
+// still holds no list of modules: this line says a capsule exists, and the capsule says what
+// it renders and under which module key.
+import "@/components/workforce/onboarding/modules/emergency-contacts/register.worker";
 import "./onboarding.css";
 
 export default function OnboardingLayout({ children }: { children: ReactNode }) {

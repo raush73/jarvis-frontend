@@ -6,14 +6,21 @@
  * The whole obligation in one list: every module the packet requires, with its recorded
  * status, so the worker sees what onboarding asks of him rather than only the screen he is
  * on. Rendered from the server-supplied module set, in the order the server resolved.
+ *
+ * Jumping between sections is leaving the open one, so these links are offered to the leave
+ * guard exactly as the navigation buttons are. Where no guard is registered they remain plain
+ * links and behave as they always have.
  */
 
+import { useCallback, type MouseEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   modulePath,
   type OnboardingRuntimeModule,
 } from "@/lib/workforce/onboardingRuntimeApi";
 import OnboardingStatusCell from "../status/OnboardingStatusCell";
+import { useOnboardingRuntime } from "./OnboardingRuntimeContext";
 
 type Props = {
   invocationId: string;
@@ -27,6 +34,23 @@ export function PacketModuleRail({
   modules,
   currentModuleKey = null,
 }: Props) {
+  const router = useRouter();
+  const { leaveGuardActive, requestLeave } = useOnboardingRuntime();
+
+  /**
+   * Untouched when nothing is guarding the open module: the click falls through to the link
+   * and the router does what it did before this seam existed. Guarded, the default is
+   * prevented and the same destination becomes the continuation the module may run.
+   */
+  const onRailClick = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>, href: string) => {
+      if (!leaveGuardActive) return;
+      event.preventDefault();
+      requestLeave(() => router.push(href));
+    },
+    [leaveGuardActive, requestLeave, router],
+  );
+
   return (
     <nav className="ob-rail" aria-label="Sections of your onboarding">
       <ol className="ob-rail-list">
@@ -38,6 +62,11 @@ export function PacketModuleRail({
           // module the server would refuse is shown as context, not as a link.
           const reachable =
             module.actionable || module.restart.posture === "RE_ENTERABLE";
+          const href = modulePath(
+            invocationId,
+            module.moduleSlug,
+            module.resumeStepSlug,
+          );
 
           return (
             <li
@@ -51,7 +80,8 @@ export function PacketModuleRail({
               {reachable && !current ? (
                 <Link
                   className="ob-rail-link"
-                  href={modulePath(invocationId, module.moduleSlug, module.resumeStepSlug)}
+                  href={href}
+                  onClick={(event) => onRailClick(event, href)}
                 >
                   {module.title}
                 </Link>

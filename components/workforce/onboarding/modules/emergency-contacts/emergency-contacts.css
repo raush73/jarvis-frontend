@@ -1,0 +1,234 @@
+/*
+ * Module 4.7 Emergency Contacts - the capsule's own styles.
+ *
+ * ADDITIVE ONLY, and scoped to this module's `ec-*` classes. The shared `wf-*` primitives and
+ * the Phase 1 `ob-*` runtime classes are reused exactly as they are: nothing here overrides a
+ * rule the onboarding runtime or the Workforce Application wizard depends on, and neither
+ * `workforce.css` nor `onboarding.css` is modified by this module.
+ */
+
+.ec-module {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.ec-intro p {
+  margin: 0 0 6px;
+}
+
+.ec-intro-detail,
+.ec-choice-detail,
+.ec-recorded-meta,
+.ec-confirm-detail,
+.ec-refusal-detail,
+.ec-optional {
+  color: var(--color-text-muted, #5b6472);
+  font-size: 0.9rem;
+}
+
+/* ------------------------------------------------------------- contact list */
+
+.ec-contact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ec-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/*
+ * A deactivated contact is dimmed, but the state is never communicated by that alone: the
+ * checkbox beside it says what it means in words, and so does the read-only view.
+ */
+.ec-contact.is-inactive {
+  opacity: 0.78;
+}
+
+.ec-contact-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ec-contact-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ec-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ec-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ec-field-wide {
+  grid-column: 1 / -1;
+}
+
+.ec-field-priority {
+  min-width: 220px;
+}
+
+/* Comfortably above the 44px practical minimum, on every control the worker operates. */
+.ec-control {
+  min-height: 44px;
+}
+
+.ec-fieldset {
+  border: 1px solid var(--color-border, #d9dee5);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ec-legend {
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.ec-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.ec-choice input {
+  width: 20px;
+  height: 20px;
+  margin-top: 12px;
+  flex: none;
+}
+
+.ec-choice span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+}
+
+.ec-choice-label {
+  font-weight: 550;
+}
+
+.ec-status {
+  max-width: 420px;
+}
+
+/* --------------------------------------------------------------- messaging */
+
+.ec-field-error {
+  margin: 0;
+  color: var(--color-danger-text, #96231f);
+  font-size: 0.88rem;
+  font-weight: 550;
+}
+
+.ec-summary .wf-list {
+  margin: 8px 0 0;
+}
+
+.ec-dirty,
+.ec-saved,
+.ec-recorded {
+  margin: 0;
+  font-weight: 550;
+}
+
+.ec-dirty {
+  color: var(--color-warning-text, #8a5b00);
+}
+
+.ec-actions {
+  gap: 12px;
+}
+
+.ec-confirm {
+  border-top: 1px solid var(--color-border, #d9dee5);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ec-recorded-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ec-recorded-name {
+  margin: 0;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ec-recorded-meta {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------- leave prompt */
+
+.ec-prompt-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 21, 30, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 60;
+}
+
+.ec-prompt {
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ec-prompt-actions {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* ------------------------------------------------------------- narrow view */
+
+@media (max-width: 720px) {
+  .ec-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ec-contact-head {
+    flex-direction: column;
+  }
+
+  .ec-actions .wf-btn,
+  .ec-prompt-actions .wf-btn {
+    width: 100%;
+  }
+}

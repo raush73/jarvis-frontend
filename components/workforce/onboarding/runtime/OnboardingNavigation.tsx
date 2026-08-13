@@ -8,6 +8,10 @@
  * never offer a move the server would refuse.
  *
  * Every transition saves first. Leaving a screen is never how a worker loses an answer.
+ *
+ * A module holding state the draft cycle does not carry may register a leave guard, and every
+ * transition below is offered to it first. What the guard then does is the module's business:
+ * this file asks permission and holds the continuation, and knows nothing else about it.
  */
 
 import { useCallback, useState } from "react";
@@ -17,6 +21,7 @@ import {
   modulePath,
   type OnboardingRuntimeModule,
 } from "@/lib/workforce/onboardingRuntimeApi";
+import { useOnboardingRuntime } from "./OnboardingRuntimeContext";
 
 type Props = {
   invocationId: string;
@@ -36,13 +41,14 @@ export function OnboardingNavigation({
   busy = false,
 }: Props) {
   const router = useRouter();
+  const { requestLeave } = useOnboardingRuntime();
   const [moving, setMoving] = useState(false);
 
   const index = module.steps.findIndex((step) => step.slug === currentStepSlug);
   const previous = index > 0 ? module.steps[index - 1] : null;
   const next = index >= 0 && index < module.steps.length - 1 ? module.steps[index + 1] : null;
 
-  const go = useCallback(
+  const transition = useCallback(
     async (href: string) => {
       setMoving(true);
       try {
@@ -56,6 +62,21 @@ export function OnboardingNavigation({
       }
     },
     [onSave, router],
+  );
+
+  /**
+   * Every leaving affordance goes through here.
+   *
+   * With no guard registered `requestLeave` runs the continuation synchronously, so this is
+   * the same call it always was. With one, the module decides when - or whether - it runs.
+   */
+  const go = useCallback(
+    (href: string) => {
+      requestLeave(() => {
+        void transition(href);
+      });
+    },
+    [requestLeave, transition],
   );
 
   const disabled = busy || moving;

@@ -21,6 +21,11 @@
  *    answers have reached the server, not merely that some earlier save was already in
  *    flight - which is what lets completion be validated against what the worker actually
  *    typed rather than against whatever the last request happened to carry.
+ *
+ * The container also holds the LEAVE GUARD seam. A module that keeps unsaved state of its own -
+ * one whose values are committed by an explicit act rather than by the draft cycle above - may
+ * register a guard, and navigation consults it before a transition. The runtime learns nothing
+ * about that state by doing so: see the contract below.
  */
 
 import {
@@ -60,6 +65,27 @@ type DraftState = {
   updatedAt: string | null;
 };
 
+/**
+ * What a module answers when the worker tries to leave it.
+ *
+ * LEAVE is indistinguishable from having registered nothing. BLOCK hands the module the
+ * continuation and the decision with it.
+ */
+export type OnboardingLeaveDecision = "LEAVE" | "BLOCK";
+
+/**
+ * A module's leave guard.
+ *
+ * The runtime knows only that one is registered. It does not know what makes the module
+ * unsaved, what saving it would mean, whether it validates, or whether it completes - all of
+ * which belong to the module and none of which can be inferred from this signature. A guard
+ * that blocks keeps `proceed` and performs it later, or does not, as the WORKER decides.
+ */
+export type OnboardingLeaveGuard = (request: {
+  /** Perform the transition the worker asked for. The guard is not consulted again. */
+  proceed: () => void;
+}) => OnboardingLeaveDecision;
+
 type RuntimeContextValue = {
   runtime: OnboardingRuntime | null;
   loading: boolean;
@@ -73,6 +99,26 @@ type RuntimeContextValue = {
   setValue: (key: string, value: unknown) => void;
   saveDraft: () => Promise<void>;
   completeModule: (options?: { confirmNoChange?: boolean }) => Promise<void>;
+
+  /**
+   * Register the open module's leave guard. Returns the disposer, for effect cleanup.
+   *
+   * Referentially stable, so a module registers once for the life of its component and its
+   * guard reads whatever it needs from its own refs rather than being re-registered.
+   */
+  registerLeaveGuard: (guard: OnboardingLeaveGuard) => () => void;
+  /**
+   * True while a guard is registered.
+   *
+   * Exists so a navigation affordance can stay exactly as it is when no module has anything
+   * to protect, rather than routing every ordinary transition through a guard path.
+   */
+  leaveGuardActive: boolean;
+  /**
+   * Ask to leave. With no guard, `proceed` runs synchronously and nothing else happens,
+   * which is what keeps every existing navigation path behaving as it did.
+   */
+  requestLeave: (proceed: () => void) => void;
 
   /** Lookups over the projection. They read; they never derive a new answer. */
   findPacket: (invocationId: string) => OnboardingRuntimePacket | null;
@@ -311,6 +357,39 @@ export function OnboardingRuntimeProvider({ children }: { children: ReactNode })
     [applyDraft, reload, saveDraft],
   );
 
+  /**
+   * The open module's leave guard.
+   *
+   * ONE guard, held in a ref so consulting it never depends on a render having happened, plus
+   * a boolean in state so a navigation control can re-render when a module starts or stops
+   * protecting itself. The runtime stores the function and calls it. It reads nothing out of
+   * it and passes nothing into it but the continuation the worker asked for.
+   */
+  const leaveGuardRef = useRef<OnboardingLeaveGuard | null>(null);
+  const [leaveGuardActive, setLeaveGuardActive] = useState(false);
+
+  const registerLeaveGuard = useCallback((guard: OnboardingLeaveGuard) => {
+    leaveGuardRef.current = guard;
+    setLeaveGuardActive(true);
+    return () => {
+      // Identity-checked. React unmounts the outgoing module AFTER the incoming one has
+      // mounted, so an unguarded cleanup would let a departing module clear the guard its
+      // successor had just registered - and the successor would then be silently unprotected.
+      if (leaveGuardRef.current !== guard) return;
+      leaveGuardRef.current = null;
+      setLeaveGuardActive(false);
+    };
+  }, []);
+
+  const requestLeave = useCallback((proceed: () => void) => {
+    const guard = leaveGuardRef.current;
+    if (!guard) {
+      proceed();
+      return;
+    }
+    if (guard({ proceed }) === "LEAVE") proceed();
+  }, []);
+
   const findPacket = useCallback(
     (invocationId: string) =>
       runtime?.packets.find((packet) => packet.invocationId === invocationId) ?? null,
@@ -336,6 +415,9 @@ export function OnboardingRuntimeProvider({ children }: { children: ReactNode })
       setValue,
       saveDraft,
       completeModule,
+      registerLeaveGuard,
+      leaveGuardActive,
+      requestLeave,
       findPacket,
       findModule,
     }),
@@ -345,9 +427,12 @@ export function OnboardingRuntimeProvider({ children }: { children: ReactNode })
       error,
       findModule,
       findPacket,
+      leaveGuardActive,
       loading,
       openModule,
+      registerLeaveGuard,
       reload,
+      requestLeave,
       runtime,
       saveDraft,
       setValue,

@@ -14,6 +14,10 @@
 
 import type { ReactNode } from "react";
 import { OnboardingAdminGate } from "@/components/workforce/admin/OnboardingAdminGate";
+// Module capsules register their own administrative panels here, for the side effect only.
+// The workspace itself still holds no list of modules: this line says a capsule exists, and
+// the capsule says what it renders and under which module key.
+import "@/components/workforce/onboarding/modules/emergency-contacts/register.admin";
 import "./onboarding-admin.css";
 
 export default function OnboardingAdminLayout({ children }: { children: ReactNode }) {

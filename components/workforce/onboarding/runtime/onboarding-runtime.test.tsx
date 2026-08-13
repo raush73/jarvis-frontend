@@ -13,7 +13,15 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect, useState } from "react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { saveWorkerSession } from "@/lib/workforce/workerSession";
 
 const push = vi.fn();
@@ -66,7 +74,9 @@ const { getOnboardingWorkerStatus, getOnboardingWorkerCompletionDetail } = await
   "@/lib/workforce/onboardingStatusApi"
 );
 
-const { OnboardingRuntimeProvider } = await import("./OnboardingRuntimeContext");
+const { OnboardingRuntimeProvider, useOnboardingRuntime } = await import(
+  "./OnboardingRuntimeContext"
+);
 const { default: OnboardingModuleHost } = await import("./OnboardingModuleHost");
 const { default: OnboardingDashboard } = await import("./OnboardingDashboard");
 const { default: OnboardingPacketView } = await import("./OnboardingPacketView");
@@ -893,5 +903,260 @@ describe("phase boundary", () => {
     // server registry. This phase ships no business module.
     expect(resolveOnboardingModuleRenderer("FIXTURE_ALPHA")).toBeUndefined();
     expect(resolveOnboardingModuleRenderer("ANY_MODULE")).toBeUndefined();
+  });
+});
+
+// ==========================================================================
+// The leave guard
+// ==========================================================================
+
+/**
+ * The runtime seam a module uses to protect state the draft cycle does not carry.
+ *
+ * Everything below is proven with FIXTURES, exactly as the rest of this suite is, and for the
+ * same reason: the seam is generic, so a proof that depended on a real module would be proving
+ * something else. The runtime holds one guard, consults it before a transition, and does
+ * nothing else - it does not save, discard, complete, or inspect whatever the module is
+ * protecting, and none of the tests here can tell what that is.
+ */
+
+/** Registers a guard that always blocks and records that it was asked. */
+function Guarding({ id, log }: { id: string; log: string[] }) {
+  const { registerLeaveGuard } = useOnboardingRuntime();
+  useEffect(
+    () =>
+      registerLeaveGuard(() => {
+        log.push(id);
+        return "BLOCK";
+      }),
+    [id, log, registerLeaveGuard],
+  );
+  return <span data-testid={`guarding-${id}`} />;
+}
+
+/** A bench for registration, disposal, and asking to leave, with no module in sight. */
+function GuardBench({ log }: { log: string[] }) {
+  const { leaveGuardActive, requestLeave } = useOnboardingRuntime();
+  const [mounted, setMounted] = useState<string[]>([]);
+
+  return (
+    <div>
+      <span data-testid="guard-active">{String(leaveGuardActive)}</span>
+      <button type="button" onClick={() => setMounted((now) => [...now, "A"])}>
+        mount A
+      </button>
+      <button type="button" onClick={() => setMounted((now) => [...now, "B"])}>
+        mount B
+      </button>
+      <button
+        type="button"
+        onClick={() => setMounted((now) => now.filter((id) => id !== "A"))}
+      >
+        unmount A
+      </button>
+      <button type="button" onClick={() => requestLeave(() => log.push("LEFT"))}>
+        leave
+      </button>
+      {mounted.map((id) => (
+        <Guarding key={id} id={id} log={log} />
+      ))}
+    </div>
+  );
+}
+
+describe("the generic leave guard", () => {
+  it("runs the transition immediately when no module has registered a guard", () => {
+    const log: string[] = [];
+    renderWithRuntime(<GuardBench log={log} />);
+
+    expect(screen.getByTestId("guard-active").textContent).toBe("false");
+    fireEvent.click(screen.getByText("leave"));
+
+    // Synchronously, in the click itself: an unguarded transition is not deferred, queued,
+    // or made asynchronous by the seam existing.
+    expect(log).toEqual(["LEFT"]);
+  });
+
+  it("consults a registered guard instead, and leaves when it blocks", () => {
+    const log: string[] = [];
+    renderWithRuntime(<GuardBench log={log} />);
+
+    fireEvent.click(screen.getByText("mount A"));
+    expect(screen.getByTestId("guard-active").textContent).toBe("true");
+
+    fireEvent.click(screen.getByText("leave"));
+    expect(log).toEqual(["A"]);
+  });
+
+  it("holds only the newest guard", () => {
+    const log: string[] = [];
+    renderWithRuntime(<GuardBench log={log} />);
+
+    fireEvent.click(screen.getByText("mount A"));
+    fireEvent.click(screen.getByText("mount B"));
+    fireEvent.click(screen.getByText("leave"));
+
+    expect(log).toEqual(["B"]);
+  });
+
+  it("does not let a departing module's cleanup clear its successor's guard", () => {
+    const log: string[] = [];
+    renderWithRuntime(<GuardBench log={log} />);
+
+    fireEvent.click(screen.getByText("mount A"));
+    fireEvent.click(screen.getByText("mount B"));
+    // A goes away AFTER B registered. Its disposer is identity-checked, so it clears
+    // nothing - without that, B would be silently unprotected from here on.
+    fireEvent.click(screen.getByText("unmount A"));
+
+    expect(screen.getByTestId("guard-active").textContent).toBe("true");
+    fireEvent.click(screen.getByText("leave"));
+    expect(log).toEqual(["B"]);
+  });
+
+  it("stops guarding once the guarding module is gone", () => {
+    const log: string[] = [];
+    renderWithRuntime(<GuardBench log={log} />);
+
+    fireEvent.click(screen.getByText("mount A"));
+    fireEvent.click(screen.getByText("unmount A"));
+
+    expect(screen.getByTestId("guard-active").textContent).toBe("false");
+    fireEvent.click(screen.getByText("leave"));
+    expect(log).toEqual(["LEFT"]);
+  });
+});
+
+describe("navigation consults the leave guard", () => {
+  /** Consulted count, the decision to give, and the continuation a block retained. */
+  let consulted = 0;
+  let decision: "LEAVE" | "BLOCK" = "BLOCK";
+  let retained: (() => void) | null = null;
+
+  function GuardedFixture() {
+    const { registerLeaveGuard } = useOnboardingRuntime();
+    useEffect(
+      () =>
+        registerLeaveGuard(({ proceed }) => {
+          consulted += 1;
+          if (decision === "LEAVE") return "LEAVE";
+          retained = proceed;
+          return "BLOCK";
+        }),
+      [registerLeaveGuard],
+    );
+    return <div data-testid="guarded-renderer" />;
+  }
+
+  beforeEach(() => {
+    consulted = 0;
+    decision = "BLOCK";
+    retained = null;
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(
+      fixtureRuntime({ packets: [twoModulePacket()] }),
+    );
+  });
+
+  async function openGuarded(moduleSlug: string, stepSlug: string) {
+    registerOnboardingModuleRenderer(
+      moduleSlug === "fixture-alpha" ? "FIXTURE_ALPHA" : "FIXTURE_BETA",
+      () => <GuardedFixture />,
+    );
+    renderWithRuntime(
+      <OnboardingModuleHost
+        invocationId={INVOCATION_ID}
+        moduleSlug={moduleSlug}
+        stepSlug={stepSlug}
+      />,
+    );
+    await screen.findByTestId("guarded-renderer");
+    // The module's registration happens in its effect, and the navigation around it reacts to
+    // that registration. Settle both before pressing anything, so what is being asserted is
+    // the seam's behaviour rather than a race between a mount and a click.
+    await act(async () => {});
+  }
+
+  it("asks before Save & finish later, and does not navigate when blocked", async () => {
+    await openGuarded("fixture-alpha", "one");
+
+    fireEvent.click(screen.getByText("Save & finish later"));
+
+    expect(consulted).toBe(1);
+    await waitFor(() => expect(push).not.toHaveBeenCalled());
+  });
+
+  it("asks before Back", async () => {
+    await openGuarded("fixture-beta", "second");
+
+    fireEvent.click(screen.getByText("Back"));
+
+    expect(consulted).toBe(1);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("asks before Save & Continue", async () => {
+    await openGuarded("fixture-beta", "first");
+
+    fireEvent.click(screen.getByText("Save & Continue"));
+
+    expect(consulted).toBe(1);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("asks before a jump from the packet rail", async () => {
+    await openGuarded("fixture-alpha", "one");
+
+    fireEvent.click(screen.getByRole("link", { name: "Fixture Beta" }));
+
+    expect(consulted).toBe(1);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("performs the retained transition when the module releases it", async () => {
+    await openGuarded("fixture-alpha", "one");
+    fireEvent.click(screen.getByText("Save & finish later"));
+    expect(retained).not.toBeNull();
+
+    // The module has made its decision - whatever that meant to it - and hands the
+    // navigation back. The guard is not consulted a second time.
+    (retained as unknown as () => void)();
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/workforce/onboarding"));
+    expect(consulted).toBe(1);
+  });
+
+  it("permits the transition outright when the guard leaves", async () => {
+    decision = "LEAVE";
+    await openGuarded("fixture-alpha", "one");
+
+    fireEvent.click(screen.getByText("Save & finish later"));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/workforce/onboarding"));
+  });
+
+  it("leaves an unguarded module's navigation exactly as it was", async () => {
+    // The delivered fixture renderers register no guard at all, which is every module the
+    // runtime had before this seam existed.
+    renderWithRuntime(
+      <OnboardingModuleHost
+        invocationId={INVOCATION_ID}
+        moduleSlug="fixture-alpha"
+        stepSlug="one"
+      />,
+    );
+    await screen.findByTestId("alpha-renderer");
+
+    fireEvent.click(screen.getByText("Save & finish later"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/workforce/onboarding"));
+
+    // And the rail is still an ordinary link: nothing intercepted it, so nothing routed it.
+    // The capture listener stands in for the browser following the href, which jsdom does
+    // not implement; it runs before the rail's own handler and changes nothing about it.
+    push.mockClear();
+    const swallow = (event: Event): void => event.preventDefault();
+    document.addEventListener("click", swallow, true);
+    fireEvent.click(screen.getByRole("link", { name: "Fixture Beta" }));
+    document.removeEventListener("click", swallow, true);
+    expect(push).not.toHaveBeenCalled();
   });
 });
