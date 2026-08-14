@@ -1,0 +1,288 @@
+/*
+ * Module 4.1 Employment Eligibility - the capsule's own styles.
+ *
+ * ADDITIVE ONLY, and scoped to this module's `ee-*` classes. The shared `wf-*` primitives and the
+ * runtime's `ob-*` classes are reused exactly as they are: nothing here overrides a rule the
+ * onboarding runtime, the document surface, the execution surface or the Workforce Application
+ * wizard depends on, and neither `workforce.css` nor `onboarding.css` is modified by this module.
+ *
+ * PHONE FIRST, because that is what a worker has. One column at every width, every control at
+ * least a thumb tall, the document choices readable without pinching, and the capture control the
+ * native one so the camera and the photo library are the phone's own. Nothing here is a tiny modal,
+ * and nothing depends on hover.
+ *
+ * Two shared primitives are styled INSIDE this module's own scope rather than globally, because
+ * the delivered stylesheet scopes them to the document surface and this module renders them in a
+ * screen of its own: a scoped rule adds what is missing without changing what exists.
+ */
+
+.ee-module {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.ee-step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ee-intro {
+  margin: 0;
+}
+
+.ee-note,
+.ee-choice-detail,
+.ee-review-meta,
+.ee-optional {
+  color: var(--color-text-muted, #5b6472);
+  font-size: 0.9rem;
+}
+
+.ee-note {
+  margin: 0;
+}
+
+.ee-module .wf-status {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--color-text-muted, #5b6472);
+  min-height: 1.2em;
+}
+
+.ee-module .wf-field-error {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 550;
+  color: #a12a2a;
+}
+
+/* ------------------------------------------------------------------ answers */
+
+.ee-fieldset {
+  border: 1px solid var(--color-border, #d9dee5);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* A whole row is the target, not just the dot: a thumb is wider than a radio button. */
+.ee-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 44px;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+.ee-choice input {
+  width: 22px;
+  height: 22px;
+  margin-top: 10px;
+  flex: none;
+}
+
+.ee-choice > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+}
+
+.ee-choice-title {
+  font-weight: 550;
+}
+
+.ee-choice-block {
+  border-top: 1px solid var(--color-border, #d9dee5);
+  padding-top: 10px;
+}
+
+.ee-choice-block:first-of-type {
+  border-top: none;
+}
+
+.ee-identity-name {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.ee-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ee-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---------------------------------------------------------------- documents */
+
+.ee-document {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ee-evidence {
+  border-top: 1px solid var(--color-border, #d9dee5);
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ee-evidence-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.ee-capture {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Sized for a thumb: the whole point of this control is a worker photographing a card. */
+.ee-capture .wf-input[type="file"] {
+  padding: 12px;
+  min-height: 48px;
+}
+
+.ee-capture .wf-btn-row {
+  flex-wrap: wrap;
+}
+
+/* ----------------------------------------------------------------- messages */
+
+.ee-summary .wf-list {
+  margin: 8px 0 0;
+}
+
+.ee-summary:focus {
+  outline: 3px solid var(--color-focus, #2f6fed);
+  outline-offset: 2px;
+}
+
+.ee-dirty,
+.ee-saved {
+  margin: 0;
+  font-weight: 550;
+}
+
+.ee-dirty {
+  color: var(--color-warning-text, #8a5b00);
+}
+
+.ee-actions {
+  gap: 12px;
+}
+
+/* ------------------------------------------------------------------ review */
+
+.ee-review,
+.ee-review-and-sign {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ee-review-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ee-review-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ee-review-row dt {
+  font-weight: 600;
+}
+
+.ee-review-row dd {
+  margin: 0;
+}
+
+.ee-review-documents {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ee-review-document {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ee-review-document-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.ee-review-meta {
+  margin: 0;
+}
+
+.ee-recorded {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ee-recorded-answer {
+  margin: 0;
+  padding: 14px 16px;
+  font-weight: 550;
+}
+
+/* -------------------------------------------------------------------- done */
+
+.ee-done {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ee-done-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+
+.ee-done p {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------- narrow view */
+
+@media (max-width: 720px) {
+  .ee-actions .wf-btn,
+  .ee-capture .wf-btn-row .wf-btn {
+    width: 100%;
+  }
+
+  .ee-identity-name {
+    font-size: 1.05rem;
+  }
+}
