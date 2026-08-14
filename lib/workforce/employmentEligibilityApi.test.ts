@@ -404,15 +404,36 @@ describe("the boundaries this client keeps", () => {
     }
   });
 
-  it("offers no examination, certification or completion of any kind", () => {
+  /**
+   * ADVANCED WITH THE AUTHORIZED MW4H GATE.
+   *
+   * This assertion said the whole client offered no examination and no disclosure, which was true
+   * of a client that had only a worker half. The authorized employer surface now lives beside that
+   * half in this file, so the claim is made where it still holds - and where it matters most: the
+   * WORKER's half of the client reaches no employer capability at all. He presents documents; the
+   * examination and the disclosure are the reviewer's, on the staff transport, and nothing on the
+   * worker's path can reach them.
+   */
+  const workerHalf = source.split(
+    "EMPLOYMENT_ELIGIBILITY_EXAMINATION_METHODS",
+  )[0];
+
+  it("keeps the WORKER half free of every employer capability", () => {
+    for (const forbidden of ["examine", "reveal", "onboardingAdminFetch("]) {
+      expect(workerHalf).not.toContain(forbidden);
+    }
+  });
+
+  it("offers no certification, no completion, and no determination anywhere", () => {
     for (const forbidden of [
-      "examine",
+      // Certification is a consequential act taken through the delivered administrative action
+      // surface, whose outcome the server DERIVES from governed state. No caller can ask for it.
       "certify",
       "certification(",
       "complete",
+      // And nothing on either side of this client decides acceptability for itself.
       "restrictiveLegend",
       "unrestrictedAffirmed",
-      "reveal",
     ]) {
       expect(source).not.toContain(forbidden);
     }
@@ -423,7 +444,11 @@ describe("the boundaries this client keeps", () => {
   });
 
   it("adds no transport, no upload and no browser storage", () => {
+    // BOTH delivered transports, and neither invented here: the worker's session carries the worker
+    // routes and the staff session carries the authorized ones. A second copy of either would be a
+    // second place for expiry, renewal and refusal classification to drift.
     expect(source).toContain('from "./onboardingApi"');
+    expect(source).toContain('from "./onboardingAdminApi"');
     expect(source).not.toContain("await fetch(");
     expect(source).not.toContain("localStorage");
     expect(source).not.toContain("sessionStorage");

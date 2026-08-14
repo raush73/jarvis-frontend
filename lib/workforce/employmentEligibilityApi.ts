@@ -10,20 +10,29 @@
  * The types mirror `modules/employment-eligibility/employment-eligibility.view.ts` and the
  * module's own DTO exactly.
  *
+ * TWO SURFACES, TWO TRANSPORTS, ONE FILE. The worker's calls below go through the delivered
+ * `onboardingWorkerFetch` and the authorized MW4H calls at the end of this file go through the
+ * delivered `onboardingAdminFetch`. They are kept together because they speak about the same
+ * governed record with the same types, and they are kept on separate transports because they are
+ * separate identities: a staff route reached with a worker's token is refused by the server's own
+ * strategy, and nothing here can blur that.
+ *
  * WHAT IS DELIBERATELY ABSENT, and none of it may be added here:
  *
  *  - THERE IS NO SOCIAL SECURITY NUMBER, in any shape. No field, no accessor, no parameter. The
  *    one acceptable document whose printed number is a Social Security Number captures no number
  *    at all, so this client has nothing to send for it and nothing to render back.
- *  - There is no examination or certification call. Whether presented documents satisfy the
- *    employer is an authorized MW4H act performed through a separate surface; the worker cannot
- *    reach it, and this file could not call it if it tried.
+ *  - There is no certification call. Whether the employer certifies is a consequential act taken
+ *    through the delivered administrative ACTION surface, and its outcome is DERIVED by the server
+ *    from governed state - so no caller anywhere, including this one, can ask for a result.
  *  - There is no completion call. Finishing his own part does not complete this module, and the
  *    module's completion authority additionally requires the employer's phase.
  *  - There is no per-field update. A Save states the WHOLE version, because the server records
  *    the whole version as one immutable effective record.
- *  - There is no evidence upload of any kind. Bytes belong to the delivered document
- *    foundation; this client carries only the binding that foundation hands back.
+ *  - There is no evidence upload of any kind, and no evidence RETRIEVAL either. Bytes belong to the
+ *    delivered document foundation: this client carries the binding that foundation hands back, and
+ *    the reviewer opens the artifact through the delivered administrative retrieval.
+ *  - There is no artifact call and no correction call. Both belong to a later gate.
  *
  * ON REFUSALS. The shared worker transport keeps `details.errors` and drops `details.violations`,
  * so what reaches a caller from a refused Save is the governed CODE and a message. That is
@@ -33,6 +42,7 @@
  */
 
 import { onboardingWorkerFetch } from "./onboardingApi";
+import { onboardingAdminFetch } from "./onboardingAdminApi";
 
 /* -------------------------------------------------------------------------- */
 /*  Governed vocabulary (mirror of employment-eligibility.constants.ts)        */
@@ -109,6 +119,16 @@ export const EMPLOYMENT_ELIGIBILITY_CERTIFICATION_BLOCKS = [
   "WORKER_ATTESTATION_OUTSTANDING",
   "CANONICAL_IDENTITY_INCOMPLETE",
   "IDENTITY_NOT_CONFIRMED_BY_WORKER",
+  // The employer-side observations. They reach the AUTHORIZED REVIEW SURFACE only: what an examiner
+  // concluded about a worker's documents is an employer determination, and the worker's own screens
+  // are told what is his to act on rather than shown a verdict.
+  "EXAMINATION_OUTSTANDING",
+  "EXAMINATION_STALE",
+  "EXAMINATION_CATALOGUE_DRIFTED",
+  "EXAMINATION_COVERAGE_INCOMPLETE",
+  "DOCUMENT_EXAMINATION_REJECTED",
+  "EVIDENCE_NOT_CONFIRMED",
+  "CERTIFICATION_ALREADY_RECORDED",
 ] as const;
 export type EmploymentEligibilityCertificationBlock =
   (typeof EMPLOYMENT_ELIGIBILITY_CERTIFICATION_BLOCKS)[number];
@@ -240,7 +260,14 @@ export type SaveEmploymentEligibilityInput = {
  *
  * Codes only. Each names a governed rule, and none can carry a worker value.
  */
-export const EMPLOYMENT_ELIGIBILITY_REFUSAL_CODES = [
+/**
+ * The codes a WORKER can be refused with.
+ *
+ * Separated from the employer's set below, and the separation is what lets the worker's surface be
+ * required to have plain words for every refusal HE can receive without also being made to speak
+ * about acts he can never perform.
+ */
+export const EMPLOYMENT_ELIGIBILITY_WORKER_REFUSAL_CODES = [
   "STATUS_NOT_GOVERNED",
   "AUTHORIZATION_END_DATE_REQUIRED",
   "AUTHORIZATION_END_DATE_NOT_PERMITTED",
@@ -254,6 +281,35 @@ export const EMPLOYMENT_ELIGIBILITY_REFUSAL_CODES = [
   "DATE_INVALID",
   "CATALOGUE_VERSION_UNKNOWN",
   "NO_EFFECTIVE_RECORD",
+] as const;
+export type EmploymentEligibilityWorkerRefusalCode =
+  (typeof EMPLOYMENT_ELIGIBILITY_WORKER_REFUSAL_CODES)[number];
+
+/**
+ * The codes an authorized REVIEWER can be refused with.
+ *
+ * Every one of them refuses an employer act - an examination, a certification, a disclosure - and
+ * no worker surface can reach a path that raises any of them.
+ */
+export const EMPLOYMENT_ELIGIBILITY_EMPLOYER_REFUSAL_CODES = [
+  "EXAMINATION_METHOD_NOT_GOVERNED",
+  "EXAMINATION_OUTCOME_NOT_GOVERNED",
+  "EXAMINATION_COVERAGE_INVALID",
+  "EXAMINATION_RECORD_STALE",
+  "EXAMINATION_CATALOGUE_STALE",
+  "EXAMINATION_EVIDENCE_NOT_CONFIRMED",
+  "EXAMINATION_PACKET_REQUIRED",
+  "CERTIFICATION_BLOCKED",
+  "DOCUMENT_NOT_IN_EFFECTIVE_RECORD",
+  "IDENTIFIER_NOT_PROTECTED",
+  "IDENTIFIER_REVEAL_PURPOSE_REQUIRED",
+] as const;
+export type EmploymentEligibilityEmployerRefusalCode =
+  (typeof EMPLOYMENT_ELIGIBILITY_EMPLOYER_REFUSAL_CODES)[number];
+
+export const EMPLOYMENT_ELIGIBILITY_REFUSAL_CODES = [
+  ...EMPLOYMENT_ELIGIBILITY_WORKER_REFUSAL_CODES,
+  ...EMPLOYMENT_ELIGIBILITY_EMPLOYER_REFUSAL_CODES,
 ] as const;
 export type EmploymentEligibilityRefusalCode =
   (typeof EMPLOYMENT_ELIGIBILITY_REFUSAL_CODES)[number];
@@ -348,4 +404,207 @@ function toWireDocument(
 function text(value: string | null | undefined): string | null {
   const trimmed = typeof value === "string" ? value.trim() : "";
   return trimmed.length > 0 ? trimmed : null;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Authorized MW4H surface                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The staff half, added beside the worker half in ONE client because both speak about the same
+ * governed record and the types are the same types.
+ *
+ * IT IS A DIFFERENT TRANSPORT, and deliberately so: these calls go through the delivered
+ * `onboardingAdminFetch`, which carries the STAFF session, while every worker call above goes
+ * through `onboardingWorkerFetch`, which carries the worker's. A staff route reached with a
+ * worker's token is refused by the server's own strategy, and nothing here can blur that.
+ *
+ * WHAT IS STILL ABSENT, exactly as it is absent from the worker half. There is no Social Security
+ * Number in any shape. There is no certification call: the affirmative employer certification is
+ * taken through the delivered administrative ACTION surface, whose outcome the server derives from
+ * governed state rather than accepting from a caller - so this client cannot ask for a result. And
+ * there is no completion call, no artifact call, and no correction call.
+ */
+
+/** The governed method by which a reviewer examined what the worker presented. */
+export const EMPLOYMENT_ELIGIBILITY_EXAMINATION_METHODS = [
+  "REMOTE_EXAMINATION_OF_UPLOADED_EVIDENCE",
+  "IN_PERSON_EXAMINATION",
+] as const;
+export type EmploymentEligibilityExaminationMethod =
+  (typeof EMPLOYMENT_ELIGIBILITY_EXAMINATION_METHODS)[number];
+
+/** The governed conclusion a reviewer may record for one presented document. */
+export const EMPLOYMENT_ELIGIBILITY_DOCUMENT_OUTCOMES = [
+  "ACCEPTED",
+  "REJECTED",
+] as const;
+export type EmploymentEligibilityDocumentOutcome =
+  (typeof EMPLOYMENT_ELIGIBILITY_DOCUMENT_OUTCOMES)[number];
+
+/** One presented document, as the review surface sees it. */
+export type EmploymentEligibilityStaffDocument = {
+  /** The stored row. What the examination and the disclosure are addressed by. */
+  documentRecordId: string;
+  documentTypeKey: string;
+  list: EmploymentEligibilityDocumentList;
+  /** The catalogue's plain-language name, or null when the type is not in that version. */
+  prompt: string | null;
+  issuingAuthority: string;
+  expiresOn: string | null;
+  /** The masked tail. Never the identifier, and null where none was captured. */
+  identifierLast4: string | null;
+  hasProtectedIdentifier: boolean;
+  /** The Phase 4 binding, for retrieval through the delivered administrative route. */
+  onboardingDocumentId: string | null;
+  /** Whether that binding is a CONFIRMED capture. An unconfirmed upload is not evidence. */
+  evidenceConfirmed: boolean;
+  recordedAt: string;
+  /** The governed rules to apply. Rules, never results, and never a question for the worker. */
+  examinationRules: string[];
+  examinationOutcome: EmploymentEligibilityDocumentOutcome | null;
+};
+
+export type EmploymentEligibilityStaffExamination = {
+  examinationId: string;
+  attestationSetVersion: number;
+  catalogueVersion: string;
+  method: EmploymentEligibilityExaminationMethod;
+  documentOutcomes: {
+    documentTypeKey: string;
+    outcome: EmploymentEligibilityDocumentOutcome;
+  }[];
+  examinedById: string;
+  examinedAt: string;
+  supersededAt: string | null;
+};
+
+export type EmploymentEligibilityStaffCertification = {
+  certificationId: string;
+  attestationSetVersion: number;
+  catalogueVersion: string;
+  examinationId: string | null;
+  certifiedById: string;
+  certifiedAt: string;
+  firstDayOfEmployment: string | null;
+  /** Whether a finalized governed artifact is bound. False until a later gate generates one. */
+  artifactRecorded: boolean;
+  supersededAt: string | null;
+};
+
+/** The derived timeliness display. Computed by the server on read and stored nowhere. */
+export type EmploymentEligibilityTimeliness = {
+  state: "NOT_ESTABLISHED" | "ESTABLISHED";
+  firstDayOfEmployment: string | null;
+  daysSinceFirstDay: number | null;
+};
+
+/** Everything the reviewer needs in order to examine, in one response. */
+export type EmploymentEligibilityStaffReview = {
+  candidateId: string;
+  moduleKey: string;
+  moduleNumber: string;
+  packetId: string | null;
+  setVersion: number | null;
+  effectiveFrom: string | null;
+  catalogueVersion: string | null;
+  currentCatalogueVersion: string;
+  status: EmploymentEligibilityStatus | null;
+  workAuthorizationExpiresOn: string | null;
+  workerPhaseState: EmploymentEligibilityWorkerPhaseState | null;
+  canonicalIdentityComplete: boolean;
+  identityConfirmedByWorker: boolean;
+  workerAttestationOutstanding: boolean;
+  documents: EmploymentEligibilityStaffDocument[];
+  timeliness: EmploymentEligibilityTimeliness;
+  /**
+   * Why certification is currently impossible. SERVER-AUTHORITATIVE: the surface renders these and
+   * never decides them, so it can neither offer a certification the server refuses nor withhold one
+   * it would allow.
+   */
+  certificationBlocks: string[];
+  certifiable: boolean;
+  examination: EmploymentEligibilityStaffExamination | null;
+  examinationHistory: EmploymentEligibilityStaffExamination[];
+  certification: EmploymentEligibilityStaffCertification | null;
+  certificationHistory: EmploymentEligibilityStaffCertification[];
+  examinationMethods: EmploymentEligibilityExaminationMethod[];
+  documentOutcomeVocabulary: EmploymentEligibilityDocumentOutcome[];
+};
+
+/** One structured examination, as the reviewer submits it. */
+export type RecordEmploymentEligibilityExaminationInput = {
+  /** What he examined. The server refuses it if the worker has since saved a newer version. */
+  attestationSetVersion: number;
+  catalogueVersion: string;
+  method: EmploymentEligibilityExaminationMethod;
+  documentOutcomes: readonly {
+    documentTypeKey: string;
+    outcome: EmploymentEligibilityDocumentOutcome;
+  }[];
+};
+
+/** ONE authorized disclosure. The value is returned once and held nowhere. */
+export type EmploymentEligibilityIdentifierReveal = {
+  documentRecordId: string;
+  documentTypeKey: string;
+  identifier: string;
+  revealedAt: string;
+};
+
+function staffBase(candidateId: string): string {
+  return `/workforce/onboarding/modules/employment-eligibility/workers/${encodeURIComponent(
+    candidateId,
+  )}`;
+}
+
+/** The authorized review. Masked, and audited server-side as a staff read of another person. */
+export async function getStaffEmploymentEligibility(
+  candidateId: string,
+): Promise<EmploymentEligibilityStaffReview> {
+  return onboardingAdminFetch<EmploymentEligibilityStaffReview>(
+    staffBase(candidateId),
+  );
+}
+
+/** Record the reviewer's structured examination through the module-owned endpoint. */
+export async function recordEmploymentEligibilityExamination(
+  candidateId: string,
+  examination: RecordEmploymentEligibilityExaminationInput,
+): Promise<EmploymentEligibilityStaffExamination> {
+  return onboardingAdminFetch<EmploymentEligibilityStaffExamination>(
+    `${staffBase(candidateId)}/examination`,
+    {
+      method: "POST",
+      body: {
+        attestationSetVersion: examination.attestationSetVersion,
+        catalogueVersion: examination.catalogueVersion,
+        method: examination.method,
+        documentOutcomes: examination.documentOutcomes.map((outcome) => ({
+          documentTypeKey: outcome.documentTypeKey,
+          outcome: outcome.outcome,
+        })),
+      },
+    },
+  );
+}
+
+/**
+ * Reveal ONE protected document identifier, with a stated business purpose.
+ *
+ * A POST with a body, never a URL that a history or a proxy log could retain. The purpose is
+ * mandatory and the server refuses without one; the value that comes back belongs in component
+ * state for as long as the reviewer is looking at it and nowhere else.
+ */
+export async function revealEmploymentEligibilityIdentifier(
+  candidateId: string,
+  documentRecordId: string,
+  purpose: string,
+): Promise<EmploymentEligibilityIdentifierReveal> {
+  return onboardingAdminFetch<EmploymentEligibilityIdentifierReveal>(
+    `${staffBase(candidateId)}/documents/${encodeURIComponent(
+      documentRecordId,
+    )}/identifier`,
+    { method: "POST", body: { purpose } },
+  );
 }

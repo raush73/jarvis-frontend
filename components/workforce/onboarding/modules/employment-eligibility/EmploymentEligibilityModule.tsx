@@ -63,7 +63,7 @@ import {
   type EmploymentEligibilityDocumentField,
   type EmploymentEligibilityDocumentList,
   type EmploymentEligibilityRecord,
-  type EmploymentEligibilityRefusalCode,
+  type EmploymentEligibilityWorkerRefusalCode,
   type EmploymentEligibilityState,
   type EmploymentEligibilityStatus,
   type SaveEmploymentEligibilityInput,
@@ -108,8 +108,12 @@ const [IDENTITY_STEP, WORK_AUTHORIZATION_STEP, DOCUMENTS_STEP] =
  * Keyed by CODE so an unknown one cannot slip through as a raw identifier, and the same table
  * answers for a rule this client checked and a rule the server refused - they are the same rules,
  * so a worker must not be told them two different ways.
+ *
+ * TYPED OVER THE WORKER'S CODES ONLY, which is a boundary rather than an omission: the employer's
+ * refusals - a stale examination, a blocked certification, a declined disclosure - are raised by
+ * acts no worker can perform, and this screen has no business having words for them.
  */
-const REFUSAL_MESSAGES: Record<EmploymentEligibilityRefusalCode, string> = {
+const REFUSAL_MESSAGES: Record<EmploymentEligibilityWorkerRefusalCode, string> = {
   STATUS_NOT_GOVERNED: "Choose one of the answers about your permission to work.",
   AUTHORIZATION_END_DATE_REQUIRED:
     "Tell us the date your permission to work runs out.",
@@ -939,11 +943,17 @@ function RecordedAnswer({
  */
 function RefusalNotice({ error, heading }: { error: unknown; heading: string }) {
   const code = employmentEligibilityRefusalCode(error);
+  // Where the code is one this SCREEN speaks - which is every refusal a worker can receive - he is
+  // told which rule was broken. Where it is not, the server's own message stands rather than being
+  // paraphrased into something it did not say.
+  const spoken =
+    code !== null && code in REFUSAL_MESSAGES
+      ? REFUSAL_MESSAGES[code as EmploymentEligibilityWorkerRefusalCode]
+      : null;
   const message =
-    code !== null
-      ? REFUSAL_MESSAGES[code]
-      : (((error as { message?: unknown })?.message as string | undefined) ??
-        "Something went wrong. Nothing was changed.");
+    spoken ??
+    (((error as { message?: unknown })?.message as string | undefined) ??
+      "Something went wrong. Nothing was changed.");
 
   return (
     <div className="wf-error" role="alert" data-ee-refusal={code ?? "UNCLASSIFIED"}>

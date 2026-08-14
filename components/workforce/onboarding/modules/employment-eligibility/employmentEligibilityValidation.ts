@@ -30,7 +30,7 @@ import {
   EMPLOYMENT_ELIGIBILITY_STATUSES_WITH_END_DATE,
   type EmploymentEligibilityCatalogueEntry,
   type EmploymentEligibilityDocumentField,
-  type EmploymentEligibilityRefusalCode,
+  type EmploymentEligibilityWorkerRefusalCode,
   type EmploymentEligibilityStatus,
   type EmploymentEligibilityStepSlug,
 } from "@/lib/workforce/employmentEligibilityApi";
@@ -48,7 +48,7 @@ import type {
  * looking at, which the server has no reason to know.
  */
 export type EmploymentEligibilityViolation = {
-  code: EmploymentEligibilityRefusalCode;
+  code: EmploymentEligibilityWorkerRefusalCode;
   documentTypeKey: string | null;
   field: EmploymentEligibilityDocumentField | "status" | "workAuthorizationExpiresOn" | null;
   list: string | null;
@@ -69,7 +69,7 @@ export function validateProposedVersion(input: {
 }): EmploymentEligibilityViolation[] {
   const violations: EmploymentEligibilityViolation[] = [];
   const fail = (
-    code: EmploymentEligibilityRefusalCode,
+    code: EmploymentEligibilityWorkerRefusalCode,
     documentTypeKey: string | null = null,
     field: EmploymentEligibilityViolation["field"] = null,
     list: string | null = null,
@@ -83,7 +83,7 @@ export function validateProposedVersion(input: {
 }
 
 type Fail = (
-  code: EmploymentEligibilityRefusalCode,
+  code: EmploymentEligibilityWorkerRefusalCode,
   documentTypeKey?: string | null,
   field?: EmploymentEligibilityViolation["field"],
   list?: string | null,

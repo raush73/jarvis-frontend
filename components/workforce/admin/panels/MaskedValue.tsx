@@ -30,6 +30,7 @@ export function OnboardingAdminMaskedValue({
   hasValue,
   onReveal,
   revealLabel = "Reveal full value",
+  canReveal,
 }: {
   label: string;
   maskedValue: string | null;
@@ -38,9 +39,23 @@ export function OnboardingAdminMaskedValue({
   /** The audited server path. Given the operator's stated purpose. */
   onReveal: (purpose: string) => Promise<string>;
   revealLabel?: string;
+  /**
+   * Whether this operator holds the sensitive grant for THIS value.
+   *
+   * Supplied by a caller whose protected value is guarded by a different sensitive grant than the
+   * delivered one. Omitting it keeps the original behaviour exactly - the workspace's own grant -
+   * so nothing that already used this control changed.
+   *
+   * A caller supplying it MUST decide from EFFECTIVE grants rather than from role membership, for
+   * the same reason the default does: `SensitiveDataGuard` treats no role as a bypass, and a
+   * control that offered the disclosure to an administrator who lacks the grant would be
+   * advertising something the server refuses.
+   */
+  canReveal?: boolean;
 }) {
   const session = useSession();
   const { canRevealSensitiveValues } = useOnboardingAdminPermissions(session);
+  const mayReveal = canReveal ?? canRevealSensitiveValues;
 
   const [asking, setAsking] = useState(false);
   const [purpose, setPurpose] = useState("");
@@ -88,7 +103,7 @@ export function OnboardingAdminMaskedValue({
         >
           Hide
         </button>
-      ) : hasValue && canRevealSensitiveValues && !asking ? (
+      ) : hasValue && mayReveal && !asking ? (
         <button type="button" className="oba-btn oba-btn-quiet" onClick={() => setAsking(true)}>
           {revealLabel}
         </button>

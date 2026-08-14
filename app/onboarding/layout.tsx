@@ -18,6 +18,7 @@ import { OnboardingAdminGate } from "@/components/workforce/admin/OnboardingAdmi
 // The workspace itself still holds no list of modules: this line says a capsule exists, and
 // the capsule says what it renders and under which module key.
 import "@/components/workforce/onboarding/modules/emergency-contacts/register.admin";
+import "@/components/workforce/onboarding/modules/employment-eligibility/register.admin";
 import "./onboarding-admin.css";
 
 export default function OnboardingAdminLayout({ children }: { children: ReactNode }) {
