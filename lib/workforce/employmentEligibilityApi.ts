@@ -487,8 +487,18 @@ export type EmploymentEligibilityStaffCertification = {
   certifiedById: string;
   certifiedAt: string;
   firstDayOfEmployment: string | null;
-  /** Whether a finalized governed artifact is bound. False until a later gate generates one. */
+  /** Whether the finalized governed artifact is bound to this certification. */
   artifactRecorded: boolean;
+  /**
+   * The document binding for the finalized governed artifact, for retrieval through the delivered
+   * audited administrative download. Null on a certification recorded before one was produced.
+   *
+   * A BINDING, never a URL: the capability is minted by the server when it is asked for, so nothing
+   * long-lived is held in this payload or in the browser.
+   */
+  artifactOnboardingDocumentId: string | null;
+  /** Why this certification corrected the one it superseded. Absent on an original. */
+  correctionReason: string | null;
   supersededAt: string | null;
 };
 

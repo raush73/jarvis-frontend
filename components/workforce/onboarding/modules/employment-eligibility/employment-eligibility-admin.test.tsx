@@ -25,7 +25,10 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { EmploymentEligibilityStaffReview } from "@/lib/workforce/employmentEligibilityApi";
+import type {
+  EmploymentEligibilityStaffCertification,
+  EmploymentEligibilityStaffReview,
+} from "@/lib/workforce/employmentEligibilityApi";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
@@ -773,35 +776,153 @@ describe("the examination the reviewer records", () => {
   });
 });
 
-/* ------------------------------------------------------------- no Gate 7D */
+/* ------------------------------------------------ the completed record */
 
-describe("what this surface does not do", () => {
-  it("offers no artifact, export, or correction control", async () => {
+/** A certification as the server projects one, with the finalized artifact bound to it. */
+function certified(
+  overrides: Partial<EmploymentEligibilityStaffCertification> = {},
+): EmploymentEligibilityStaffCertification {
+  return {
+    certificationId: "cert_1",
+    attestationSetVersion: 1,
+    catalogueVersion: "2026-08-13",
+    examinationId: "exam_1",
+    certifiedById: "usr_fixture_operator",
+    certifiedAt: "2026-08-14T12:00:00.000Z",
+    firstDayOfEmployment: "2026-08-10",
+    artifactRecorded: true,
+    artifactOnboardingDocumentId: "onbdoc_artifact_1",
+    correctionReason: null,
+    supersededAt: null,
+    ...overrides,
+  };
+}
+
+describe("the completed governed record", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("opens it through the delivered audited administrative retrieval", async () => {
     vi.mocked(getStaffEmploymentEligibility).mockResolvedValue(
       review({
         certificationBlocks: [],
         certifiable: true,
-        certification: {
-          certificationId: "cert_1",
-          attestationSetVersion: 1,
-          catalogueVersion: "2026-08-13",
-          examinationId: "exam_1",
-          certifiedById: "usr_fixture_operator",
-          certifiedAt: "2026-08-14T12:00:00.000Z",
-          firstDayOfEmployment: "2026-08-10",
-          // Nothing generated. The finalized artifact is a later gate's.
+        certification: certified(),
+      }),
+    );
+    vi.mocked(getOnboardingAdminDocumentDownload).mockResolvedValue({
+      onboardingDocumentId: "onbdoc_artifact_1",
+      fileName: "employment_eligibility_record-2026-08-17.pdf",
+      mimeType: "application/pdf",
+      url: "https://storage.test/signed-artifact",
+      expiresIn: 300,
+    });
+    const opened = vi.fn();
+    vi.stubGlobal("open", opened);
+
+    renderPanel();
+
+    const button = await screen.findByRole("button", {
+      name: "Open completed record",
+    });
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      // THE DELIVERED RETRIEVAL, asked for by binding. No URL was held in the payload.
+      expect(getOnboardingAdminDocumentDownload).toHaveBeenCalledWith(
+        "onbdoc_artifact_1",
+      );
+    });
+    await waitFor(() => {
+      expect(opened).toHaveBeenCalledWith(
+        "https://storage.test/signed-artifact",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+  });
+
+  it("offers nothing to open without the document grant, and does not pretend otherwise", async () => {
+    vi.mocked(getStaffEmploymentEligibility).mockResolvedValue(
+      review({ certificationBlocks: [], certifiable: true, certification: certified() }),
+    );
+
+    session.mockReturnValue(
+      fixtureSession([ACCESS, WORKER_READ, EXAMINE, CERTIFY]),
+    );
+
+    renderPanel();
+    await screen.findByText("Employment eligibility");
+
+    expect(document.querySelector('[data-ee-artifact="ungranted"]')).toBeTruthy();
+    expect(document.querySelector('[data-ee-artifact="open"]')).toBeNull();
+    expect(getOnboardingAdminDocumentDownload).not.toHaveBeenCalled();
+  });
+
+  it("says plainly when a certification has no stored record, and offers no generate control", async () => {
+    vi.mocked(getStaffEmploymentEligibility).mockResolvedValue(
+      review({
+        certificationBlocks: [],
+        certifiable: true,
+        certification: certified({
           artifactRecorded: false,
-          supersededAt: null,
-        },
+          artifactOnboardingDocumentId: null,
+        }),
       }),
     );
 
     renderPanel();
     await screen.findByText("Employment eligibility");
 
+    expect(document.querySelector('[data-ee-artifact="absent"]')).toBeTruthy();
+    expect(document.querySelector('[data-ee-artifact="open"]')).toBeNull();
+  });
+
+  it("shows the stated reason a certification was corrected", async () => {
+    vi.mocked(getStaffEmploymentEligibility).mockResolvedValue(
+      review({
+        certificationBlocks: [],
+        certifiable: true,
+        certification: certified({
+          attestationSetVersion: 2,
+          correctionReason: "worker presented a replacement passport",
+        }),
+      }),
+    );
+
+    renderPanel();
+
+    expect(
+      await screen.findByText("worker presented a replacement passport"),
+    ).toBeTruthy();
+  });
+});
+
+/* ----------------------------------------------- still out of scope */
+
+describe("what this surface does not do", () => {
+  it("offers no generation, export, transport or correction control", async () => {
+    vi.mocked(getStaffEmploymentEligibility).mockResolvedValue(
+      review({
+        certificationBlocks: [],
+        certifiable: true,
+        certification: certified(),
+      }),
+    );
+
+    renderPanel();
+    await screen.findByText("Employment eligibility");
+
+    /**
+     * The completed record can be OPENED, and that is the whole of it. Nothing here generates an
+     * artifact, bundles one, exports one, mails one, or edits a certified record: an administrative
+     * delivery framework is a later phase's, and a correction begins with the worker amending his
+     * own record rather than with staff rewriting a certified one.
+     */
     for (const button of Array.from(document.querySelectorAll("button"))) {
       expect(button.textContent ?? "").not.toMatch(
-        /generate|download i-9|export|correct|amend/i,
+        /generate|regenerate|export|bundle|email|send|transmit|correct this|amend/i,
       );
     }
     expect(document.body.textContent).not.toMatch(/e-verify/i);

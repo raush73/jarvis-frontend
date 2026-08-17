@@ -49,6 +49,7 @@ import {
   OnboardingAdminTimestamp,
 } from "@/components/workforce/admin/panels/DetailPanel";
 import { OnboardingAdminMaskedValue } from "@/components/workforce/admin/panels/MaskedValue";
+import { EmploymentEligibilityArtifact } from "./EmploymentEligibilityArtifact";
 import { EmploymentEligibilityEvidence } from "./EmploymentEligibilityEvidence";
 import { EmploymentEligibilityExaminationForm } from "./EmploymentEligibilityExaminationForm";
 
@@ -384,7 +385,27 @@ function ReviewBody({
           {review.certification.firstDayOfEmployment
             ? ` · first day ${review.certification.firstDayOfEmployment}`
             : ""}
+          {review.certification.correctionReason ? (
+            <>
+              {" · corrected: "}
+              <span data-ee-certification-correction="true">
+                {review.certification.correctionReason}
+              </span>
+            </>
+          ) : null}
         </p>
+      ) : null}
+
+      {/*
+        The completed record itself, for the administrative processing this module exists to feed.
+        It OPENS the artifact through the delivered audited retrieval and does nothing else: it does
+        not generate one, does not bundle one, does not export one, and does not transmit one.
+      */}
+      {review.certification ? (
+        <EmploymentEligibilityArtifact
+          certification={review.certification}
+          canReadDocuments={canReadDocuments}
+        />
       ) : null}
     </>
   );
