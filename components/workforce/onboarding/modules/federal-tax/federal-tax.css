@@ -1,0 +1,186 @@
+/*
+ * Module 4.2 Federal Tax - the capsule's own styles.
+ *
+ * ADDITIVE ONLY, and scoped to this module's `ft-*` classes. The shared `wf-*` primitives and the
+ * Phase 1 `ob-*` runtime classes are reused exactly as they are: nothing here overrides a rule the
+ * onboarding runtime or the Workforce Application wizard depends on, and neither `workforce.css` nor
+ * `onboarding.css` is modified by this module.
+ *
+ * NO STATE IS COMMUNICATED BY COLOUR ALONE. Every state this file dims, tints or spaces is also said
+ * in words beside it, because a worker deciding how his pay is treated must not have to infer
+ * anything from a shade.
+ */
+
+.ft-module {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.ft-intro {
+  margin: 0;
+}
+
+.ft-note,
+.ft-hint {
+  color: var(--color-text-muted, #5b6472);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------- identity */
+
+.ft-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ft-identity-list {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.ft-identity-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ft-identity-row dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------- questions */
+
+.ft-question {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--color-border, #d7dbe2);
+  border-radius: 10px;
+}
+
+.ft-prompt {
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.ft-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ft-option,
+.ft-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ft-amount {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 20rem;
+}
+
+/* ---------------------------------------------------------------- guidance */
+
+.ft-guidance {
+  border-top: 1px solid var(--color-border, #d7dbe2);
+  padding-top: 10px;
+}
+
+.ft-guidance-heading {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.ft-guidance-text {
+  color: var(--color-text-muted, #5b6472);
+  font-size: 0.9rem;
+  margin: 8px 0 0;
+}
+
+/* ------------------------------------------------------------------ review */
+
+.ft-review-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ft-review-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border, #d7dbe2);
+}
+
+.ft-review-question {
+  color: var(--color-text-muted, #5b6472);
+  font-size: 0.9rem;
+}
+
+.ft-review-answer {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.ft-review-change {
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+
+/* ---------------------------------------------------------------- progress */
+
+.ft-progress {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--color-border, #d7dbe2);
+  padding-top: 16px;
+}
+
+.ft-progress-step {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.9rem;
+}
+
+.ft-progress-state {
+  color: var(--color-text-muted, #5b6472);
+}
+
+/* --------------------------------------------------------------- messages */
+
+.ft-saved,
+.ft-dirty {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.ft-dirty {
+  font-weight: 600;
+}
+
+.ft-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
