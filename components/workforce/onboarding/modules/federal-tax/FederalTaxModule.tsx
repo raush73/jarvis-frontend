@@ -10,15 +10,24 @@
  *
  * WHAT THE WORKER DOES HERE: he confirms that the record Jarvis holds is his, answers plain-language
  * questions about his own circumstances, reads an explanation beside any of them he wants explained,
- * saves when he chooses to, leaves and comes back, reviews everything he has said, and corrects
- * whatever he wants to correct. That is the whole of it.
+ * saves when he chooses to, leaves and comes back, reviews everything he has said, corrects whatever
+ * he wants to correct, and finally signs to put his choices in force. That is the whole of it.
+ *
+ * THE INTERVIEW AND THE ACT ARE DIFFERENT THINGS AND ARE KEPT SO. Every step below saves answers and
+ * nothing else - no step of the interview executes, and typing has never put anything in force. The
+ * one irreversible act lives in `FederalTaxCertification`, composed into the foot of the review step
+ * rather than given a fourth URL, because the module's declared steps are the INTERVIEW's and
+ * signing is not a fourth question. The delivered I-9 capsule composes its own act the same way.
  *
  * WHAT HE CANNOT DO HERE, and none of it is a missing button - none of it exists:
  *
- *  1. HE CANNOT EXECUTE, SIGN, SUBMIT OR CERTIFY ANYTHING. There is no signature, no canvas, no
- *     execution call, no artifact and no completion on this screen, because those belong to the gate
- *     that owns execution. `complete` - the runtime's completion call - is never called below, and
- *     finishing every question does not finish this module.
+ *  1. HE CANNOT SIGN ANYTHING FROM THIS FILE, AND THIS FILE COMPLETES NOTHING. There is no canvas
+ *     anywhere in this capsule, no stroke handling and no local signature engine: the mark is drawn
+ *     on the DELIVERED shared capture surface, which the certification component composes and which
+ *     this one never touches. `complete` - the runtime's completion call - is never called anywhere
+ *     in this capsule either, and finishing every question does not finish this module. Completion
+ *     is DERIVED server-side from this module's own validator once an executed election, an
+ *     execution record and a retained artifact all exist.
  *  2. HE CANNOT SEE A GOVERNMENT DOCUMENT, a numbered step of one, a worksheet or a line reference.
  *     He answers questions about his life; the mapping onto what a government document requires is
  *     Jarvis's problem and is not shown to him.
@@ -26,6 +35,8 @@
  *     produced, and there is no call in this capsule that could obtain anything wider.
  *  4. HE CANNOT BE TOLD WHAT TO ANSWER. Nothing here recommends, defaults, pre-selects, ranks or
  *     hints. The guidance explains what a question means and stops.
+ *  5. HE CANNOT CORRECT, REPLACE OR RE-ELECT ONCE IT IS IN FORCE. A subsequent election, a
+ *     correction and a future-year replacement are separately governed work with no client here.
  *
  * TWO PROPERTIES THIS FILE EXISTS TO KEEP:
  *
@@ -68,6 +79,7 @@ import {
   type FederalTaxAnswers,
   type FederalTaxAnswerValue,
 } from "./federalTaxAnswerStore";
+import FederalTaxCertification from "./FederalTaxCertification";
 import IdentityCard from "./IdentityCard";
 import QuestionField from "./QuestionField";
 import ReviewPanel from "./ReviewPanel";
@@ -76,12 +88,16 @@ import "./federal-tax.css";
 const [IDENTITY_STEP, WITHHOLDING_STEP, REVIEW_STEP] = FEDERAL_TAX_STEP_SLUGS;
 
 /**
- * What each governed refusal means, in the worker's own words.
+ * What each governed refusal means, in the worker's own words, WHEN IT REFUSES A SAVE.
  *
  * Keyed by CODE so an unknown one cannot slip through as a raw identifier. TYPED OVER THE WORKER'S
- * CODES ONLY, which is a boundary rather than an omission: the codes that classify a proposed
- * ELECTION are raised by acts no worker can perform on this surface, and this screen has no business
- * having words for them.
+ * CODES so a code he can receive cannot be added to the client without words being written for it.
+ *
+ * THE CERTIFICATION CODES ARE ANSWERED HERE ONLY AS A SAVE COULD RAISE THEM, WHICH IS BARELY. They
+ * classify the ACT, and the act has its own refusal surface beside its own signing control - telling
+ * a worker at the top of the page that his signature was refused, while the refusal also appears
+ * beside the control he pressed, would say it twice and in the wrong place. The wording below is
+ * therefore deliberately about his answers, because that is the only thing a save can be about.
  */
 const REFUSAL_MESSAGES: Record<FederalTaxWorkerRefusalCode, string> = {
   ANSWER_NOT_GOVERNED:
@@ -92,6 +108,16 @@ const REFUSAL_MESSAGES: Record<FederalTaxWorkerRefusalCode, string> = {
     "We could not store your answers safely just now, so we did not store them at all. Nothing was saved. Please try saving again.",
   DRAFT_PROTECTION_INVALID:
     "We could not open the answers we had saved for you. Nothing has been changed. Tell your MW4H contact.",
+  INTERVIEW_NOT_COMPLETE:
+    "There is still something to answer or confirm above. Your answers were not saved.",
+  ELECTION_ALREADY_EXECUTED:
+    "Your choices are already in force, so we did not change them. If they need to change, tell your MW4H contact.",
+  EXEMPTION_CONDITIONS_REQUIRED:
+    "We could not accept that. Your answers were not saved.",
+  ELECTION_BINDING_UNAVAILABLE:
+    "Something went wrong at our end and nothing was changed. Please try again.",
+  REVISION_BINDING_REQUIRED:
+    "Something went wrong at our end and nothing was changed. Please try again.",
 };
 
 /**
@@ -500,13 +526,28 @@ export function FederalTaxModule({
         />
       ))}
 
-      <p className="ft-note" data-ft-not-yet-in-force>
+      <p className="ft-note" data-ft-confirmation-is-not-execution>
         Confirming this says that you have read your answers and they are what you meant. It does not
-        yet put them in force - there is one more step after this one, and we will tell you when it is
-        ready for you.
+        put them in force on its own - the last step is below, and you have to sign it.
       </p>
 
       {sectionClosed ? null : saveRow}
+
+      {/*
+        THE LAST STEP, composed here rather than routed to.
+        It reads its own governed stage from the server and re-reads it whenever the interview
+        changes, which is why the token below is the server's own account of this interview rather
+        than anything this component decided: availability depends on answers, and a screen that
+        remembered availability across a save would offer a signature the server would refuse.
+      */}
+      <FederalTaxCertification
+        invocationId={invocationId}
+        interviewToken={`${interview.savedAt ?? "never"}:${
+          interview.interviewComplete ? "complete" : "open"
+        }:${interview.questionSetSuperseded ? "superseded" : "current"}`}
+        changeable={!sectionClosed}
+      />
+
       {progress}
     </section>
   );

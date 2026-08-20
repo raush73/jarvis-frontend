@@ -142,6 +142,58 @@
   font-weight: 400;
 }
 
+/* ------------------------------------------------------------ certification */
+
+/*
+ * The last step, set apart from the interview above it.
+ *
+ * SEPARATED BY STRUCTURE AND BY WORDS, not by colour. The heading says what this section is, the
+ * notice above the delivered card says whose wording is inside it, and the border below only
+ * reinforces a distinction that is already stated - a worker signing under penalty of perjury must
+ * not have to infer which words are the government's from a shade.
+ */
+.ft-certify {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-top: 1px solid var(--color-border, #d7dbe2);
+  padding-top: 20px;
+}
+
+.ft-certify-guidance,
+.ft-certify-exemption,
+.ft-certify-done,
+.ft-certify-artifact {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Jarvis's own words, boxed so the eye can tell them from the governed wording below. */
+.ft-certify-guidance,
+.ft-certify-exemption {
+  border-left: 3px solid var(--color-border, #d7dbe2);
+  padding-left: 12px;
+}
+
+.ft-certify-blockers {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/*
+ * The delivered execution card carries its own `ob-exec-*` styling. Nothing here overrides it: this
+ * rule only strips the list semantics the card needs from its single-item container.
+ */
+.ft-certify .ob-exec-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
 /* ---------------------------------------------------------------- progress */
 
 .ft-progress {
