@@ -28,8 +28,13 @@
  *    copy through the DELIVERED document surface by identity; a refusal says nothing was put in
  *    force, keeps a signature the server would still accept, and discards one performed against
  *    wording that has moved.
- *  - THIS CAPSULE NEVER CLAIMS COMPLETION, never builds a signature engine of its own, and offers no
- *    correction, second election or replacement once an election is in force.
+ *  - THIS CAPSULE NEVER CLAIMS COMPLETION and never builds a signature engine of its own.
+ *  - AND ONCE AN ELECTION IS IN FORCE HE CAN ELECT AGAIN, through the GOVERNED LATER PATH: he
+ *    chooses between "something I told you was wrong" and "my situation has changed", states what
+ *    was wrong where that is what he chose, and signs the same authoritative certification again.
+ *    THE EARLIER RECORD SURVIVES, IS SHOWN AS HISTORY, AND IS NEVER CALLED A MISTAKE ON THE STRENGTH
+ *    OF A LATER ELECTION EXISTING. Nothing here edits a recorded election, and no control on any
+ *    surface in this capsule could.
  *
  * THE FAKE SERVER BELOW APPLIES THE GOVERNED RULES rather than echoing the request, because the
  * behaviours that matter are exactly the ones a naive echo would hide: normalization erasing what a
@@ -49,6 +54,7 @@ import {
 import { saveWorkerSession } from "@/lib/workforce/workerSession";
 import type {
   CertifyFederalTaxElectionInput,
+  CertifyFederalTaxNewElectionInput,
   FederalTaxCertification,
   FederalTaxExecutedElection,
   FederalTaxInterview,
@@ -91,6 +97,7 @@ vi.mock("@/lib/workforce/federalTaxApi", async (importOriginal) => {
     saveOwnFederalTaxInterview: vi.fn(),
     getOwnFederalTaxCertification: vi.fn(),
     certifyOwnFederalTaxElection: vi.fn(),
+    certifyOwnFederalTaxNewElection: vi.fn(),
   };
 });
 
@@ -117,6 +124,7 @@ const {
   saveOwnFederalTaxInterview,
   getOwnFederalTaxCertification,
   certifyOwnFederalTaxElection,
+  certifyOwnFederalTaxNewElection,
 } = await import("@/lib/workforce/federalTaxApi");
 const { getOnboardingDocumentDownload } = await import(
   "@/lib/workforce/onboardingDocumentApi"
@@ -453,7 +461,16 @@ const ARTIFACT_SLOT_KEY = "FEDERAL_WITHHOLDING_RECORD";
 const ARTIFACT_URL = "https://storage.example.test/signed/federal-withholding.pdf";
 
 let executed: FederalTaxExecutedElection | null = null;
+/**
+ * Every election he has executed, newest first, as the server keeps them.
+ *
+ * APPEND-ONLY IN THE FAKE TOO, deliberately. A fake that replaced the entry when a later election
+ * arrived would let a screen claim to preserve history while being tested against a store that
+ * does not - so this one supersedes and retains, exactly as the governed store does.
+ */
+let history: FederalTaxExecutedElection[] = [];
 let certifications: CertifyFederalTaxElectionInput[] = [];
+let laterElections: CertifyFederalTaxNewElectionInput[] = [];
 /** Set by a test that wants the delivered execution foundation to report moved wording. */
 let governedHash = CERTIFICATION_HASH;
 
@@ -475,26 +492,40 @@ function projectCertification(): FederalTaxCertification {
   if (interview.questionSetSuperseded) blockers.push("QUESTION_SET_SUPERSEDED");
   if (executed) blockers.push("ELECTION_ALREADY_EXECUTED");
 
+  /**
+   * WHY HE MAY NOT ELECT AGAIN - the same interview conditions, with the third one INVERTED.
+   *
+   * Having an election in force blocks a FIRST election and is exactly what OPENS a later one;
+   * having none blocks a later one. The two are projected from one set of facts here for the same
+   * reason the server projects them that way: a screen must never be handed both affordances.
+   */
+  const laterBlockers = blockers.filter(
+    (blocker) => blocker !== "ELECTION_ALREADY_EXECUTED",
+  );
+  if (!executed) laterBlockers.push("NO_OPERATIVE_ELECTION");
+
+  const subject: FederalTaxCertification["certification"] = {
+    moduleKey: MODULE_KEY,
+    subjectKey: CERTIFICATION_SUBJECT_KEY,
+    title: "Your federal withholding certification",
+    requiredForm: "ELECTRONIC_SIGNATURE",
+    content: {
+      kind: "GOVERNED_TEXT",
+      ref: "FEDERAL_WITHHOLDING_CERTIFICATION",
+      revision: governedHash === CERTIFICATION_HASH ? CERTIFICATION_REVISION : "2026-09-01",
+      ruleRevision: CERTIFICATION_RULE_REVISION,
+      title: "Your federal withholding certification",
+      contentHash: governedHash,
+      lines: [{ label: CERTIFICATION_STATEMENT, field: null }],
+    },
+    current: null,
+    history: [],
+    requiresExecution: executed === null,
+  };
+
   return {
     moduleKey: MODULE_KEY,
-    certification: {
-      moduleKey: MODULE_KEY,
-      subjectKey: CERTIFICATION_SUBJECT_KEY,
-      title: "Your federal withholding certification",
-      requiredForm: "ELECTRONIC_SIGNATURE",
-      content: {
-        kind: "GOVERNED_TEXT",
-        ref: "FEDERAL_WITHHOLDING_CERTIFICATION",
-        revision: governedHash === CERTIFICATION_HASH ? CERTIFICATION_REVISION : "2026-09-01",
-        ruleRevision: CERTIFICATION_RULE_REVISION,
-        title: "Your federal withholding certification",
-        contentHash: governedHash,
-        lines: [{ label: CERTIFICATION_STATEMENT, field: null }],
-      },
-      current: null,
-      history: [],
-      requiresExecution: executed === null,
-    },
+    certification: subject,
     guidance: CERTIFICATION_GUIDANCE,
     applicableTaxYear: APPLICABLE_TAX_YEAR,
     exemptionElected: stored.exemptionElected === true,
@@ -510,8 +541,43 @@ function projectCertification(): FederalTaxCertification {
     available: blockers.length === 0,
     blockers,
     executed,
+    newElection: {
+      available: laterBlockers.length === 0,
+      blockers: laterBlockers,
+      // OFFERED ONLY WHERE IT IS OPEN, and in the SERVER's words - the two sentences a worker
+      // chooses between are governed text, and this fake carries them rather than inventing them.
+      options: laterBlockers.length === 0 ? LATER_ELECTION_OPTIONS : [],
+      // THE SAME GOVERNED WORDING, PROJECTED AGAINST AN ACT NOBODY HAS PERFORMED. Modelled here
+      // because it is what the server sends: the stage's own subject reports the act that put the
+      // current election in force and reports it satisfied, so a fake that reused it would let this
+      // capsule ship a later-election card the delivered surface would render as already done.
+      certification: {
+        ...subject,
+        current: null,
+        requiresExecution: true,
+      },
+    },
+    history,
   };
 }
+
+/** The two governed origins as the server describes them to the worker. Verbatim. */
+const LATER_ELECTION_OPTIONS = [
+  {
+    origin: "CORRECTION",
+    title: "Something I told you was wrong",
+    description:
+      "Use this if the information on your current federal withholding record is incorrect - for example a filing status or an amount that was entered by mistake. You will be asked what was wrong, and your earlier record is kept exactly as it was.",
+    requiresReason: true,
+  },
+  {
+    origin: "SUBSEQUENT_ELECTION",
+    title: "My situation has changed and I want to elect differently",
+    description:
+      "Use this if your current record was correct for the time it applied, and you now want to make a different federal withholding election going forward. Nothing about your earlier record is treated as a mistake.",
+    requiresReason: false,
+  },
+];
 
 /**
  * The governed act, with its refusals modelled in the ORDER the server applies them.
@@ -536,6 +602,53 @@ function applyCertify(input: CertifyFederalTaxElectionInput): FederalTaxCertific
     throw refusal("EXEMPTION_CONDITIONS_REQUIRED");
   }
 
+  assertEvidence(input);
+
+  return record("INITIAL_ELECTION", null, exempt);
+}
+
+/**
+ * The GOVERNED LATER ACT, refused in the server's order and recorded the server's way.
+ *
+ * The evidence rules are the initial act's rules and are applied by the shared helper. What is
+ * modelled here is what is NEW: the act needs an election to supersede, needs one of exactly two
+ * origins, and its reason is REQUIRED BY ONE AND REFUSED TO THE OTHER - which is the distinction
+ * the whole path exists to keep.
+ */
+function applyCertifyLater(
+  input: CertifyFederalTaxNewElectionInput,
+): FederalTaxCertification {
+  laterElections.push(input);
+
+  if (!projectInterview(stored).interviewComplete) {
+    throw refusal("INTERVIEW_NOT_COMPLETE");
+  }
+  if (!executed) throw refusal("NO_OPERATIVE_ELECTION");
+  if (input.origin !== "CORRECTION" && input.origin !== "SUBSEQUENT_ELECTION") {
+    throw refusal("VALUE_NOT_GOVERNED");
+  }
+
+  const stated = input.correctionReason?.trim() ?? "";
+  if (input.origin === "CORRECTION" && stated.length === 0) {
+    throw refusal("CORRECTION_REASON_REQUIRED");
+  }
+  if (input.origin === "SUBSEQUENT_ELECTION" && stated.length > 0) {
+    throw refusal("CORRECTION_REASON_NOT_PERMITTED");
+  }
+
+  const exempt = stored.exemptionElected === true;
+  const first = input.hadNoLiabilityForPriorYear === true;
+  const second = input.expectsNoLiabilityForApplicableYear === true;
+  if (exempt ? !(first && second) : first || second) {
+    throw refusal("EXEMPTION_CONDITIONS_REQUIRED");
+  }
+  assertEvidence(input);
+
+  return record(input.origin, input.origin === "CORRECTION" ? stated : null, exempt);
+}
+
+/** The evidence rules shared by both governed acts, in the order the server applies them. */
+function assertEvidence(input: CertifyFederalTaxElectionInput): void {
   if (input.presented.contentHash !== governedHash) {
     throw refusal("EXECUTION_CONTENT_STALE");
   }
@@ -545,20 +658,47 @@ function applyCertify(input: CertifyFederalTaxElectionInput): FederalTaxCertific
   if (!input.capture || input.capture.strokes.length === 0) {
     throw refusal("EXECUTION_EVIDENCE_INVALID");
   }
+}
+
+/**
+ * Recording an election the way the store records one: APPEND, SUPERSEDE, RETAIN.
+ *
+ * The prior entry is marked superseded and KEPT. Nothing about it is rewritten - not its date, not
+ * its origin, not the copy bound to it - so a screen cannot pass a test here by showing a history
+ * this fake had already flattened.
+ */
+function record(
+  origin: string,
+  correctionReason: string | null,
+  exempt: boolean,
+): FederalTaxCertification {
+  const setVersion = (executed?.setVersion ?? 0) + 1;
+  const at = `2026-08-19T1${4 + setVersion}:00:00.000Z`;
+
+  if (executed) {
+    const superseded = { ...executed, current: false, supersededAt: at };
+    history = [superseded, ...history.slice(1)];
+  }
 
   executed = {
-    setVersion: 1,
-    executedAt: "2026-08-19T15:00:00.000Z",
-    effectiveFrom: "2026-08-19T15:00:00.000Z",
+    setVersion,
+    executedAt: at,
+    effectiveFrom: at,
+    supersededAt: null,
+    current: true,
+    electionOrigin: origin,
+    correctionReason,
     formKey: "IRS_FORM_W4",
     formRevision: CERTIFICATION_REVISION,
     exemptionClaimed: exempt,
-    receivedAt: "2026-08-19T15:00:00.000Z",
+    receivedAt: at,
     receiptBasis: "ELECTRONIC_EXECUTION",
-    executionRecordId: "exec-federal-tax-1",
-    artifactDocumentId: ARTIFACT_DOCUMENT_ID,
+    executionRecordId: `exec-federal-tax-${setVersion}`,
+    artifactDocumentId:
+      setVersion === 1 ? ARTIFACT_DOCUMENT_ID : `${ARTIFACT_DOCUMENT_ID}-${setVersion}`,
     artifactSlotKey: ARTIFACT_SLOT_KEY,
   };
+  history = [executed, ...history];
   return projectCertification();
 }
 
@@ -740,7 +880,9 @@ beforeEach(() => {
   stored = emptyAnswers();
   saves = [];
   executed = null;
+  history = [];
   certifications = [];
+  laterElections = [];
   governedHash = CERTIFICATION_HASH;
   resetFederalTaxAnswerStore();
 
@@ -767,6 +909,9 @@ beforeEach(() => {
   );
   vi.mocked(certifyOwnFederalTaxElection).mockImplementation(async (_id, input) =>
     applyCertify(input),
+  );
+  vi.mocked(certifyOwnFederalTaxNewElection).mockImplementation(async (_id, input) =>
+    applyCertifyLater(input),
   );
   vi.mocked(getOnboardingDocumentDownload).mockResolvedValue({
     onboardingDocumentId: ARTIFACT_DOCUMENT_ID,
@@ -1854,20 +1999,20 @@ describe("Module 4.2 the worker federal tax interview", () => {
       );
     });
 
-    it("says the choices are already in force rather than offering to sign again", async () => {
+    it("says the choices are in force, and closes the path that put them there", async () => {
       await openExecuted();
 
       expect(
         document.querySelector('[data-ft-certify-state="EXECUTED"]'),
       ).not.toBeNull();
-      // No second election, no correction and no replacement: none of them has a control here.
-      const controls = Array.from(capsule().querySelectorAll("button")).map(
-        (button) => button.textContent ?? "",
-      );
-      for (const forbidden of [/again/i, /change/i, /correct/i, /replace/i, /amend/i]) {
-        expect(controls.some((label) => forbidden.test(label))).toBe(false);
-      }
+      // THE FIRST ELECTION IS OVER. The signing control that recorded it is gone, and the later
+      // path below is a DIFFERENT act reached deliberately rather than the same one left open.
+      expect(
+        screen.getByRole("heading", { name: /your choices are in force/i }),
+      ).toBeTruthy();
+      expect(document.querySelector('[data-ft-again-option="CORRECTION"]')).not.toBeNull();
       expect(document.querySelector("[data-capture-pad]")).toBeNull();
+      expect(document.querySelector("[data-execution-submit]")).toBeNull();
     });
 
     /* --------------------------------------------------- security boundary */
@@ -1954,6 +2099,379 @@ describe("Module 4.2 the worker federal tax interview", () => {
 
       // And the masked identity is still the only form of it anywhere.
       expect(document.body.textContent ?? "").not.toContain(FULL_IDENTIFIER);
+    });
+
+    /* ---------------------------------------------- electing again (Gate 8D) */
+
+    describe("electing again", () => {
+      /** Choose one of the two governed reasons, by the origin the server named. */
+      function chooseOrigin(origin: string) {
+        fireEvent.click(
+          document.querySelector(`[data-ft-again-option="${origin}"]`) as HTMLElement,
+        );
+      }
+
+      function reasonField(): HTMLTextAreaElement {
+        const element = document.querySelector<HTMLTextAreaElement>(
+          "[data-ft-again-reason]",
+        );
+        if (!element) throw new Error("no reason field rendered");
+        return element;
+      }
+
+      /** Sign whatever the later-election card is asking for. */
+      async function signAgain() {
+        await draw(line(6));
+        fireEvent.click(signButton());
+      }
+
+      it("offers the two governed reasons in the server's words, and neither is chosen for him", async () => {
+        await openExecuted();
+
+        // BOTH SENTENCES ARE THE SERVER'S, verbatim, and the two say OPPOSITE things about the
+        // earlier record - one that it was wrong, one that it was right for the time it applied.
+        // That distinction is the affordance; a single "change my W-4" control would destroy it.
+        expect(screen.getByText(LATER_ELECTION_OPTIONS[0].description)).toBeTruthy();
+        expect(screen.getByText(LATER_ELECTION_OPTIONS[1].description)).toBeTruthy();
+        // Neither is pre-selected: defaulting would decide on his behalf whether he had erred.
+        for (const option of LATER_ELECTION_OPTIONS) {
+          expect(
+            isChecked(
+              document.querySelector(
+                `[data-ft-again-option="${option.origin}"]`,
+              ) as HTMLElement,
+            ),
+          ).toBe(false);
+        }
+        // And nothing can be signed until he says which of the two he means.
+        expect(document.querySelector("[data-ft-again-gate]")).not.toBeNull();
+        expect(document.querySelector("[data-capture-pad]")).toBeNull();
+      });
+
+      it("asks a correction what was wrong, and withholds the act until he says", async () => {
+        await openExecuted();
+        chooseOrigin("CORRECTION");
+
+        // The field exists BECAUSE the chosen option says a reason is required, and the signing
+        // control is withheld rather than offered and then refused.
+        expect(reasonField()).toBeTruthy();
+        expect(document.querySelector("[data-ft-again-gate]")).not.toBeNull();
+        expect(document.querySelector("[data-capture-pad]")).toBeNull();
+
+        fireEvent.change(reasonField(), {
+          target: { value: "I picked the wrong filing status." },
+        });
+
+        await waitFor(() =>
+          expect(document.querySelector("[data-capture-pad]")).not.toBeNull(),
+        );
+        expect(document.querySelector("[data-ft-again-gate]")).toBeNull();
+      });
+
+      it("offers no reason field at all for a later election, and can be signed without one", async () => {
+        await openExecuted();
+        chooseOrigin("SUBSEQUENT_ELECTION");
+
+        // THE ABSENCE IS THE POINT. There is nowhere on this screen to state an error against an
+        // election that was correct, so a client defect cannot send one - and the server refuses
+        // one anyway.
+        expect(document.querySelector("[data-ft-again-reason]")).toBeNull();
+        await waitFor(() =>
+          expect(document.querySelector("[data-capture-pad]")).not.toBeNull(),
+        );
+      });
+
+      it("clears a stated reason when he changes his mind about which of the two he means", async () => {
+        await openExecuted();
+        chooseOrigin("CORRECTION");
+        fireEvent.change(reasonField(), { target: { value: "wrong amount" } });
+
+        chooseOrigin("SUBSEQUENT_ELECTION");
+        await signAgain();
+
+        // A reason carried across the change would have put an admission of error onto an election
+        // that states the opposite, and the server would have refused it.
+        await waitFor(() => expect(laterElections).toHaveLength(1));
+        expect(laterElections[0].origin).toBe("SUBSEQUENT_ELECTION");
+        expect(laterElections[0].correctionReason).toBeNull();
+        expect(executed?.correctionReason).toBeNull();
+      });
+
+      it("sends the correction through the later route, with the reason he stated", async () => {
+        await openExecuted();
+        chooseOrigin("CORRECTION");
+        fireEvent.change(reasonField(), {
+          target: { value: "I picked the wrong filing status." },
+        });
+        await signAgain();
+
+        await waitFor(() => expect(laterElections).toHaveLength(1));
+        // THE INITIAL ROUTE WAS NOT REUSED. One call put the first election in force; the later one
+        // travelled a different function, and the origin is the option's own value rather than
+        // anything inferred from a control or from a reason having been typed.
+        expect(vi.mocked(certifyOwnFederalTaxElection)).toHaveBeenCalledTimes(1);
+        expect(laterElections[0].origin).toBe("CORRECTION");
+        expect(laterElections[0].correctionReason).toBe(
+          "I picked the wrong filing status.",
+        );
+        // The round trip is the delivered subject's own three values, exactly as on a first election.
+        expect(laterElections[0].presented.contentHash).toBe(CERTIFICATION_HASH);
+        expect(laterElections[0].presented.revision).toBe(CERTIFICATION_REVISION);
+        expect(laterElections[0].performedForm).toBe("ELECTRONIC_SIGNATURE");
+      });
+
+      it("shows the new election in force and KEEPS the earlier one, described as what it was", async () => {
+        await openExecuted();
+        chooseOrigin("SUBSEQUENT_ELECTION");
+        await signAgain();
+
+        await waitFor(() =>
+          expect(document.querySelector("[data-ft-history]")).not.toBeNull(),
+        );
+
+        // BOTH RECORDS ARE ON SCREEN. The earlier one is not hidden, not struck through, and not
+        // relabelled by what came after it: its own origin, its own dates and its own copy.
+        const first = document.querySelector('[data-ft-history-entry="1"]');
+        const second = document.querySelector('[data-ft-history-entry="2"]');
+        expect(first?.getAttribute("data-ft-history-current")).toBe("false");
+        expect(first?.getAttribute("data-ft-history-origin")).toBe("INITIAL_ELECTION");
+        expect(second?.getAttribute("data-ft-history-current")).toBe("true");
+        expect(second?.getAttribute("data-ft-history-origin")).toBe(
+          "SUBSEQUENT_ELECTION",
+        );
+        // AND IT IS NOT CALLED A MISTAKE. Nothing about a later election makes the earlier one wrong,
+        // so no entry carries a stated error and none is described as having one.
+        expect(first?.querySelector("[data-ft-history-reason]")).toBeNull();
+        expect(first?.textContent ?? "").not.toMatch(/wrong|mistake|error/i);
+      });
+
+      it("says what he told us was wrong on the record that says so, and nowhere else", async () => {
+        await openExecuted();
+        chooseOrigin("CORRECTION");
+        fireEvent.change(reasonField(), { target: { value: "wrong dependents amount" } });
+        await signAgain();
+
+        await waitFor(() =>
+          expect(document.querySelector('[data-ft-history-entry="2"]')).not.toBeNull(),
+        );
+        const corrected = document.querySelector('[data-ft-history-entry="2"]');
+        const superseded = document.querySelector('[data-ft-history-entry="1"]');
+        // The reason belongs to the election that STATED it, not to the one it replaced.
+        expect(corrected?.querySelector("[data-ft-history-reason]")?.textContent).toContain(
+          "wrong dependents amount",
+        );
+        expect(superseded?.querySelector("[data-ft-history-reason]")).toBeNull();
+      });
+
+      it("offers each record its OWN retained copy, through the delivered document surface", async () => {
+        await openExecuted();
+        chooseOrigin("SUBSEQUENT_ELECTION");
+        await signAgain();
+        await waitFor(() =>
+          expect(document.querySelector('[data-ft-history-view="1"]')).not.toBeNull(),
+        );
+
+        fireEvent.click(
+          document.querySelector('[data-ft-history-view="1"]') as HTMLElement,
+        );
+        await waitFor(() =>
+          expect(vi.mocked(getOnboardingDocumentDownload)).toHaveBeenCalledWith(
+            INVOCATION_ID,
+            ARTIFACT_DOCUMENT_ID,
+          ),
+        );
+
+        // THE SUPERSEDED ELECTION'S OWN ARTIFACT, by identity, and a DIFFERENT one from the current
+        // election's - the earlier copy was retained rather than regenerated over.
+        fireEvent.click(
+          document.querySelector('[data-ft-history-view="2"]') as HTMLElement,
+        );
+        await waitFor(() =>
+          expect(vi.mocked(getOnboardingDocumentDownload)).toHaveBeenCalledWith(
+            INVOCATION_ID,
+            `${ARTIFACT_DOCUMENT_ID}-2`,
+          ),
+        );
+        // No location is ever held here: the capsule passes an identity and nothing else.
+        expect(capsule().innerHTML).not.toContain(ARTIFACT_URL);
+      });
+
+      it("can elect a third time, and the whole record is still there", async () => {
+        await openExecuted();
+        chooseOrigin("SUBSEQUENT_ELECTION");
+        await signAgain();
+        // WAIT ON THE SCREEN RATHER THAN ON THE FAKE. The act resolves before React has re-rendered
+        // the panel it resets, and reaching for the next control on the strength of the store having
+        // moved is how this reads a stale radio.
+        await waitFor(() =>
+          expect(document.querySelector('[data-ft-history-entry="2"]')).not.toBeNull(),
+        );
+
+        chooseOrigin("CORRECTION");
+        await waitFor(() => expect(reasonField()).toBeTruthy());
+        fireEvent.change(reasonField(), { target: { value: "still not right" } });
+        await signAgain();
+
+        await waitFor(() =>
+          expect(document.querySelector('[data-ft-history-entry="3"]')).not.toBeNull(),
+        );
+        expect(executed?.setVersion).toBe(3);
+        for (const version of [1, 2, 3]) {
+          expect(
+            document.querySelector(`[data-ft-history-entry="${version}"]`),
+          ).not.toBeNull();
+        }
+        // APPEND-ONLY, AS THE SERVER KEEPS IT: three elections, three acts, three copies, and the
+        // first one still says what it always said.
+        expect(history).toHaveLength(3);
+        expect(history.map((entry) => entry.electionOrigin)).toEqual([
+          "CORRECTION",
+          "SUBSEQUENT_ELECTION",
+          "INITIAL_ELECTION",
+        ]);
+        expect(history[2].executedAt).toBe("2026-08-19T15:00:00.000Z");
+        expect(history[2].artifactDocumentId).toBe(ARTIFACT_DOCUMENT_ID);
+      });
+
+      it("says nothing was put in force when the server refuses the later act", async () => {
+        await openExecuted();
+        vi.mocked(certifyOwnFederalTaxNewElection).mockRejectedValueOnce(
+          refusal("CORRECTION_REASON_REQUIRED"),
+        );
+
+        chooseOrigin("CORRECTION");
+        fireEvent.change(reasonField(), { target: { value: "  " } });
+        // A whitespace-only reason opens the control on the client's own courtesy check only after
+        // trimming, so state it explicitly and let the server be the one that refuses.
+        fireEvent.change(reasonField(), { target: { value: "x" } });
+        await signAgain();
+
+        await waitFor(() =>
+          expect(document.querySelector("[data-ft-again-refusal]")).not.toBeNull(),
+        );
+        // HIS EARLIER ELECTION IS UNTOUCHED, which is the assertion that matters: a refused later
+        // election is not a partially applied one.
+        expect(executed?.setVersion).toBe(1);
+        expect(history).toHaveLength(1);
+      });
+
+      it("does not offer the path at all to a worker who has nothing in force", async () => {
+        await openCertification();
+
+        // THE MIRROR IMAGE OF THE STATE ABOVE, AND THE TWO ARE NEVER BOTH OPEN. He is being offered
+        // his FIRST election, so there is nothing to correct and nothing to replace, and no part of
+        // the later path is on screen to be attempted.
+        expect(document.querySelector("[data-ft-again]")).toBeNull();
+        expect(document.querySelector("[data-ft-again-option]")).toBeNull();
+        expect(document.querySelector("[data-ft-again-reason]")).toBeNull();
+        expect(vi.mocked(certifyOwnFederalTaxNewElection)).not.toHaveBeenCalled();
+      });
+
+      it("says why electing again is closed, without listing reasons he may not use", async () => {
+        // AN ELECTION IN FORCE AND AN INTERVIEW THAT NO LONGER MATCHES THE GOVERNED QUESTIONS. The
+        // certification stage is doctored directly because that combination is the server's answer
+        // to read, and the point being proven is what the screen does with it.
+        await openExecuted();
+        const stage = projectCertification();
+        vi.mocked(getOwnFederalTaxCertification).mockResolvedValue({
+          ...stage,
+          newElection: {
+            ...stage.newElection,
+            available: false,
+            blockers: ["QUESTION_SET_SUPERSEDED"],
+            options: [],
+          },
+        });
+        cleanup();
+        openStep(REVIEW);
+
+        await waitFor(() =>
+          expect(
+            document.querySelector('[data-ft-again-state="BLOCKED"]'),
+          ).not.toBeNull(),
+        );
+        // STATED RATHER THAN HIDDEN, and the two reasons are NOT listed beneath it: offering him a
+        // choice under a sentence saying he may use neither would invite a refusal.
+        expect(
+          document.querySelector('[data-ft-again-blocker="QUESTION_SET_SUPERSEDED"]'),
+        ).not.toBeNull();
+        expect(document.querySelector("[data-ft-again-option]")).toBeNull();
+        expect(document.querySelector("[data-ft-again-reason]")).toBeNull();
+        // And no code is shown to him as one.
+        expect(document.body.textContent ?? "").not.toContain("QUESTION_SET_SUPERSEDED");
+      });
+
+      it("shows no history to a worker with one election, and no earlier record to open", async () => {
+        await openExecuted();
+
+        // ONE ELECTION IS NOT A HISTORY. Repeating his only record under a heading about earlier
+        // ones would invent a past he does not have.
+        expect(document.querySelector("[data-ft-history]")).toBeNull();
+      });
+
+      it("shows the record but offers no later act once the packet has left his hands", async () => {
+        await openExecuted();
+        chooseOrigin("SUBSEQUENT_ELECTION");
+        await signAgain();
+        await waitFor(() =>
+          expect(document.querySelector('[data-ft-history-entry="2"]')).not.toBeNull(),
+        );
+        cleanup();
+
+        stored = reviewed();
+        resetFederalTaxAnswerStore();
+        openStep(REVIEW, {
+          status: "COMPLETE",
+          restart: {
+            posture: "CLOSED",
+            createsNewVersion: false,
+            destroysCapturedData: false,
+            reason: "MODULE_COMPLETE",
+          },
+        });
+
+        // The delivered runtime presents a closed module read-only, so nothing in this capsule is
+        // mounted to act with - a stronger guarantee than a later-election panel that mounted and
+        // then disabled itself. NOTHING HERE OPENS A SECOND WAY IN.
+        expect(await screen.findByText(/shown for reference only/i)).toBeTruthy();
+        expect(document.querySelector("[data-ft-again]")).toBeNull();
+        expect(document.querySelector("[data-capture-pad]")).toBeNull();
+        expect(vi.mocked(certifyOwnFederalTaxNewElection)).toHaveBeenCalledTimes(1);
+      });
+
+      it("builds no self-service, no access link and no second way in", async () => {
+        await openExecuted();
+        chooseOrigin("SUBSEQUENT_ELECTION");
+        await signAgain();
+        await waitFor(() =>
+          expect(document.querySelector('[data-ft-history-entry="2"]')).not.toBeNull(),
+        );
+
+        // The deferred architecture is absent as VOCABULARY as well as behaviour: no code here
+        // offers a worker a route to this from outside the bound onboarding runtime.
+        const rendered = capsule().innerHTML;
+        for (const deferred of [
+          /self.?service/i,
+          /access link/i,
+          /one.?time code/i,
+          /sign in again/i,
+          /portal/i,
+          /after you (have )?left/i,
+        ]) {
+          expect(deferred.test(rendered)).toBe(false);
+        }
+        // And every link out of the capsule is still the DELIVERED runtime's own module URL, built
+        // by the delivered helper rather than assembled here.
+        const links = Array.from(capsule().querySelectorAll("a")).map((anchor) =>
+          anchor.getAttribute("href"),
+        );
+        expect(links.length).toBeGreaterThan(0);
+        for (const href of links) {
+          expect(href).toBe(
+            modulePath(INVOCATION_ID, MODULE_SLUG, href?.split("/").pop() ?? ""),
+          );
+        }
+      });
     });
 
     it("re-reads the stage when the interview changes rather than remembering availability", async () => {

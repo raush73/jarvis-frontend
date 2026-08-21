@@ -1,10 +1,11 @@
 /**
  * Module 4.2 Federal Tax - browser API client.
  *
- * The client half of the worker capsule and nothing more. It adds no endpoint, no transport and no
- * session handling of its own: the four governed worker routes go through the delivered
- * `onboardingWorkerFetch`, exactly as the Phase 4 document, Phase 5 execution and first two module
- * clients do. A second copy of that transport would be a second place for expiry, renewal and
+ * The client half of the capsule and nothing more. It adds no endpoint, no transport and no session
+ * handling of its own: the five governed worker routes go through the delivered
+ * `onboardingWorkerFetch` and the one authorized staff read goes through the delivered
+ * `onboardingAdminFetch`, exactly as the Phase 4 document, Phase 5 execution and first two module
+ * clients do. A second copy of either transport would be a second place for expiry, renewal and
  * refusal classification to drift.
  *
  * The types mirror `modules/federal-tax/federal-tax.view.ts` and the module's own DTO exactly.
@@ -20,7 +21,6 @@
  *    what makes "what was this worker actually asked" answerable afterwards.
  *  - There is no per-answer update. A Save states the WHOLE answer set, because the server applies
  *    the worker's own branching to the whole picture and clears what no longer applies.
- *  - There is no staff or administrative surface. This module has none at all yet.
  *  - There is no artifact, download or completion call. The retained artifact reaches the worker
  *    through the DELIVERED document client, and completion is DERIVED server-side from this
  *    module's own validator rather than claimed by a browser.
@@ -28,8 +28,11 @@
  *    exemption election, no revision, no origin, no executed-at. What the worker certifies is the
  *    answer set the server already holds, read server-side at the moment he certifies, so a client
  *    cannot certify one election while having shown him another.
- *  - There is no subsequent election, correction or future-year replacement call. All three are
- *    separately governed work and none of them has a client here.
+ *  - THERE IS NO ELECTION-EDITING CALL, ON EITHER SURFACE. A correction and a subsequent election
+ *    each produce a NEW election through the same governed sequence a first one travels; neither
+ *    revises a recorded election, and the staff read is a projection with no input shape at all.
+ *  - There is no future-year replacement call, no post-hire self-service call, no worker access-link
+ *    call and no one-time-code call. All of those remain deferred work with no client here.
  *
  * ON BRANCHING. The applicable questions arrive already decided, in order, each with its guidance
  * and the worker's own answer. This client decides applicability for nothing: a second branching
@@ -43,6 +46,7 @@
  * against wording that has since moved.
  */
 
+import { onboardingAdminFetch } from "./onboardingAdminApi";
 import { onboardingWorkerFetch } from "./onboardingApi";
 import type {
   OnboardingExecutionCapture,
@@ -207,11 +211,19 @@ export type SaveFederalTaxInterviewInput = {
 /*  The certification stage, as the worker receives it                         */
 /* -------------------------------------------------------------------------- */
 
-/** Why the certification stage is not open to this worker, where it is not. */
+/**
+ * Why the certification stage is not open to this worker, where it is not.
+ *
+ * THE LAST TWO ARE OPPOSITES AND BOTH ARE NEEDED. `ELECTION_ALREADY_EXECUTED` blocks a FIRST
+ * election and is exactly the condition that opens the governed later one; `NO_OPERATIVE_ELECTION`
+ * blocks a LATER election because there is nothing to correct or supersede. A screen handed the
+ * wrong one of the two would tell the worker the opposite of what is true.
+ */
 export const FEDERAL_TAX_CERTIFICATION_BLOCKERS = [
   "INTERVIEW_NOT_COMPLETE",
   "QUESTION_SET_SUPERSEDED",
   "ELECTION_ALREADY_EXECUTED",
+  "NO_OPERATIVE_ELECTION",
 ] as const;
 export type FederalTaxCertificationBlocker =
   (typeof FEDERAL_TAX_CERTIFICATION_BLOCKERS)[number];
@@ -235,6 +247,17 @@ export type FederalTaxExecutedElection = {
   setVersion: number;
   executedAt: string;
   effectiveFrom: string;
+  /**
+   * When a later election superseded this one, or null while it is the one in force.
+   *
+   * HISTORY RATHER THAN STATE. A superseded election governed the worker's withholding while it
+   * governed it, and this field is what lets a screen say so instead of quietly dropping it.
+   */
+  supersededAt: string | null;
+  current: boolean;
+  /** WHY this election exists, and the governed reason where it corrects an earlier one. */
+  electionOrigin: string;
+  correctionReason: string | null;
   formKey: string;
   formRevision: string;
   exemptionClaimed: boolean;
@@ -243,6 +266,47 @@ export type FederalTaxExecutedElection = {
   executionRecordId: string | null;
   artifactDocumentId: string | null;
   artifactSlotKey: string;
+};
+
+/**
+ * ONE GOVERNED REASON A WORKER MAY ELECT AGAIN, in the words the server chose for him.
+ *
+ * THE WORDING IS THE DISTINCTION AND IT IS THE SERVER'S. A worker never has to know what
+ * "supersede" means; what he chooses between is "something I told you was wrong" and "my situation
+ * has changed". Nothing in this client authors, reorders or reworded either sentence, and `origin`
+ * travels back verbatim rather than being re-derived from which control he clicked.
+ *
+ * `requiresReason` IS THE GOVERNED PAIR RULE, SURFACED - true for the correction alone, so a screen
+ * collects a reason exactly where one is admissible and nowhere else.
+ */
+export type FederalTaxNewElectionOption = {
+  origin: string;
+  title: string;
+  description: string;
+  requiresReason: boolean;
+};
+
+/**
+ * Whether this worker may elect again, and how.
+ *
+ * ADVISORY IN BOTH DIRECTIONS, exactly like `available` beside it: the governed later-election path
+ * re-decides every one of these conditions server-side when the act arrives.
+ */
+export type FederalTaxNewElection = {
+  available: boolean;
+  blockers: FederalTaxCertificationBlocker[];
+  /** The governed origins, or none where electing again is not open to him. */
+  options: FederalTaxNewElectionOption[];
+  /**
+   * THE SAME AUTHORITATIVE CERTIFICATION, PROJECTED AGAINST THE ACT HE HAS NOT YET PERFORMED.
+   *
+   * A LATER ELECTION IS A DIFFERENT ACT AGAINST THE SAME GOVERNED WORDING, and the server says so
+   * here rather than leaving a screen to work it out: the certification on the stage reports the act
+   * that put his CURRENT election in force and reports it satisfied, which it is. This one reports
+   * that nothing has been performed toward the new election, which is also true, and it carries the
+   * identical governed content - so the three values sent back are the delivered subject's own.
+   */
+  certification: OnboardingExecutionSubject;
 };
 
 /**
@@ -279,6 +343,22 @@ export type FederalTaxCertification = {
   blockers: FederalTaxCertificationBlocker[];
   /** His executed election, once one governs him. Null before that. */
   executed: FederalTaxExecutedElection | null;
+  /**
+   * Whether he may make a governed LATER election, and which reasons he may state.
+   *
+   * THE MIRROR IMAGE OF `available`, and the two are never both open: a worker with no election may
+   * certify a first one; a worker with one in force may elect again and is refused at the initial
+   * route.
+   */
+  newElection: FederalTaxNewElection;
+  /**
+   * HIS WHOLE ELECTION HISTORY, newest first, superseded elections INCLUDED.
+   *
+   * Each entry reports what it actually was - its own revision, its own origin, its own reason where
+   * it stated one, and its own artifact - so the copy he opens for a superseded election is the
+   * document that election produced rather than a re-rendering of it.
+   */
+  history: FederalTaxExecutedElection[];
 };
 
 /**
@@ -305,6 +385,25 @@ export type CertifyFederalTaxElectionInput = {
   expectsNoLiabilityForApplicableYear?: boolean;
 };
 
+/**
+ * ONE ACT OF LATER CERTIFICATION: the same act, plus WHY he is electing again.
+ *
+ * IT EXTENDS THE FIRST-ELECTION PAYLOAD AND ADDS EXACTLY TWO FIELDS, and it still carries no
+ * election content of any kind - no filing status, no amount, no exemption, no effective date, no
+ * set version and no supersedes reference. What is elected is the answer set the server already
+ * holds; what this payload adds is the one fact the server cannot derive, because two elections in
+ * a row do not reveal whether the earlier was WRONG or merely EARLIER.
+ *
+ * `origin` IS COPIED FROM THE OPTION THE WORKER CHOSE and never composed here. `correctionReason`
+ * is sent only where that option requires one: the pair rule is the server's, and a reason on an
+ * election that corrects nothing is REFUSED rather than quietly dropped.
+ */
+export type CertifyFederalTaxNewElectionInput =
+  CertifyFederalTaxElectionInput & {
+    origin: string;
+    correctionReason?: string | null;
+  };
+
 /* -------------------------------------------------------------------------- */
 /*  Refusals                                                                   */
 /* -------------------------------------------------------------------------- */
@@ -312,11 +411,11 @@ export type CertifyFederalTaxElectionInput = {
 /**
  * The governed refusals a WORKER can receive from this surface.
  *
- * A SUBSET OF THE MODULE'S VOCABULARY, DELIBERATELY, and the subset grew at Gate 8C because the
- * worker can now perform the act those codes classify. The codes still absent are the ones raised
- * only by acts no worker can perform here - a correction, a superseding election, a proposed
- * election assembled by something other than his own interview - and a screen with words for them
- * would be describing a path that does not exist.
+ * A SUBSET OF THE MODULE'S VOCABULARY, DELIBERATELY, and the subset grew again at Gate 8D because
+ * the worker can now perform the LATER election those codes classify. The codes still absent are the
+ * ones raised only by acts no worker can perform here - an election assembled by something other
+ * than his own interview - and a screen with words for them would be describing a path that does not
+ * exist.
  */
 export const FEDERAL_TAX_WORKER_REFUSAL_CODES = [
   "ANSWER_NOT_GOVERNED",
@@ -333,6 +432,14 @@ export const FEDERAL_TAX_WORKER_REFUSAL_CODES = [
   "ELECTION_BINDING_UNAVAILABLE",
   /** The governed revision the act would be executed under could not be resolved (8-R1). */
   "REVISION_BINDING_REQUIRED",
+  /** A later election was attempted with no election in force to correct or supersede (8D-R4). */
+  "NO_OPERATIVE_ELECTION",
+  /** A later election stated an origin outside the governed pair (8D-R4). */
+  "VALUE_NOT_GOVERNED",
+  /** A correction was submitted without stating what was wrong (8-R7). */
+  "CORRECTION_REASON_REQUIRED",
+  /** A reason was stated on an election that corrects nothing, and is refused rather than dropped. */
+  "CORRECTION_REASON_NOT_PERMITTED",
 ] as const;
 export type FederalTaxWorkerRefusalCode =
   (typeof FEDERAL_TAX_WORKER_REFUSAL_CODES)[number];
@@ -350,7 +457,7 @@ export function federalTaxRefusalCode(
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Worker surface - exactly four calls                                        */
+/*  Worker surface - exactly five calls                                        */
 /* -------------------------------------------------------------------------- */
 
 function workerBase(invocationId: string): string {
@@ -432,6 +539,48 @@ export async function certifyOwnFederalTaxElection(
   invocationId: string,
   input: CertifyFederalTaxElectionInput,
 ): Promise<FederalTaxCertification> {
+  return onboardingWorkerFetch<FederalTaxCertification>(
+    `${workerBase(invocationId)}/certification`,
+    { method: "POST", body: certificationBody(input) },
+  );
+}
+
+/**
+ * CERTIFY A LATER ELECTION: correct an earlier one, or elect differently from now on.
+ *
+ * A SEPARATE ROUTE RATHER THAN A RELAXATION OF THE ONE ABOVE, and the separation is the governed
+ * boundary (8D-R4). The initial route continues to refuse a worker who already has an election with
+ * `ELECTION_ALREADY_EXECUTED`; this one continues to refuse a worker who has none with
+ * `NO_OPERATIVE_ELECTION`. There is no request this client can compose that reaches the first route
+ * with an origin, or this route with a first election.
+ *
+ * IT APPENDS AND IT NEVER EDITS. The server records a NEW election, a NEW act and a NEW artifact and
+ * supersedes what preceded each; the earlier election, act and artifact are retained exactly as they
+ * were. Nothing here names a version to change, and there is no field on the payload through which
+ * one could be named.
+ */
+export async function certifyOwnFederalTaxNewElection(
+  invocationId: string,
+  input: CertifyFederalTaxNewElectionInput,
+): Promise<FederalTaxCertification> {
+  const body = certificationBody(input);
+  body.origin = input.origin;
+  // SENT ONLY WHEN STATED. An empty string is the ABSENCE of a reason rather than a reason that says
+  // nothing, so it is omitted - which is what lets the server apply the governed pair rule to what
+  // the worker actually did instead of to a blank this client invented.
+  const stated = input.correctionReason?.trim() ?? "";
+  if (stated.length > 0) body.correctionReason = stated;
+
+  return onboardingWorkerFetch<FederalTaxCertification>(
+    `${workerBase(invocationId)}/certification/new-election`,
+    { method: "POST", body },
+  );
+}
+
+/** The act, as both certification routes carry it. One shape, so the two cannot drift apart. */
+function certificationBody(
+  input: CertifyFederalTaxElectionInput,
+): Record<string, unknown> {
   const body: Record<string, unknown> = {
     presented: {
       revision: input.presented.revision,
@@ -444,9 +593,88 @@ export async function certifyOwnFederalTaxElection(
       input.expectsNoLiabilityForApplicableYear === true,
   };
   if (input.capture) body.capture = input.capture;
+  return body;
+}
 
-  return onboardingWorkerFetch<FederalTaxCertification>(
-    `${workerBase(invocationId)}/certification`,
-    { method: "POST", body },
+/* -------------------------------------------------------------------------- */
+/*  Authorized staff surface - exactly one read                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ONE GOVERNED ELECTION, as an authorized reader sees it. Mirrors `federal-tax.staff.view.ts`.
+ *
+ * READ-ONLY BY CONSTRUCTION AND BY INTENT. There is no input counterpart to this type anywhere in
+ * this client: no patch shape, no partial election, no field a staff screen could send back. A
+ * withholding election is the employee's, and MW4H may read it, review it and process it
+ * administratively - never author, repair, substitute or complete it.
+ *
+ * AN AMOUNT OF `null` IS NO ELECTION AND IS NOT AN ELECTED ZERO. The distinction survives to the
+ * screen rather than being flattened for display, because rendering a blank as "0.00" would report
+ * an election the worker never made.
+ */
+export type FederalTaxStaffElection = {
+  setVersion: number;
+  /** The revision THIS election was executed under - never today's (8-R1). */
+  formKey: string;
+  formRevision: string;
+  electionOrigin: string;
+  correctionReason: string | null;
+  filingStatus: string;
+  multipleJobsElected: boolean;
+  dependentsCreditAmount: string | null;
+  otherIncomeAmount: string | null;
+  deductionsAmount: string | null;
+  additionalWithholdingAmount: string | null;
+  exemptionClaimed: boolean;
+  executedAt: string;
+  effectiveFrom: string;
+  supersededAt: string | null;
+  current: boolean;
+  receipt: { receivedAt: string; basis: string };
+  executionRecordId: string | null;
+  artifactDocumentId: string | null;
+  artifactSlotKey: string;
+};
+
+/**
+ * Whether the election in force can be processed administratively, and why not where it cannot.
+ *
+ * THE SAME DERIVATION THE ADMINISTRATIVE ACTION USES, READ FOR DISPLAY. Neither block is an opinion
+ * about what the worker elected, and there is nowhere here to record one.
+ */
+export type FederalTaxStaffProcessing = {
+  actionable: boolean;
+  blocks: string[];
+};
+
+/** The whole authorized read: what governs him now, what governed him before, and readiness. */
+export type FederalTaxStaffReview = {
+  moduleKey: string;
+  candidateId: string;
+  current: FederalTaxStaffElection | null;
+  /** EVERY election, newest first, superseded ones NOT omitted. History is the point of this field. */
+  history: FederalTaxStaffElection[];
+  processing: FederalTaxStaffProcessing;
+};
+
+/**
+ * The authorized staff read of one worker's federal withholding record.
+ *
+ * SENSITIVE, AND ENFORCED SERVER-SIDE. `workforce.onboarding.federal-tax.read` is a sensitive grant:
+ * broad administrative visibility does not imply it, recruiting does not hold it, and the route
+ * refuses and audits an unauthorized reader whatever a browser believes about itself. A screen that
+ * hides a control is a courtesy; the refusal is the boundary.
+ *
+ * IT IS A READ AND THERE IS NO WRITE BESIDE IT. Administrative processing is taken through the
+ * DELIVERED administrative-action surface, whose outcome is derived from governed state rather than
+ * chosen by whoever called a URL, and no part of it lives here.
+ */
+export async function getStaffFederalTax(
+  candidateId: string,
+): Promise<FederalTaxStaffReview> {
+  return onboardingAdminFetch<FederalTaxStaffReview>(
+    `/workforce/onboarding/modules/federal-tax/workers/${encodeURIComponent(
+      candidateId,
+    )}`,
   );
 }

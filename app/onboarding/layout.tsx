@@ -19,6 +19,7 @@ import { OnboardingAdminGate } from "@/components/workforce/admin/OnboardingAdmi
 // the capsule says what it renders and under which module key.
 import "@/components/workforce/onboarding/modules/emergency-contacts/register.admin";
 import "@/components/workforce/onboarding/modules/employment-eligibility/register.admin";
+import "@/components/workforce/onboarding/modules/federal-tax/register.admin";
 import "./onboarding-admin.css";
 
 export default function OnboardingAdminLayout({ children }: { children: ReactNode }) {

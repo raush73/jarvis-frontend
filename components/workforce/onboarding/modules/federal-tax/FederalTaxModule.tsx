@@ -118,6 +118,18 @@ const REFUSAL_MESSAGES: Record<FederalTaxWorkerRefusalCode, string> = {
     "Something went wrong at our end and nothing was changed. Please try again.",
   REVISION_BINDING_REQUIRED:
     "Something went wrong at our end and nothing was changed. Please try again.",
+  // The four later-election codes, answered in terms of a SAVE for the same reason as the ones
+  // above: they classify an act performed on the certification surface, which shows its own refusal
+  // beside the control that raised it. A save is only ever about his answers, so that is what these
+  // say - and none of them can be reached by editing an answer.
+  NO_OPERATIVE_ELECTION:
+    "Your answers were not saved. Nothing about your record has changed.",
+  VALUE_NOT_GOVERNED:
+    "One of your answers is not something we can accept. Check the amounts and choices below and save again.",
+  CORRECTION_REASON_REQUIRED:
+    "Your answers were not saved. Nothing about your record has changed.",
+  CORRECTION_REASON_NOT_PERMITTED:
+    "Your answers were not saved. Nothing about your record has changed.",
 };
 
 /**

@@ -45,8 +45,13 @@
  *  - IT NEVER SEES A FULL IDENTIFICATION NUMBER, and there is no call in this capsule that could
  *    obtain one. The retained artifact is opened through the DELIVERED document client by identity,
  *    which returns a short-lived URL fetched at the moment of viewing.
- *  - IT OFFERS NO CORRECTION, no second election and no future-year replacement. All three are
- *    separately governed work with no client anywhere in this capsule.
+ *  - IT NEVER EDITS A RECORDED ELECTION. Once one is in force, what this screen offers is the
+ *    GOVERNED LATER ELECTION - a correction or a subsequent election, composed by
+ *    `FederalTaxNewElection` and travelling its own route - and his own history, shown by
+ *    `FederalTaxHistory`. Both append. Neither revises, replaces in place, or removes anything.
+ *  - IT OFFERS NO FUTURE-YEAR REPLACEMENT, no post-hire self-service, no access link and no
+ *    one-time code. Those remain separately governed, deferred work with no client in this capsule,
+ *    and everything here exists only inside the authenticated, bound onboarding runtime.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -54,24 +59,19 @@ import ExecutionSubjectCard from "@/components/workforce/onboarding/execution/Ex
 import type { ExecutionAct } from "@/components/workforce/onboarding/execution/ExecutionFormControl";
 import type { ExecutionRefusal } from "@/components/workforce/onboarding/execution/useExecutionSubmission";
 import OnboardingErrorNotice from "@/components/workforce/onboarding/runtime/OnboardingErrorNotice";
-import { OnboardingApiError } from "@/lib/workforce/onboardingApi";
 import { getOnboardingDocumentDownload } from "@/lib/workforce/onboardingDocumentApi";
-import {
-  EXECUTION_CONTENT_STALE_CODE,
-  EXECUTION_EVIDENCE_INVALID_CODE,
-  EXECUTION_INFRASTRUCTURE_UNAVAILABLE_CODES,
-  EXECUTION_SUBJECT_GONE_CODES,
-  type OnboardingExecutionSubject,
-} from "@/lib/workforce/onboardingExecutionApi";
+import { type OnboardingExecutionSubject } from "@/lib/workforce/onboardingExecutionApi";
 import {
   certifyOwnFederalTaxElection,
-  federalTaxRefusalCode,
   getOwnFederalTaxCertification,
   // Aliased because this component is named for the stage it renders. The wire type keeps its own
   // name in the client; here it is "the stage", which is also how the prose below refers to it.
   type FederalTaxCertification as FederalTaxCertificationStage,
   type FederalTaxCertificationBlocker,
 } from "@/lib/workforce/federalTaxApi";
+import FederalTaxHistory from "./FederalTaxHistory";
+import FederalTaxNewElection from "./FederalTaxNewElection";
+import { classifyFederalTaxRefusal } from "./federalTaxRefusal";
 
 type Props = {
   invocationId: string;
@@ -94,117 +94,13 @@ const BLOCKER_MESSAGES: Record<FederalTaxCertificationBlocker, string> = {
   QUESTION_SET_SUPERSEDED:
     "We have changed some of these questions since you answered them. Please read your answers through again and confirm your review once more.",
   ELECTION_ALREADY_EXECUTED:
-    "Your choices are already in force. If they need to change, tell your MW4H contact.",
+    "Your choices are already in force. Below you can correct them or elect differently; either way we keep what you signed before.",
+  // Unreachable on the FIRST-election stage, whose blockers are the ones above: this term blocks a
+  // LATER election only. Worded rather than omitted, because a screen that had no sentence for a
+  // governed blocker would render a blank where a reason belongs.
+  NO_OPERATIVE_ELECTION:
+    "You do not have federal withholding choices in force yet, so there is nothing to correct or replace.",
 };
-
-/**
- * A refusal of the ACT, in the worker's own words.
- *
- * The shared refusal SHAPE is reused deliberately - the same four kinds, and the same meaning of
- * `retryable` - because whether the same attempt is worth repeating is a property of the refusal
- * rather than of the module that received it. This module's own governed codes are added to it,
- * because a worker certifying his withholding can now receive them and a raw code must never reach
- * a screen.
- *
- * NOTHING WAS RECORDED WHENEVER THIS IS SHOWN. The governed sequence refuses before it writes, so
- * every message below can say so plainly rather than hedging about what may have happened.
- */
-function classify(error: unknown): ExecutionRefusal {
-  const own = federalTaxRefusalCode(error);
-  if (own === "INTERVIEW_NOT_COMPLETE") {
-    return {
-      kind: "GONE",
-      message:
-        "Your answers are not finished and confirmed, so nothing has been put in force. Read through them above, confirm your review, and try again.",
-      retryable: false,
-      discardEvidence: true,
-    };
-  }
-  if (own === "ELECTION_ALREADY_EXECUTED") {
-    return {
-      kind: "GONE",
-      message:
-        "Your choices are already in force, so nothing further was recorded. If they need to change, tell your MW4H contact.",
-      retryable: false,
-      discardEvidence: true,
-    };
-  }
-  if (own === "EXEMPTION_CONDITIONS_REQUIRED") {
-    return {
-      kind: "GONE",
-      message:
-        "You have to confirm both of the conditions above before we can record that you are claiming no federal income tax needs to be held back. Nothing was recorded.",
-      retryable: false,
-      discardEvidence: true,
-    };
-  }
-  if (own === "ELECTION_BINDING_UNAVAILABLE" || own === "REVISION_BINDING_REQUIRED") {
-    return {
-      kind: "RETRYABLE",
-      message:
-        "We could not finish recording that just now, and nothing has been put in force. Please try again.",
-      retryable: true,
-      discardEvidence: false,
-    };
-  }
-  if (own === "IDENTITY_NOT_AVAILABLE") {
-    return {
-      kind: "GONE",
-      message:
-        "We cannot show you the details this is based on, so we have not put anything in force. Tell your MW4H contact.",
-      retryable: false,
-      discardEvidence: true,
-    };
-  }
-
-  const code = error instanceof OnboardingApiError ? error.code : null;
-  if (code === EXECUTION_CONTENT_STALE_CODE) {
-    return {
-      kind: "STALE",
-      message:
-        "This wording was updated while you were reading it. Nothing was recorded. We have loaded the current version - please read it and sign again.",
-      retryable: false,
-      discardEvidence: true,
-    };
-  }
-  if (code === EXECUTION_EVIDENCE_INVALID_CODE) {
-    return {
-      kind: "EVIDENCE",
-      message:
-        "We could not accept that signature, and nothing was recorded. Please clear it and draw it again.",
-      retryable: false,
-      discardEvidence: true,
-    };
-  }
-  if (code && EXECUTION_SUBJECT_GONE_CODES.includes(code)) {
-    return {
-      kind: "GONE",
-      message:
-        "This is no longer part of your onboarding, and nothing was recorded. We have refreshed this section.",
-      retryable: false,
-      discardEvidence: true,
-    };
-  }
-  // Checked BEFORE the catch-all. Nothing about the worker, his answers or his signature became
-  // invalid, so telling him this is "no longer part of your onboarding" would be both wrong and
-  // destructive - it would clear a signature the server is perfectly willing to accept next time.
-  if (code && EXECUTION_INFRASTRUCTURE_UNAVAILABLE_CODES.includes(code)) {
-    return {
-      kind: "RETRYABLE",
-      message:
-        "We could not record that just now, and nothing has been put in force. Please try again.",
-      retryable: true,
-      discardEvidence: false,
-    };
-  }
-  return {
-    kind: "RETRYABLE",
-    message:
-      "We could not record that just now, and nothing has been put in force. Please try again.",
-    retryable: true,
-    discardEvidence: false,
-  };
-}
 
 export function FederalTaxCertification({
   invocationId,
@@ -288,7 +184,7 @@ export function FederalTaxCertification({
         setStage(value);
         return true;
       } catch (failure: unknown) {
-        const classified = classify(failure);
+        const classified = classifyFederalTaxRefusal(failure);
         setRefusal(classified);
         // Anything that invalidated what was on screen is followed by a fresh read, so he never
         // signs twice against a stage the server has already moved past.
@@ -322,6 +218,20 @@ export function FederalTaxCertification({
       }
     },
     [invocationId],
+  );
+
+  /**
+   * The same retrieval, for any of his elections.
+   *
+   * ONE PATH FOR THE CURRENT COPY AND EVERY HISTORICAL ONE, because they are the same kind of thing:
+   * each election's artifact is the document THAT election produced, named by identity, fetched at
+   * the moment of viewing. A superseded copy is not regenerated to be opened.
+   */
+  const openArtifact = useCallback(
+    (onboardingDocumentId: string) => {
+      void view(onboardingDocumentId);
+    },
+    [view],
   );
 
   /* ---------------------------------------------------------------- render */
@@ -369,7 +279,8 @@ export function FederalTaxCertification({
           ) : null}
           <p className="ft-note">
             This is what we have on record. Nothing changes it on its own, and we will not change it
-            without you. If your circumstances change, tell your MW4H contact.
+            without you - nobody here can alter your choices for you. If something needs to change,
+            you can tell us below while your onboarding is open.
           </p>
         </div>
 
@@ -400,6 +311,22 @@ export function FederalTaxCertification({
             Your copy is being prepared. It will appear in your documents shortly.
           </p>
         )}
+
+        {/*
+          HIS WHOLE RECORD, AND THE GOVERNED WAY TO ADD TO IT. History first, because what he has
+          already elected is the context for electing again; then the two governed reasons, whose
+          wording is the server's. Both are append-only: the panel below produces a NEW election
+          through the same governed sequence as his first one, and the panel above it is a record
+          rather than a set of controls.
+        */}
+        <FederalTaxHistory history={stage.history} onOpenArtifact={openArtifact} />
+
+        <FederalTaxNewElection
+          invocationId={invocationId}
+          newElection={stage.newElection}
+          changeable={changeable}
+          onCertified={setStage}
+        />
       </section>
     );
   }

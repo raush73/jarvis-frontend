@@ -194,6 +194,91 @@
   padding: 0;
 }
 
+/* ------------------------------------------------- history and electing again */
+
+/*
+ * WHAT HE HAS ELECTED, AND HOW TO ELECT AGAIN.
+ *
+ * BOTH SIT BELOW THE ELECTION IN FORCE AND NEITHER COMPETES WITH IT. A superseded election is
+ * presented as a record rather than as a lesser or failed one - it is dimmed nowhere, struck through
+ * nowhere, and marked with no warning colour - because it is what governed the worker's withholding
+ * while it governed it. The only visual distinction is the plain sentence each entry carries.
+ */
+.ft-history,
+.ft-again {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--color-border, #d7dbe2);
+  padding-top: 16px;
+}
+
+.ft-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ft-history-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 3px solid var(--color-border, #d7dbe2);
+  padding-left: 12px;
+}
+
+.ft-history-when,
+.ft-history-why,
+.ft-history-reason,
+.ft-history-exemption {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.ft-history-status {
+  font-weight: 600;
+}
+
+.ft-again-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/*
+ * The two governed reasons, each as a title and the sentence that distinguishes it. Stacked rather
+ * than placed side by side: a worker choosing between "something was wrong" and "my situation has
+ * changed" is reading, not scanning, and the two sentences must not be shortened to fit a column.
+ */
+.ft-again-title,
+.ft-again-description {
+  display: block;
+}
+
+.ft-again-title {
+  font-weight: 600;
+}
+
+.ft-again-description {
+  font-size: 0.9rem;
+  color: var(--color-text-muted, #5b6472);
+}
+
+.ft-again-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ft-again .ob-exec-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
 /* ---------------------------------------------------------------- progress */
 
 .ft-progress {
