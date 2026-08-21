@@ -5,6 +5,11 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { formatPhone } from "@/lib/format";
 import { apiFetch } from "@/lib/api";
+import { useSession } from "@/lib/auth/useSession";
+import {
+  isPromoteToProspectActionVisible,
+  parseJarvisApiError,
+} from "@/lib/customers/lead-to-prospect";
 import type { OrderListItem } from "@/lib/types/order";
 import { getOrderPhase, getPhaseLabel, getPhaseBadgeClass } from "@/lib/order-lifecycle";
 import { HEALTH_STATUS_COLORS } from "@/lib/constants/margin-health";
@@ -165,6 +170,7 @@ export default function CustomerDetailPage() {
   const router = useRouter();
   const params = useParams();
   const customerId = params.id as string;
+  const session = useSession();
 
 
   const [toolNameById, setToolNameById] = useState<Record<string, string>>({});
@@ -200,6 +206,8 @@ export default function CustomerDetailPage() {
   const [headerLoading, setHeaderLoading] = useState(true);
   const [headerError, setHeaderError] = useState("");
   const [liveCustomer, setLiveCustomer] = useState<any>(null);
+  const [promotingToProspect, setPromotingToProspect] = useState(false);
+  const [promoteToProspectError, setPromoteToProspectError] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -607,6 +615,34 @@ export default function CustomerDetailPage() {
       // silent — read flow is not broken by a refresh failure
     }
   };
+
+  const canPromoteToProspect =
+    isPromoteToProspectActionVisible(liveCustomer?.lifecycleStatus) &&
+    session.ready &&
+    session.authenticated &&
+    session.hasPermission("customers.write");
+
+  const handlePromoteToProspect = useCallback(async () => {
+    if (promotingToProspect) return;
+    setPromotingToProspect(true);
+    setPromoteToProspectError("");
+    try {
+      const updated = await apiFetch<any>(
+        `/customers/${customerId}/promote-to-prospect`,
+        { method: "POST" },
+      );
+      setLiveCustomer((prev: any) => ({ ...prev, ...updated }));
+    } catch (e: unknown) {
+      setPromoteToProspectError(
+        parseJarvisApiError(
+          e,
+          "Promotion failed. The company was not changed.",
+        ),
+      );
+    } finally {
+      setPromotingToProspect(false);
+    }
+  }, [customerId, promotingToProspect]);
 
   // --- Call History (Phase 14B) ---
   const [callHistory, setCallHistory] = useState<any[]>([]);
@@ -1321,8 +1357,25 @@ export default function CustomerDetailPage() {
             )}
           </div>
         </div>
-        <button className="edit-company-btn" onClick={startEditCompany}>Edit Company</button>
+        <div className="header-actions">
+          {canPromoteToProspect && (
+            <button
+              className="promote-prospect-btn"
+              onClick={handlePromoteToProspect}
+              disabled={promotingToProspect}
+            >
+              {promotingToProspect ? "Promoting…" : "Promote to Prospect"}
+            </button>
+          )}
+          <button className="edit-company-btn" onClick={startEditCompany}>Edit Company</button>
+        </div>
       </div>
+
+      {promoteToProspectError && (
+        <div className="promote-prospect-error" role="alert">
+          {promoteToProspectError}
+        </div>
+      )}
 
       {/* Company Edit Modal */}
       {editingCompany && (
@@ -3010,6 +3063,14 @@ export default function CustomerDetailPage() {
           font-weight: 600;
         }
 
+        /* --- Header actions --- */
+        .header-actions {
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          margin-top: 24px;
+        }
+
         /* --- Edit Company Button --- */
         .edit-company-btn {
           padding: 7px 16px;
@@ -3023,7 +3084,40 @@ export default function CustomerDetailPage() {
           transition: background 0.12s, border-color 0.12s;
           white-space: nowrap;
           align-self: flex-start;
-          margin-top: 24px;
+          margin-top: 0;
+        }
+        .edit-company-btn:hover {
+          background: #f1f5f9;
+          border-color: #9ca3af;
+        }
+        .promote-prospect-btn {
+          padding: 7px 16px;
+          font-size: 13px;
+          font-weight: 600;
+          border: 1px solid #1d4ed8;
+          border-radius: 7px;
+          background: #2563eb;
+          color: #ffffff;
+          cursor: pointer;
+          transition: background 0.12s, border-color 0.12s;
+          white-space: nowrap;
+          align-self: flex-start;
+        }
+        .promote-prospect-btn:hover:not(:disabled) {
+          background: #1d4ed8;
+        }
+        .promote-prospect-btn:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+        }
+        .promote-prospect-error {
+          margin: 0 0 16px 0;
+          padding: 10px 14px;
+          border-radius: 7px;
+          border: 1px solid #fecaca;
+          background: #fef2f2;
+          color: #b91c1c;
+          font-size: 13px;
         }
         .edit-company-btn:hover {
           background: #f1f5f9;
