@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
-const UPSTREAM_BASE = "http://127.0.0.1:3000";
+const UPSTREAM_BASE = BACKEND_ORIGIN;
 
 function passthroughResponse(res: Response, text: string) {
   return new NextResponse(text, {

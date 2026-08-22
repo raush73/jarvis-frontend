@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 export async function POST(
   req: Request,
@@ -6,7 +7,7 @@ export async function POST(
 ) {
   const { id } = await params;
   const token = req.headers.get("authorization") || "";
-  const res = await fetch(`http://127.0.0.1:3000/orders/${id}/activate`, {
+  const res = await fetch(`${BACKEND_ORIGIN}/orders/${id}/activate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

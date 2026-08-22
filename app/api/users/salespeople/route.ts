@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 export async function GET(req: Request) {
   const token = req.headers.get("authorization") || "";
-  const res = await fetch("http://127.0.0.1:3000/users/salespeople", {
+  const res = await fetch(`${BACKEND_ORIGIN}/users/salespeople`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",

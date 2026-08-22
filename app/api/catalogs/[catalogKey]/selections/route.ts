@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 // C4E stale-selection resolution. Static segment, so it is matched ahead of the parent
 // [catalogKey] route.
@@ -11,7 +12,7 @@ export async function POST(
   const body = await req.text();
 
   const res = await fetch(
-    `http://127.0.0.1:3000/catalogs/${encodeURIComponent(catalogKey)}/selections`,
+    `${BACKEND_ORIGIN}/catalogs/${encodeURIComponent(catalogKey)}/selections`,
     {
       method: "POST",
       headers: {

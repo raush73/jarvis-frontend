@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
-const BACKEND = "http://127.0.0.1:3000";
+const BACKEND = BACKEND_ORIGIN;
 
 export async function POST(req: NextRequest) {
   try {

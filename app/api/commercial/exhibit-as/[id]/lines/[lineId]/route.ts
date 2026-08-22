@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 async function proxyRequest(
   req: Request,
@@ -9,7 +10,7 @@ async function proxyRequest(
   const token = req.headers.get("authorization") || "";
   const body = method !== "DELETE" ? await req.text() : undefined;
   const res = await fetch(
-    `http://127.0.0.1:3000/commercial/exhibit-as/${id}/lines/${lineId}`,
+    `${BACKEND_ORIGIN}/commercial/exhibit-as/${id}/lines/${lineId}`,
     {
       method,
       headers: {

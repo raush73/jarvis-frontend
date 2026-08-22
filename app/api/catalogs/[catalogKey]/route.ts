@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 // C4E staff-facing catalog selection surface (consumer projection): active entries only,
 // already grouped and ordered by the server.
@@ -10,7 +11,7 @@ export async function GET(
   const token = req.headers.get("authorization") || "";
 
   const res = await fetch(
-    `http://127.0.0.1:3000/catalogs/${encodeURIComponent(catalogKey)}`,
+    `${BACKEND_ORIGIN}/catalogs/${encodeURIComponent(catalogKey)}`,
     {
       headers: {
         "Content-Type": "application/json",

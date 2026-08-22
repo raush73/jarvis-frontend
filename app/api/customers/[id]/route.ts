@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 export async function GET(
   req: Request,
@@ -6,7 +7,7 @@ export async function GET(
 ) {
   const { id } = await params;
   const token = req.headers.get("authorization") || "";
-  const res = await fetch(`http://127.0.0.1:3000/customers/${id}`, {
+  const res = await fetch(`${BACKEND_ORIGIN}/customers/${id}`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
@@ -29,7 +30,7 @@ export async function PATCH(
   const { id } = await params;
   const token = req.headers.get("authorization") || "";
   const body = await req.text();
-  const res = await fetch(`http://127.0.0.1:3000/customers/${id}`, {
+  const res = await fetch(`${BACKEND_ORIGIN}/customers/${id}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",

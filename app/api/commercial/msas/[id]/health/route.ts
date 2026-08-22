@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 export async function GET(
   req: Request,
@@ -7,7 +8,7 @@ export async function GET(
   const { id } = await params;
   const token = req.headers.get("authorization") || "";
   const res = await fetch(
-    `http://127.0.0.1:3000/commercial/msas/${id}/health`,
+    `${BACKEND_ORIGIN}/commercial/msas/${id}/health`,
     {
       headers: {
         ...(token ? { Authorization: token } : {}),

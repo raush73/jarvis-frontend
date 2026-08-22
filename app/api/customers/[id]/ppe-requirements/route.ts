@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 export async function GET(
   req: Request,
@@ -8,7 +9,7 @@ export async function GET(
   const token = req.headers.get("authorization") || "";
 
   const url = new URL(req.url);
-  const backendUrl = new URL(`http://127.0.0.1:3000/customers/${id}/ppe-requirements`);
+  const backendUrl = new URL(`${BACKEND_ORIGIN}/customers/${id}/ppe-requirements`);
   backendUrl.search = url.search;
 
   const res = await fetch(backendUrl.toString(), {
@@ -35,7 +36,7 @@ export async function POST(
   const token = req.headers.get("authorization") || "";
   const body = await req.text();
 
-  const res = await fetch(`http://127.0.0.1:3000/customers/${id}/ppe-requirements`, {
+  const res = await fetch(`${BACKEND_ORIGIN}/customers/${id}/ppe-requirements`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

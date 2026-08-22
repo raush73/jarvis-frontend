@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
-const UPSTREAM = "http://127.0.0.1:3000";
+const UPSTREAM = BACKEND_ORIGIN;
 
 export function proxyGet(backendPath: string) {
   return async function GET(req: NextRequest) {

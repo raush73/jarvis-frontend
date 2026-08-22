@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 export async function GET(
   req: Request,
@@ -7,7 +8,7 @@ export async function GET(
   const token = req.headers.get("authorization") || "";
   const { id } = await ctx.params;
 
-  const backendUrl = new URL(`http://127.0.0.1:3000/customers/${id}/tool-types`);
+  const backendUrl = new URL(`${BACKEND_ORIGIN}/customers/${id}/tool-types`);
 
   const res = await fetch(backendUrl.toString(), {
     method: "GET",

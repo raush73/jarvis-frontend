@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
-const BACKEND_BASE = "http://127.0.0.1:3000";
+const BACKEND_BASE = BACKEND_ORIGIN;
 
 function getAuthHeader(req: NextRequest): HeadersInit {
   const auth = req.headers.get("authorization");

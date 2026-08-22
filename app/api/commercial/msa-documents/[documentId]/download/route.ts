@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 export async function GET(
   req: Request,
@@ -7,7 +8,7 @@ export async function GET(
   const { documentId } = await params;
   const token = req.headers.get("authorization") || "";
   const res = await fetch(
-    `http://127.0.0.1:3000/commercial/msa-documents/${documentId}/download`,
+    `${BACKEND_ORIGIN}/commercial/msa-documents/${documentId}/download`,
     {
       method: "GET",
       headers: {

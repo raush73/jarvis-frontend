@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 export async function POST(
   req: Request,
@@ -8,7 +9,7 @@ export async function POST(
   const token = req.headers.get("authorization") || "";
   const body = await req.text();
   const res = await fetch(
-    `http://127.0.0.1:3000/commercial/rate-sheets/${id}/lines`,
+    `${BACKEND_ORIGIN}/commercial/rate-sheets/${id}/lines`,
     {
       method: "POST",
       headers: {

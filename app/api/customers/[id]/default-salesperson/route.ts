@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 export async function PATCH(
   req: Request,
@@ -8,7 +9,7 @@ export async function PATCH(
   const token = req.headers.get("authorization") || "";
   const body = await req.text();
   const res = await fetch(
-    `http://127.0.0.1:3000/customers/${id}/default-salesperson`,
+    `${BACKEND_ORIGIN}/customers/${id}/default-salesperson`,
     {
       method: "PATCH",
       headers: {

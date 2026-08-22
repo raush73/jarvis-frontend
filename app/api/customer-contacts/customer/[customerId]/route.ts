@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
 
 /**
  * Proxy: GET /api/customer-contacts/customer/:customerId
@@ -13,7 +14,7 @@ export async function GET(
 
   const url = new URL(req.url);
   const backendUrl = new URL(
-    `http://127.0.0.1:3000/customer-contacts/customer/${customerId}`,
+    `${BACKEND_ORIGIN}/customer-contacts/customer/${customerId}`,
   );
   backendUrl.search = url.search;
 

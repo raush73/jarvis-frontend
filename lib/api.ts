@@ -1,4 +1,6 @@
-﻿/**
+import { BACKEND_ORIGIN } from "@/lib/backendOrigin";
+
+/**
  * API base strategy:
  * - ALWAYS use SAME-ORIGIN /api/* so Next can proxy to backend (avoids CORS)
  *
@@ -8,7 +10,7 @@
 export const API_BASE =
   typeof window !== "undefined"
     ? (process.env.NEXT_PUBLIC_API_BASE ?? "/api")
-    : (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:3000");
+    : (process.env.NEXT_PUBLIC_API_BASE ?? BACKEND_ORIGIN);
 
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") return null;
