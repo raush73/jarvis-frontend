@@ -21,6 +21,7 @@ import OnboardingSessionWatch from "@/components/workforce/onboarding/runtime/On
 import "@/components/workforce/onboarding/modules/emergency-contacts/register.worker";
 import "@/components/workforce/onboarding/modules/employment-eligibility/register.worker";
 import "@/components/workforce/onboarding/modules/federal-tax/register.worker";
+import "@/components/workforce/onboarding/modules/payroll-payment/register.worker";
 import "./onboarding.css";
 
 export default function OnboardingLayout({ children }: { children: ReactNode }) {
