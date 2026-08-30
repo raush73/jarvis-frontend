@@ -157,6 +157,15 @@ export type PayrollPaymentViolation = {
  * masked string is a poor way to answer it - not because the value is available anywhere.
  */
 export type PayrollPaymentAccountView = {
+  /**
+   * WHICH ACCOUNT THIS IS: the server's stable, opaque identifier for it (owner ruling QA-L4-R1).
+   *
+   * The browser holds it and echoes it back on save, which is how the server knows that the
+   * account now shown second is the same account it was holding third. It is NOT the display
+   * order and is never derived from one, and it carries no part of any banking value.
+   */
+  accountId: string;
+  /** Display order, 1..n, for the worker to read. Never an identity. */
   position: number;
   accountType: PayrollDepositAccountType | null;
   financialInstitutionName: string;
@@ -220,9 +229,18 @@ export type PayrollPaymentReview = {
  * BOTH ACCOUNT-NUMBER ENTRIES ARE SEPARATE FIELDS AND BOTH TRAVEL. That is the whole mechanism of
  * the independent second entry: the browser sends what he typed twice and the server decides
  * whether they are the same. Omitting both carries the stored account number and its existing
- * confirmation forward; supplying either requires both.
+ * confirmation forward - FOR THE ACCOUNT `accountId` NAMES, and for no other.
  */
 export type SavePayrollPaymentAccountInput = {
+  /**
+   * The account this row IS, or absent to say it is a new one (owner ruling QA-L4-R1).
+   *
+   * Sent for every account the server already holds, so that a removal, a reorder or a renumber
+   * cannot move one account's protected banking values onto another. A NEW account sends none,
+   * inherits nothing, and must supply its account number twice like any first entry.
+   */
+  accountId?: string | null;
+  /** Display order only. The server re-derives it and never reads it as identity. */
   position?: number;
   accountType?: PayrollDepositAccountType | null;
   financialInstitutionName?: string | null;
@@ -276,6 +294,16 @@ export const PAYROLL_PAYMENT_WORKER_REFUSAL_CODES = [
   "ALLOCATION_KIND_NOT_GOVERNED",
   "FINANCIAL_INSTITUTION_REQUIRED",
   "ACCOUNT_POSITION_INVALID",
+  /**
+   * The browser named an account the server is not holding, or named one twice (QA-L4-R1).
+   *
+   * NEITHER IS SOMETHING A WORKER CAN DO THROUGH THE SCREEN, so both read as our fault rather than
+   * his - which is what their sentences say. They exist because the alternative to refusing an
+   * identifier the server cannot place is guessing which account it meant, and what would be
+   * guessed at is which bank account his wages go to.
+   */
+  "DEPOSIT_ACCOUNT_NOT_RECOGNIZED",
+  "DEPOSIT_ACCOUNT_DUPLICATED",
   "ALLOCATION_MODE_MIXED",
   "PERCENTAGE_TOTAL_INVALID",
   "REMAINING_BALANCE_ACCOUNT_REQUIRED",

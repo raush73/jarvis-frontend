@@ -42,6 +42,13 @@ const REFUSAL_MESSAGES: Record<PayrollPaymentWorkerRefusalCode, string> = {
     "Tell us the name of your bank or credit union. Nothing was saved.",
   ACCOUNT_POSITION_INVALID:
     "Something went wrong at our end and nothing was saved. Please try again.",
+  // Neither of these is the worker's mistake. The first is reachable honestly - a second tab, or a
+  // stale screen, saving an account that has since been removed - so it tells him to look at what
+  // we actually hold rather than implying he did something wrong.
+  DEPOSIT_ACCOUNT_NOT_RECOGNIZED:
+    "Your account details have changed since this page was loaded, so nothing was saved. Reload the page to see what we have, then make your change again.",
+  DEPOSIT_ACCOUNT_DUPLICATED:
+    "Something went wrong at our end and nothing was saved. Please try again.",
   ALLOCATION_MODE_MIXED:
     "You can divide your pay by percentage, or by set amounts with one account getting whatever is left - but not both at once. Nothing was saved.",
   PERCENTAGE_TOTAL_INVALID:

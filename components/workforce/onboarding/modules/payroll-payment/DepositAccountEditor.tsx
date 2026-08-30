@@ -100,9 +100,12 @@ export default function DepositAccountEditor({
           {position === 1 ? "First account" : position === 2 ? "Second account" : "Third account"}
         </h4>
         {removable ? (
+          // A visible control, as the delivered modules write one (QA-L4-UX-1): quiet enough not
+          // to invite a click, and a button rather than a run of text. It ASKS to remove the
+          // account; the module puts the question (QA-L4-UX-6).
           <button
             type="button"
-            className="wf-button-quiet"
+            className="wf-btn wf-btn-ghost wf-btn-sm"
             data-pp-remove-account={position}
             disabled={disabled}
             onClick={onRemove}
@@ -203,7 +206,11 @@ export default function DepositAccountEditor({
           id={`${ids}-account-again`}
           testId="account-confirm"
           label="Type the account number again"
-          help="Please type it out rather than copying it. Typing it twice is the only way we can catch a wrong digit before payday."
+          // ONE SENTENCE, AND IT IS THE ONLY PLACE THIS IS EXPLAINED (QA-L4-UX-2). The instruction
+          // used to be given three times over - here, again under the boxes, and again in the fine
+          // print - which is how a worker learns to stop reading. What he needs is what to do and
+          // why it is worth doing, once.
+          help="Type it out again rather than copying it, so we can catch a wrong digit before payday."
           value={entry.accountNumberConfirmation}
           disabled={disabled}
           invalid={differs}
@@ -212,10 +219,10 @@ export default function DepositAccountEditor({
         />
 
         {blocked ? (
+          // Said when a paste or an autofill is turned away, and said briefly: the reason is in the
+          // instruction above the box, and repeating it here was the repetition (QA-L4-UX-2).
           <p className="pp-field-note" role="status" data-pp-entry-blocked>
-            Please type the account number in rather than pasting it. We ask for it twice so that a
-            wrong digit is caught now instead of on payday, and a copy of the first box cannot do
-            that.
+            Please type the account number in rather than pasting it.
           </p>
         ) : null}
 
@@ -234,8 +241,8 @@ export default function DepositAccountEditor({
 
       <p className="pp-fine">
         Account numbers are usually between {PAYROLL_ACCOUNT_NUMBER_MIN_LENGTH} and{" "}
-        {PAYROLL_ACCOUNT_NUMBER_MAX_LENGTH} digits. We will never show you the whole number again
-        once it is saved.
+        {PAYROLL_ACCOUNT_NUMBER_MAX_LENGTH} digits. We hide what you have typed when you move on
+        from a box, and we will never show you the whole number again once it is saved.
       </p>
     </section>
   );

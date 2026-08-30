@@ -38,9 +38,46 @@
  * because a number input drops leading zeros, and an account number's leading zero is a digit.
  * There is no `name` a form-filler recognises, no label text a heuristic matches on, and the value
  * never reaches an id, a key, a data attribute or the console.
+ *
+ * AND IT IS ON SCREEN ONLY WHILE HE IS IN THE BOX (QA-L4-UX-3). Real-browser QA left an account
+ * number sitting in full view in two boxes for the rest of the interview. So the moment the box
+ * stops being the one he is working in, what is DISPLAYED becomes the masked tail - the same shape
+ * the review and the saved-account line use, because a worker should not have to learn a second
+ * convention for the same thing.
+ *
+ * WHAT IS MASKED IS THE DISPLAY, AND ONLY THE DISPLAY. The value the worker typed stays exactly
+ * where it was - in the module's own state, whole and untouched - because the SERVER's comparison
+ * of the two entries is what confirms the account number (10-R10, 10-R13), and a browser that
+ * threw away or truncated what it had collected would have nothing honest to send. Masking early
+ * would be a browser deciding it knows better than the check it exists to feed.
+ *
+ * THE ONE PROPERTY THIS BUYS BEYOND PRIVACY: while the box is masked the plaintext is not in the
+ * DOM at all, so it is not in a screenshot, a screen-share, a support session or a serialisation
+ * of the page. When he comes back to the box it is his own value he finds there, ready to correct,
+ * rather than a cleared box demanding the whole thing again.
  */
 
-import { useCallback, type ChangeEvent, type ClipboardEvent, type DragEvent } from "react";
+import {
+  useCallback,
+  useState,
+  type ChangeEvent,
+  type ClipboardEvent,
+  type DragEvent,
+} from "react";
+
+/**
+ * What a box shows when it is not the one being worked in.
+ *
+ * FOUR BULLETS AND THE LAST FOUR DIGITS, which is the masking convention already in force
+ * everywhere else in this module - the review panel, the saved-routing line and the saved-account
+ * line all read `••••6789`, because that is what the server returns. A value too short to have a
+ * tail worth showing is shown as bullets alone rather than as most of itself.
+ */
+export function maskedEntry(value: string): string {
+  const held = value.trim();
+  if (held.length === 0) return "";
+  return held.length > 4 ? `••••${held.slice(-4)}` : "••••";
+}
 
 export default function AccountNumberField({
   id,
@@ -64,6 +101,15 @@ export default function AccountNumberField({
   onBlocked: () => void;
   testId: string;
 }) {
+  /**
+   * Whether this is the box he is working in, which is the only thing that decides what is shown.
+   *
+   * SET BY FOCUS AND BY EDITING, cleared by blur. Focus is the honest signal and is what a browser
+   * gives; an accepted edit is here as well because an edit IS the worker working in the box, and
+   * a box that could be typed into while displaying a mask of its own contents would be a trap.
+   */
+  const [working, setWorking] = useState(false);
+
   const refuse = useCallback(
     (event: ClipboardEvent<HTMLInputElement> | DragEvent<HTMLInputElement>) => {
       event.preventDefault();
@@ -75,15 +121,23 @@ export default function AccountNumberField({
   const change = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const next = event.target.value;
+      // A CHANGE CARRYING THE MASK IS NOT A CHANGE HE MADE. The mask is what the box shows while he
+      // is not in it (QA-L4-UX-3); taking it as the value would replace his account number with a
+      // picture of its last four digits, and the server would be asked to confirm that. A bullet is
+      // not something a person types into an account number, so there is nothing else this can be.
+      if (next.includes("•")) return;
       // One character at a time, or fewer characters than before. Anything else was not typed.
       if (next.length > value.length + 1) {
         onBlocked();
         return;
       }
+      setWorking(true);
       onChange(next);
     },
     [onBlocked, onChange, value.length],
   );
+
+  const shown = working ? value : maskedEntry(value);
 
   return (
     <div className="pp-field">
@@ -105,11 +159,14 @@ export default function AccountNumberField({
         autoCapitalize="off"
         spellCheck={false}
         data-pp-field={testId}
+        data-pp-masked={!working && value.trim().length > 0 ? "true" : undefined}
         aria-describedby={help ? `${id}-help` : undefined}
         aria-invalid={invalid || undefined}
-        value={value}
+        value={shown}
         disabled={disabled}
         onChange={change}
+        onFocus={() => setWorking(true)}
+        onBlur={() => setWorking(false)}
         onPaste={refuse}
         onDrop={refuse}
         onCopy={refuse}

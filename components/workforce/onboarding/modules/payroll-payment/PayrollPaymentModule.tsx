@@ -80,11 +80,12 @@ import AllocationEditor from "./AllocationEditor";
 import DepositAccountEditor from "./DepositAccountEditor";
 import PaymentMethodChoice from "./PaymentMethodChoice";
 import PayrollPaymentReviewPanel from "./PayrollPaymentReviewPanel";
+import RemoveAccountPrompt from "./RemoveAccountPrompt";
 import {
   entriesFromServer,
   newAccountEntry,
+  reconcileEntries,
   toAccountInput,
-  withoutEnteredValues,
   type PayrollAccountEntry,
 } from "./payrollPaymentEntry";
 import {
@@ -95,6 +96,9 @@ import "./payroll-payment.css";
 
 /** Where in his own interview the worker is. Not persisted, and not a position we remember. */
 type Stage = "METHOD" | "DETAILS" | "REVIEW";
+
+/** Nothing is outstanding until he has asked to go on. See `attempted` below. */
+const NOTHING_OUTSTANDING: PayrollPaymentInterview["violations"] = [];
 
 export function PayrollPaymentModule({
   invocationId,
@@ -115,6 +119,37 @@ export function PayrollPaymentModule({
   const [saved, setSaved] = useState(false);
   const [review, setReview] = useState<PayrollPaymentReview | null>(null);
   const [reviewError, setReviewError] = useState<unknown>(null);
+
+  /**
+   * WHETHER HE HAS ASKED TO GO ON. The broken rules are shown when he has, and not before.
+   *
+   * WHY THIS FLAG EXISTS (QA-L4-UX-7). The rules come from the server, and the server is asked
+   * as soon as the worker CHOOSES Direct Deposit - because choosing a payment method is itself
+   * saved. So the very first answer, before he has been given a box to type in, is that he has
+   * no account yet: perfectly true, and it was being shown to him in a red box headed "Before
+   * you can go on" while he was going on. Real-browser QA caught exactly that.
+   *
+   * A HALF-FILLED FORM IS NOT AN ERROR, AND THIS IS THE WHOLE DISTINCTION. The screen holds two
+   * different things and used to conflate them: what the server says is outstanding, which is a
+   * fact about the proposal, and whether the worker has reached the point where being told about
+   * it helps him, which is a fact about him. Red says "you asked to go on and this must be
+   * corrected first". It does not say "you have not finished typing".
+   *
+   * IT GATES PRESENTATION AND NOTHING ELSE. Every rule is still applied, still by the server,
+   * still on every save; `readyForReview` is still the server's answer and still what stops the
+   * review from opening. What the flag decides is the moment a sentence appears on screen.
+   */
+  const [attempted, setAttempted] = useState(false);
+
+  /**
+   * WHICH ROW HE HAS ASKED TO REMOVE, by its row key, while he is being asked whether he means
+   * it (QA-L4-UX-6). Null when nothing is being asked.
+   *
+   * BY KEY AND NOT BY INDEX, deliberately. An index is a position, and this module has already
+   * paid once for treating a position as an identity (QA-L4-R1): the row a worker pointed at is
+   * the row that must be removed, not whichever row later occupies that slot.
+   */
+  const [removing, setRemoving] = useState<string | null>(null);
 
   /* ------------------------------------------------------------------ read */
 
@@ -193,10 +228,27 @@ export function PayrollPaymentModule({
 
   /* ----------------------------------------------------------------- edits */
 
-  const changeEntry = useCallback((index: number, next: PayrollAccountEntry) => {
-    setEntries((held) => held.map((entry, at) => (at === index ? next : entry)));
+  /**
+   * He has changed something, so what the server last said is outstanding is no longer what it
+   * would say now (QA-L4-UX-7).
+   *
+   * The list on screen is a SNAPSHOT of the last answer, and an edit is the moment it goes stale.
+   * Leaving it up would leave a worker who has just fixed the thing looking at the complaint about
+   * it, which is the other half of the same defect: red must not outlive the condition that
+   * earned it. The next save asks again and, if anything is genuinely still outstanding, says so.
+   */
+  const changed = useCallback(() => {
     setSaved(false);
+    setAttempted(false);
   }, []);
+
+  const changeEntry = useCallback(
+    (index: number, next: PayrollAccountEntry) => {
+      setEntries((held) => held.map((entry, at) => (at === index ? next : entry)));
+      changed();
+    },
+    [changed],
+  );
 
   const addAccount = useCallback(() => {
     setEntries((held) => {
@@ -213,29 +265,48 @@ export function PayrollPaymentModule({
         newAccountEntry(held.length === 1 ? null : mode),
       ];
     });
-    setSaved(false);
-  }, [mode]);
+    changed();
+  }, [changed, mode]);
 
-  const removeAccount = useCallback((index: number) => {
-    setEntries((held) => held.filter((_, at) => at !== index));
-    setSaved(false);
-  }, []);
+  /**
+   * REMOVE THE ROW HE POINTED AT, once he has said he means it.
+   *
+   * REMOVING AN ACCOUNT IS DESTRUCTIVE TWICE OVER, which is why it is asked about first
+   * (QA-L4-UX-6). It discards banking details he typed out and confirmed digit by digit, and it
+   * can unpick how his pay is divided - taking away the account that was to receive the remainder
+   * leaves an instruction that no longer says where the rest of his wages go. Real-browser QA
+   * removed an account with one click and no question asked.
+   *
+   * The removal ITSELF is unchanged: the row goes, nothing else is touched, and the surviving rows
+   * keep their own server identities and their own protected values (QA-L4-R1).
+   */
+  const removeAccount = useCallback(
+    (key: string) => {
+      setEntries((held) => held.filter((entry) => entry.key !== key));
+      setRemoving(null);
+      changed();
+    },
+    [changed],
+  );
 
-  const chooseMode = useCallback((next: PayrollPaymentAllocationMode) => {
-    setMode(next);
-    // Choosing a mode rewrites every account's method to match, because that is what choosing it
-    // MEANS - one mode per instruction, never both.
-    setEntries((held) =>
-      held.map((entry) => ({
-        ...entry,
-        allocationKind:
-          next === PAYROLL_PAYMENT_ALLOCATION_MODE_PERCENTAGE ? "PERCENTAGE" : null,
-        allocationPercentage: "",
-        allocationAmount: "",
-      })),
-    );
-    setSaved(false);
-  }, []);
+  const chooseMode = useCallback(
+    (next: PayrollPaymentAllocationMode) => {
+      setMode(next);
+      // Choosing a mode rewrites every account's method to match, because that is what choosing it
+      // MEANS - one mode per instruction, never both.
+      setEntries((held) =>
+        held.map((entry) => ({
+          ...entry,
+          allocationKind:
+            next === PAYROLL_PAYMENT_ALLOCATION_MODE_PERCENTAGE ? "PERCENTAGE" : null,
+          allocationPercentage: "",
+          allocationAmount: "",
+        })),
+      );
+      changed();
+    },
+    [changed],
+  );
 
   /* ------------------------------------------------------------------ save */
 
@@ -288,9 +359,7 @@ export function PayrollPaymentModule({
         setEntries((held) =>
           value.accounts.length === 0
             ? []
-            : held.map((entry, index) =>
-                withoutEnteredValues(entry, value.accounts[index]),
-              ),
+            : reconcileEntries(held, value.accounts),
         );
         setSaveError(null);
         setSaved(true);
@@ -306,10 +375,25 @@ export function PayrollPaymentModule({
     [entries, invocationId, method, mode],
   );
 
+  /**
+   * The two acts that ASK TO GO ON, and the only two that put a red summary on screen.
+   *
+   * Both are the worker deliberately handing the proposal to the server, which is the point at
+   * which what is still outstanding is something he needs to be told (QA-L4-UX-7). Every OTHER
+   * save in this file - and there is one every time he picks a payment method - is a consequence
+   * of something else he did, and answers a question he did not ask.
+   */
+  const attemptSave = useCallback(async () => {
+    setAttempted(true);
+    await persist();
+  }, [persist]);
+
   const chooseMethod = useCallback(
     async (next: PayrollPaymentMethod) => {
       setMethod(next);
       setSaved(false);
+      // Choosing how to be paid is the START of the work, so it reports nothing as outstanding.
+      setAttempted(false);
       setReview(null);
       // A worker who moves to the payroll card is not also stating bank accounts, and one who moves
       // the other way has none to state yet.
@@ -325,6 +409,7 @@ export function PayrollPaymentModule({
   );
 
   const openReview = useCallback(async () => {
+    setAttempted(true);
     const value = await persist();
     if (!value || !value.readyForReview) return;
     try {
@@ -359,7 +444,35 @@ export function PayrollPaymentModule({
   }
 
   const refusal = payrollPaymentRefusalCode(saveError);
-  const violations = interview.violations;
+  /**
+   * What the server says is outstanding, shown when he has asked to go on AND WE HAVE THE ANSWER TO
+   * THAT ASKING (QA-L4-UX-7, corrected by QA-L4-UX-7A).
+   *
+   * `interview.violations` is untouched and is still the server's own list. Two things have to be
+   * true before it is put on screen, and the second one is what QA-L4-UX-7A adds.
+   *
+   * WHY IT IS NOT ENOUGH THAT HE ASKED. `interview` is the LAST ANSWER THE SERVER GAVE, which
+   * during a request in flight is the answer to an OLDER question. Real-browser QA caught what that
+   * costs: a worker with three valid accounts clicked Review info, and for the length of the round
+   * trip the screen showed him "Add the account you would like your pay sent to" and "Choose how
+   * your pay should be divided" - both perfectly true when they were said, which was when he first
+   * chose Direct Deposit and the server held nothing. He had answered both since. The proposal was
+   * accepted and the review opened, so the outcome was right and only the frame in between was
+   * wrong: the screen presented a stale answer as though it were the verdict on the request it was
+   * still waiting for.
+   *
+   * SO THE CONDITION IS "A REQUEST HE MADE HAS COME BACK". While one is in flight we do not yet
+   * know, and a screen that does not know says nothing; a request that FAILED told us nothing
+   * either, and is answered by the refusal notice above rather than by re-showing an older list
+   * under "Before you can go on".
+   *
+   * IT SUPPRESSES A FRAME AND NOT A RULE. Every rule is still applied by the server on every save,
+   * `readyForReview` is still what decides whether the review opens, and the moment a real answer
+   * arrives saying something is outstanding, it is shown.
+   */
+  const answered = attempted && !saving && saveError === null;
+  const outstanding = answered ? interview.violations : NOTHING_OUTSTANDING;
+  const removingEntry = entries.find((entry) => entry.key === removing) ?? null;
 
   return (
     <section className="pp-module" data-pp-state={stage}>
@@ -391,10 +504,10 @@ export function PayrollPaymentModule({
       {stage === "REVIEW" && review ? (
         <>
           <PayrollPaymentReviewPanel review={review} />
-          <div className="pp-actions">
+          <div className="pp-actions wf-btn-row">
             <button
               type="button"
-              className="wf-button-secondary"
+              className="wf-btn wf-btn-secondary"
               data-pp-action="change"
               disabled={disabled}
               onClick={() => {
@@ -402,7 +515,7 @@ export function PayrollPaymentModule({
                 setStage(method === null ? "METHOD" : "DETAILS");
               }}
             >
-              Change something
+              Edit payment information
             </button>
           </div>
         </>
@@ -430,20 +543,31 @@ export function PayrollPaymentModule({
                   removable={entries.length > 1}
                   disabled={disabled}
                   onChange={(next) => changeEntry(index, next)}
-                  onRemove={() => removeAccount(index)}
+                  onRemove={() => setRemoving(entry.key)}
                 />
               ))}
 
-              {entries.length < PAYROLL_PAYMENT_MAX_DEPOSIT_ACCOUNTS ? (
-                <button
-                  type="button"
-                  className="wf-button-secondary"
-                  data-pp-action="add-account"
+              {removingEntry ? (
+                <RemoveAccountPrompt
+                  entry={removingEntry}
                   disabled={disabled}
-                  onClick={addAccount}
-                >
-                  Add another account
-                </button>
+                  onCancel={() => setRemoving(null)}
+                  onConfirm={() => removeAccount(removingEntry.key)}
+                />
+              ) : null}
+
+              {entries.length < PAYROLL_PAYMENT_MAX_DEPOSIT_ACCOUNTS ? (
+                <div className="wf-btn-row">
+                  <button
+                    type="button"
+                    className="wf-btn wf-btn-secondary"
+                    data-pp-action="add-account"
+                    disabled={disabled}
+                    onClick={addAccount}
+                  >
+                    Add another account
+                  </button>
+                </div>
               ) : (
                 <p className="pp-note" role="status" data-pp-account-ceiling>
                   You can split your pay between up to{" "}
@@ -469,11 +593,11 @@ export function PayrollPaymentModule({
             </div>
           ) : null}
 
-          {violations.length > 0 ? (
+          {outstanding.length > 0 ? (
             <div className="wf-error pp-summary" role="alert" data-pp-violations="true">
               <p className="wf-error-title">Before you can go on:</p>
               <ul className="wf-list">
-                {violations.map((violation) => (
+                {outstanding.map((violation) => (
                   <li
                     key={`${violation.code}-${violation.position ?? "all"}-${violation.field ?? ""}`}
                     data-pp-violation={violation.code}
@@ -487,30 +611,50 @@ export function PayrollPaymentModule({
             </div>
           ) : null}
 
-          {saved ? (
+          {/*
+            WHAT IS HAPPENING WHILE HE WAITS (QA-L4-UX-7A). Something neutral stands where the red
+            box used to flash, and it is the truth about the only thing going on: we are asking.
+            Both actions are already disabled for the duration, so he cannot ask twice over.
+          */}
+          {saving ? (
+            <p className="pp-note" role="status" data-pp-in-flight>
+              Saving what you have told us.
+            </p>
+          ) : null}
+
+          {saved && !saving ? (
             <p className="pp-saved" role="status" data-pp-saved="true">
               Saved. You can leave this and come back to it.
             </p>
           ) : null}
 
-          <div className="pp-actions">
+          {/*
+            THE TWO ACTIONS, AS ACTIONS (QA-L4-UX-1). They carry the shared `wf-btn` classes every
+            other Workforce screen uses, and the hierarchy says which one goes forward: Review info
+            is the primary, Save and finish later is beside it as the secondary. They were written
+            against `wf-button` and `wf-button-secondary`, which no stylesheet in this application
+            defines, so they reached the worker as unstyled native buttons - which is to say as
+            text. Real-browser QA reported not being able to tell what was clickable, and it was
+            right.
+          */}
+          <div className="pp-actions wf-btn-row">
             <button
               type="button"
-              className="wf-button-secondary"
+              className="wf-btn wf-btn-secondary"
               data-pp-action="save"
               disabled={disabled || method === null}
-              onClick={() => void persist()}
+              onClick={() => void attemptSave()}
             >
               Save and finish later
             </button>
             <button
               type="button"
-              className="wf-button"
+              className="wf-btn wf-btn-primary"
               data-pp-action="review"
               disabled={disabled || method === null}
               onClick={() => void openReview()}
             >
-              Check what I have entered
+              Review info
             </button>
           </div>
         </>

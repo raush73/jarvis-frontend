@@ -310,6 +310,95 @@
   font-size: 0.95rem;
 }
 
+/* --------------------------------------------------- removing an account */
+
+/*
+ * The question asked before a bank account is taken away (QA-L4-UX-6).
+ *
+ * The scrim and the card follow Module 4.7's unsaved-changes prompt exactly, which is this
+ * application's one existing pattern for a question a worker must answer before anything else
+ * happens. Nothing is invented here: the numbers below are 4.7's, so the two dialogs a worker may
+ * meet during onboarding sit in the same place and look like the same kind of thing.
+ */
+.pp-prompt-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 21, 30, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 60;
+}
+
+.pp-prompt {
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pp-prompt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pp-prompt-body p {
+  margin: 0;
+}
+
+/* What is being removed, set apart from the sentences either side of it. */
+.pp-prompt-account {
+  margin: 0;
+  padding-left: 18px;
+  font-weight: 600;
+}
+
+.pp-prompt-actions {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/*
+ * THE DESTRUCTIVE ANSWER, LOOKING LIKE ONE (QA-L4-UX-6A).
+ *
+ * `wf-btn-danger` - the shared destructive modifier - is a TRANSPARENT button with red text, which
+ * is right for a remove control sitting in a list of rows and wrong for the last click before a
+ * bank account is discarded. Real-browser QA read it as an ordinary white button, and a worker who
+ * cannot see which of the two answers is the irreversible one is being asked to guess.
+ *
+ * SO THE FILL IS THE SHARED DANGER TOKEN, and the three states are the three the primary button
+ * already defines with the accent token - resting, hover, disabled. Nothing new is invented: the
+ * tokens exist, `wf-btn` still supplies the shape, and this says only "fill it in". It is scoped to
+ * this dialog rather than added to the shared stylesheet because one dialog needing a solid
+ * destructive button is not yet a design-system decision, and making it one is not this pass.
+ *
+ * TWO CLASSES IN THE SELECTOR, DELIBERATELY: it outranks `.wf-btn` on specificity, so the fill
+ * cannot be lost to whichever stylesheet the bundler happens to emit second.
+ */
+.pp-prompt .pp-btn-destructive {
+  background: var(--color-danger, #dc2626);
+  border-color: var(--color-danger, #dc2626);
+  color: #fff;
+}
+
+.pp-prompt .pp-btn-destructive:hover:not(:disabled) {
+  background: var(--color-danger-hover, #b91c1c);
+  border-color: var(--color-danger-hover, #b91c1c);
+}
+
+/* Focus must stay obvious against a filled button, for the keyboard route to the same decision. */
+.pp-prompt .pp-btn-destructive:focus-visible {
+  outline: 2px solid var(--color-danger-hover, #b91c1c);
+  outline-offset: 2px;
+}
+
+.pp-prompt .pp-btn-destructive:disabled {
+  background: var(--color-danger-disabled, #fca5a5);
+  border-color: var(--color-danger-disabled, #fca5a5);
+}
+
 /* ------------------------------------------------------------------- actions */
 
 .pp-actions {

@@ -35,6 +35,8 @@
  * instead of refused.
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { saveWorkerSession } from "@/lib/workforce/workerSession";
@@ -134,6 +136,8 @@ const OTHER_ACCOUNT = "1234567899";
 /* -------------------------------------------------------------------------- */
 
 type ServerAccount = {
+  /** The server's stable identity for the account (QA-L4-R1). Minted here, never accepted. */
+  accountId: string;
   position: number;
   accountType: string | null;
   financialInstitutionName: string;
@@ -149,12 +153,38 @@ let method: string | null = null;
 let mode: string | null = null;
 let accounts: ServerAccount[] = [];
 let savedAt: string | null = null;
+let minted = 0;
 
 function resetServer(): void {
   method = null;
   mode = null;
   accounts = [];
   savedAt = null;
+  minted = 0;
+}
+
+/** Readable, opaque, and not derived from anything the worker can change. */
+function mintAccountId(): string {
+  minted += 1;
+  return `acct-${minted}`;
+}
+
+/** A held account as the server would hold it, for a suite that starts mid-interview. */
+function serverAccount(
+  overrides: Partial<ServerAccount> & { position: number },
+): ServerAccount {
+  return {
+    accountId: mintAccountId(),
+    accountType: null,
+    financialInstitutionName: "",
+    routingNumber: "",
+    accountNumber: "",
+    allocationKind: null,
+    allocationPercentage: null,
+    allocationAmount: null,
+    confirmedAt: null,
+    ...overrides,
+  };
 }
 
 class Refusal extends Error {
@@ -284,6 +314,7 @@ function violationsOf(): PayrollPaymentViolation[] {
 
 function accountViews(): PayrollPaymentAccountView[] {
   return accounts.map((account) => ({
+    accountId: account.accountId,
     position: account.position,
     accountType: account.accountType as PayrollPaymentAccountView["accountType"],
     financialInstitutionName: account.financialInstitutionName,
@@ -313,7 +344,12 @@ function interviewView(): PayrollPaymentInterview {
   };
 }
 
-/** THE SERVER'S COMPARISON. Nothing the browser sends decides this. */
+/**
+ * THE SERVER'S COMPARISON. Nothing the browser sends decides this.
+ *
+ * `held` is resolved by STABLE IDENTITY before this is called, never by position, because the fake
+ * that resolved it by index is the one that let QA-L4-FUNC-2 through a green suite.
+ */
 function mergeAccount(
   submitted: SavePayrollPaymentAccountInput,
   held: ServerAccount | undefined,
@@ -324,7 +360,8 @@ function mergeAccount(
   let accountNumber = held?.accountNumber ?? "";
   let confirmedAt = held?.confirmedAt ?? null;
 
-  if (entry !== "" || again !== "") {
+  // A new account has nothing to carry forward, so it establishes its own (QA-L4-R1).
+  if (held === undefined || entry !== "" || again !== "") {
     if (entry === "" || again === "") {
       throw new Refusal("ACCOUNT_NUMBER_CONFIRMATION_REQUIRED");
     }
@@ -336,6 +373,7 @@ function mergeAccount(
   const routing = (submitted.routingNumber ?? "").trim();
 
   return {
+    accountId: held?.accountId ?? mintAccountId(),
     position,
     accountType: submitted.accountType ?? held?.accountType ?? null,
     financialInstitutionName:
@@ -347,6 +385,21 @@ function mergeAccount(
     allocationAmount: submitted.allocationAmount ?? null,
     confirmedAt,
   };
+}
+
+/** Which held account a submitted row IS. Refused rather than guessed at (QA-L4-R1). */
+function resolveHeld(
+  submitted: SavePayrollPaymentAccountInput,
+  held: readonly ServerAccount[],
+  claimed: Set<string>,
+): ServerAccount | undefined {
+  const claim = (submitted.accountId ?? "").trim();
+  if (claim === "") return undefined;
+  if (claimed.has(claim)) throw new Refusal("DEPOSIT_ACCOUNT_DUPLICATED");
+  const match = held.find((account) => account.accountId === claim);
+  if (!match) throw new Refusal("DEPOSIT_ACCOUNT_NOT_RECOGNIZED");
+  claimed.add(claim);
+  return match;
 }
 
 function save(input: SavePayrollPaymentInterviewInput): PayrollPaymentInterview {
@@ -372,8 +425,9 @@ function save(input: SavePayrollPaymentInterviewInput): PayrollPaymentInterview 
       throw new Refusal("TOO_MANY_DEPOSIT_ACCOUNTS");
     }
     const held = accounts;
+    const claimed = new Set<string>();
     accounts = input.accounts.map((submitted, index) =>
-      mergeAccount(submitted, held[index], index + 1),
+      mergeAccount(submitted, resolveHeld(submitted, held, claimed), index + 1),
     );
   }
 
@@ -460,6 +514,38 @@ function action(name: string): HTMLElement {
   const button = capsule().querySelector<HTMLElement>(`[data-pp-action="${name}"]`);
   if (!button) throw new Error(`No ${name} control.`);
   return button;
+}
+
+/** Click the remove control on an account, which now ASKS rather than removes (QA-L4-UX-6). */
+function askToRemove(position: number): void {
+  const remove = accountCard(position).querySelector<HTMLElement>(
+    `[data-pp-remove-account="${position}"]`,
+  );
+  if (!remove) throw new Error(`No remove control on account ${position}.`);
+  fireEvent.click(remove);
+}
+
+/** The removal question, or null when nothing is being asked. */
+function removePrompt(): HTMLElement | null {
+  return capsule().querySelector<HTMLElement>("[data-pp-remove-prompt]");
+}
+
+/**
+ * Move into a box, and move on from it, the way clicking and tabbing do.
+ *
+ * BOTH THE NATIVE CALL AND THE BUBBLING EVENT, deliberately: React listens for `focusin` and
+ * `focusout` rather than for `focus` and `blur`, and jsdom's own focus handling is not identical to
+ * a browser's. Sending both is what makes these two helpers mean "he moved on from this box" here
+ * as well as in front of a person.
+ */
+function moveOnFrom(input: HTMLInputElement): void {
+  input.blur();
+  fireEvent.focusOut(input);
+}
+
+function moveInto(input: HTMLInputElement): void {
+  input.focus();
+  fireEvent.focusIn(input);
 }
 
 function chooseMethod(which: "bank" | "card"): void {
@@ -856,15 +942,550 @@ describe("Module 4.4 - how the worker gets paid", () => {
       expect(sent?.accounts?.length).toBeLessThanOrEqual(3);
     });
 
-    it("lets him remove one once there is more than one", () => {
+    it("lets him remove one once there is more than one, once he has confirmed it", () => {
       expect(accountCard(1).querySelector("[data-pp-remove-account]")).toBeNull();
       fireEvent.click(action("add-account"));
-      const remove = accountCard(2).querySelector<HTMLElement>(
-        '[data-pp-remove-account="2"]',
-      );
-      expect(remove).not.toBeNull();
-      fireEvent.click(remove as HTMLElement);
+      expect(
+        accountCard(2).querySelector('[data-pp-remove-account="2"]'),
+      ).not.toBeNull();
+
+      askToRemove(2);
+      fireEvent.click(action("remove-confirm"));
       expect(capsule().querySelector('[data-pp-account="2"]')).toBeNull();
+    });
+  });
+
+  /* ------------------------------------------------------------------------ */
+  /*  Removing an account - owner ruling QA-L4-R1, defect QA-L4-FUNC-2         */
+  /* ------------------------------------------------------------------------ */
+
+  describe("removing an account leaves the others' banking details alone", () => {
+    const A_ACCOUNT = "1111222233";
+    const B_ACCOUNT = "4444555566";
+    const C_ACCOUNT = "7777888899";
+    /**
+     * Three DIFFERENT routing numbers, so a routing swap cannot hide behind a shared one.
+     *
+     * QA-L4 used ONE routing number for all three accounts, which is exactly why the routing half
+     * of the misassociation was invisible on the screen that exposed the account-number half. Each
+     * satisfies the 3-7-1 arithmetic honestly while the `999` prefix lies outside every assigned
+     * ABA range, so none of them can name a real financial institution.
+     */
+    const A_ROUTING = "999000001";
+    const B_ROUTING = "999007020";
+    const C_ROUTING = "999000700";
+
+    /**
+     * THE EXACT REAL-BROWSER SEQUENCE THAT CORRUPTED A QA DRAFT.
+     *
+     * Three accounts, each with its own routing number, its own account number and its own
+     * confirmation, saved. What the worker then holds on screen is three masks and six empty entry
+     * boxes, which is why the save that follows a removal resends no protected value at all.
+     */
+    async function saveThreeAccounts(): Promise<void> {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+      await enterAccount(1, {
+        institution: "QA Test Bank",
+        type: "CHECKING",
+        routing: A_ROUTING,
+        account: A_ACCOUNT,
+        confirmation: A_ACCOUNT,
+      });
+
+      fireEvent.click(action("add-account"));
+      await enterAccount(2, {
+        institution: "QA Savings Bank",
+        type: "SAVINGS",
+        routing: B_ROUTING,
+        account: B_ACCOUNT,
+        confirmation: B_ACCOUNT,
+      });
+
+      fireEvent.click(action("add-account"));
+      await enterAccount(3, {
+        institution: "QA Third Bank",
+        type: "CHECKING",
+        routing: C_ROUTING,
+        account: C_ACCOUNT,
+        confirmation: C_ACCOUNT,
+      });
+
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(3));
+      // AND WAIT FOR THE BROWSER, not only for the server. `accounts` is set inside the fake save
+      // before the screen has taken the response, so a test that carried on here would be acting
+      // on a screen with a re-render still pending - and would sometimes click a node that had
+      // already been replaced, which is a flake rather than a finding.
+      await waitFor(() => expect(field("account", accountCard(3)).value).toBe(""));
+      await waitFor(() => expect(accountCard(3).textContent).toMatch(/••••8899/));
+    }
+
+    /**
+     * Remove an account the way the worker now has to: ask, then mean it (QA-L4-UX-6).
+     *
+     * The confirmation is part of removal from here on, so it belongs in the helper rather than in
+     * each of the identity assertions below. What those assertions are about has not changed.
+     */
+    async function removeAccountAt(position: number): Promise<void> {
+      askToRemove(position);
+      await waitFor(() => expect(removePrompt()).not.toBeNull());
+      fireEvent.click(action("remove-confirm"));
+      await waitFor(() => expect(removePrompt()).toBeNull());
+    }
+
+    /** What the last save actually put on the wire. */
+    function lastSent(): SavePayrollPaymentInterviewInput | undefined {
+      return vi.mocked(saveOwnPayrollPayment).mock.calls.at(-1)?.[1];
+    }
+
+    it("sends the SURVIVORS' identities and not the removed account's", async () => {
+      await saveThreeAccounts();
+      const [a, b, c] = accounts.map((account) => account.accountId);
+
+      await removeAccountAt(2);
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(2));
+
+      const sent = lastSent();
+      expect(sent?.accounts?.map((account) => account.accountId)).toEqual([a, c]);
+      expect(JSON.stringify(sent)).not.toContain(b);
+      // Identity did not get renumbered along with the display order.
+      expect(sent?.accounts?.map((account) => account.position)).toEqual([1, 2]);
+      // And no protected value was resent, because the browser no longer holds one.
+      for (const account of sent?.accounts ?? []) {
+        expect(account.accountNumber).toBeUndefined();
+        expect(account.accountNumberConfirmation).toBeUndefined();
+        expect(account.routingNumber).toBeUndefined();
+      }
+    });
+
+    it("KEEPS THE SURVIVING ACCOUNT'S OWN banking details, which is the defect", async () => {
+      await saveThreeAccounts();
+      const [a, , c] = accounts.map((account) => account.accountId);
+
+      await removeAccountAt(2);
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(2));
+
+      // On the server: the third account is still the third account's, under its own identity.
+      expect(accounts.map((account) => account.accountId)).toEqual([a, c]);
+      expect(accounts[1].financialInstitutionName).toBe("QA Third Bank");
+      expect(accounts[1].accountNumber).toBe(C_ACCOUNT);
+      expect(accounts[1].routingNumber).toBe(C_ROUTING);
+      expect(accounts[0].accountNumber).toBe(A_ACCOUNT);
+      expect(accounts[0].routingNumber).toBe(A_ROUTING);
+      // Nothing belonging to the removed account survived anywhere.
+      expect(accounts.some((account) => account.accountNumber === B_ACCOUNT)).toBe(false);
+      expect(accounts.some((account) => account.routingNumber === B_ROUTING)).toBe(false);
+
+      // And on the SCREEN, which is where QA read the wrong tail: the surviving card shows its
+      // own masked tail rather than the removed account's.
+      await waitFor(() => expect(capsule().querySelector('[data-pp-account="2"]')).not.toBeNull());
+      expect(accountCard(2).textContent).toMatch(/••••8899/);
+      expect(accountCard(2).textContent).not.toMatch(/••••5566/);
+      expect(accountCard(1).textContent).toMatch(/••••2233/);
+      // The routing tail too, which QA could not see because all three shared one routing number.
+      expect(accountCard(2).textContent).toMatch(/••••0700/);
+      expect(accountCard(2).textContent).not.toMatch(/••••7020/);
+    });
+
+    it("adopts the returned masks BY IDENTITY, not by their place in the response", async () => {
+      await saveThreeAccounts();
+
+      await removeAccountAt(2);
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(2));
+
+      // The server answers in the order it was asked, so a positional reader would look right
+      // here. This asserts the stronger property: reverse the response and the rows still take
+      // their own accounts, because they are matched by the identity they hold.
+      vi.mocked(saveOwnPayrollPayment).mockImplementationOnce(async (_id, input) => {
+        const value = save(input);
+        return { ...value, accounts: [...value.accounts].reverse() };
+      });
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(saveOwnPayrollPayment).toHaveBeenCalledTimes(4));
+
+      await waitFor(() => expect(accountCard(1).textContent).toMatch(/••••2233/));
+      expect(accountCard(2).textContent).toMatch(/••••8899/);
+    });
+
+    it("keeps identity when the FIRST account is removed", async () => {
+      await saveThreeAccounts();
+      const [, b, c] = accounts.map((account) => account.accountId);
+
+      await removeAccountAt(1);
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(2));
+
+      expect(accounts.map((account) => account.accountId)).toEqual([b, c]);
+      expect(accounts.map((account) => account.position)).toEqual([1, 2]);
+      expect(accounts[0].accountNumber).toBe(B_ACCOUNT);
+      expect(accounts[0].routingNumber).toBe(B_ROUTING);
+      expect(accounts[1].accountNumber).toBe(C_ACCOUNT);
+      expect(accounts[1].routingNumber).toBe(C_ROUTING);
+      expect(accounts.some((account) => account.accountNumber === A_ACCOUNT)).toBe(false);
+    });
+
+    it("keeps identity when the LAST account is removed", async () => {
+      await saveThreeAccounts();
+      const [a, b] = accounts.map((account) => account.accountId);
+
+      await removeAccountAt(3);
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(2));
+
+      expect(accounts.map((account) => account.accountId)).toEqual([a, b]);
+      expect(accounts[0].accountNumber).toBe(A_ACCOUNT);
+      expect(accounts[1].accountNumber).toBe(B_ACCOUNT);
+      expect(accounts.some((account) => account.accountNumber === C_ACCOUNT)).toBe(false);
+    });
+
+    /**
+     * A NEW ROW NAMES NOTHING UNTIL THE SERVER HAS NAMED IT.
+     *
+     * This is the other half of the identity contract: a row this browser invented cannot claim an
+     * identity, because the only identities that exist belong to accounts that already have
+     * protected values. It sends none, supplies its own account number, and adopts the identity it
+     * is given.
+     */
+    it("sends NO identity for an account the server has never seen, then adopts the one it gets", async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+      await enterAccount(1, {
+        institution: "QA Test Bank",
+        type: "CHECKING",
+        routing: A_ROUTING,
+        account: A_ACCOUNT,
+        confirmation: A_ACCOUNT,
+      });
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(1));
+      const a = accounts[0].accountId;
+
+      fireEvent.click(action("add-account"));
+      await enterAccount(2, {
+        institution: "QA Savings Bank",
+        type: "SAVINGS",
+        routing: B_ROUTING,
+        account: B_ACCOUNT,
+        confirmation: B_ACCOUNT,
+      });
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(2));
+
+      const sent = lastSent();
+      // The held account named itself; the new one did not, and could not.
+      expect(sent?.accounts?.[0]?.accountId).toBe(a);
+      expect(sent?.accounts?.[1]?.accountId).toBeUndefined();
+      // The held account resent no protected value; the new one had to supply its own.
+      expect(sent?.accounts?.[0]?.accountNumber).toBeUndefined();
+      expect(sent?.accounts?.[1]?.accountNumber).toBe(B_ACCOUNT);
+
+      // The new row then adopts the identity it was given, so its NEXT save names it.
+      await enterAccount(2, { institution: "QA Savings Bank NA" });
+      fireEvent.click(action("save"));
+      await waitFor(() =>
+        expect(accounts[1]?.financialInstitutionName).toBe("QA Savings Bank NA"),
+      );
+      expect(lastSent()?.accounts?.[1]?.accountId).toBe(accounts[1].accountId);
+      expect(accounts[1].accountNumber).toBe(B_ACCOUNT);
+      expect(accounts[1].routingNumber).toBe(B_ROUTING);
+    });
+
+    it("never puts an account identity where a banking value could be read from it", async () => {
+      await saveThreeAccounts();
+
+      // The identifier is opaque: it is not any part of a routing or account number, and it is
+      // not the position dressed up as an identifier.
+      for (const account of accounts) {
+        for (const value of [A_ACCOUNT, B_ACCOUNT, C_ACCOUNT, A_ROUTING, B_ROUTING, C_ROUTING]) {
+          expect(account.accountId).not.toContain(value.slice(-4));
+        }
+      }
+      // And no banking value reached the DOM alongside it.
+      expect(capsule().outerHTML).not.toContain(A_ACCOUNT);
+      expect(capsule().outerHTML).not.toContain(C_ROUTING);
+    });
+
+    /* ---------------------------------------------------------------------- */
+    /*  And he is asked first - QA-L4-UX-6                                     */
+    /* ---------------------------------------------------------------------- */
+
+    describe("and he is asked before any of it happens", () => {
+      it("ASKS, and removes nothing at all, on the first click", async () => {
+        await saveThreeAccounts();
+
+        askToRemove(2);
+
+        // Nothing has gone anywhere, on the screen or on the server.
+        expect(capsule().querySelectorAll("[data-pp-account]")).toHaveLength(3);
+        expect(accounts).toHaveLength(3);
+
+        const prompt = removePrompt();
+        expect(prompt).not.toBeNull();
+        expect(prompt?.textContent).toMatch(/Remove this bank account\?/i);
+
+        // A dialog a keyboard can use, landing on the answer that loses nothing.
+        const dialog = prompt?.querySelector('[role="dialog"]');
+        expect(dialog).not.toBeNull();
+        expect(dialog?.getAttribute("aria-modal")).toBe("true");
+        expect(document.activeElement).toBe(action("remove-cancel"));
+      });
+
+      it("names the account HE POINTED AT, and no other", async () => {
+        await saveThreeAccounts();
+        askToRemove(2);
+
+        const prompt = removePrompt() as HTMLElement;
+        expect(prompt.querySelector("[data-pp-remove-bank]")?.textContent).toBe(
+          "QA Savings Bank",
+        );
+        expect(prompt.querySelector("[data-pp-remove-kind]")?.textContent).toBe(
+          "Savings account",
+        );
+        expect(prompt.querySelector("[data-pp-remove-tail]")?.textContent).toMatch(
+          /ending in 5566$/,
+        );
+        // The accounts either side of it are not mentioned, and their tails are not shown.
+        expect(prompt.textContent).not.toMatch(/QA Test Bank|QA Third Bank/);
+        expect(prompt.textContent).not.toMatch(/2233|8899/);
+      });
+
+      /* ------------------------------------------------------- QA-L4-UX-6A */
+
+      /**
+       * THE IRREVERSIBLE ANSWER LOOKS LIKE ONE, AND THE SAFE ONE DOES NOT.
+       *
+       * `wf-btn-danger` - the shared destructive modifier - is a transparent button with red text.
+       * That is right for a remove control in a list and wrong for the last click before a bank
+       * account is discarded: real-browser QA read it as an ordinary white button. Two answers sit
+       * side by side here and exactly one of them cannot be taken back, so they must not look
+       * equally harmless.
+       */
+      it("fills the destructive answer in, and leaves the safe one neutral", async () => {
+        await saveThreeAccounts();
+        askToRemove(2);
+
+        const cancel = action("remove-cancel") as HTMLButtonElement;
+        const confirm = action("remove-confirm") as HTMLButtonElement;
+
+        // Cancel: the shared neutral button, and NOT dressed as the destructive one.
+        expect(cancel.className.split(/\s+/)).toContain("wf-btn");
+        expect(cancel.className).toMatch(/\bwf-btn-ghost\b/);
+        expect(cancel.className).not.toMatch(/destructive|danger/);
+
+        // Remove: the shared shape, filled in by this module.
+        expect(confirm.className.split(/\s+/)).toContain("wf-btn");
+        expect(confirm.className.split(/\s+/)).toContain("pp-btn-destructive");
+        expect(confirm.className).not.toMatch(/\bwf-btn-danger\b/);
+
+        // Both are still native buttons, which is what makes the keyboard route work at all.
+        for (const button of [cancel, confirm]) {
+          expect(button.tagName).toBe("BUTTON");
+          expect(button.getAttribute("type")).toBe("button");
+          expect(button.disabled).toBe(false);
+        }
+      });
+
+      /**
+       * WHAT "FILLED IN" MEANS, checked against the stylesheet rather than against a screenshot.
+       *
+       * The assertion is about the intent the owner stated - a solid fill with white text, and the
+       * three states a filled button needs - and not about which hex the design tokens happen to
+       * hold. A class name on a button proves nothing if nothing styles it, which is precisely the
+       * failure QA-L4-UX-1 was.
+       */
+      it("defines that fill, with its hover, focus and disabled states", () => {
+        const stylesheet = readFileSync(
+          resolve(
+            process.cwd(),
+            "components/workforce/onboarding/modules/payroll-payment/payroll-payment.css",
+          ),
+          "utf8",
+        );
+
+        const rule = /\.pp-prompt \.pp-btn-destructive\s*\{([^}]*)\}/.exec(stylesheet);
+        expect(rule).not.toBeNull();
+        // Solid, and legible on it.
+        expect(rule?.[1]).toMatch(/background:\s*var\(--color-danger/);
+        expect(rule?.[1]).toMatch(/color:\s*#fff/);
+        // Not left as a flat block a pointer or a keyboard gets no answer from.
+        expect(stylesheet).toMatch(
+          /\.pp-prompt \.pp-btn-destructive:hover:not\(:disabled\)/,
+        );
+        expect(stylesheet).toMatch(/\.pp-prompt \.pp-btn-destructive:focus-visible/);
+        expect(stylesheet).toMatch(/\.pp-prompt \.pp-btn-destructive:disabled/);
+      });
+
+      it("still removes on the filled answer, and still nothing on the neutral one", async () => {
+        await saveThreeAccounts();
+
+        // The neutral one changes nothing.
+        askToRemove(2);
+        fireEvent.click(action("remove-cancel"));
+        expect(capsule().querySelectorAll("[data-pp-account]")).toHaveLength(3);
+
+        // The filled one does what it says.
+        askToRemove(2);
+        fireEvent.click(action("remove-confirm"));
+        expect(capsule().querySelectorAll("[data-pp-account]")).toHaveLength(2);
+        expect(field("institution", accountCard(2)).value).toBe("QA Third Bank");
+      });
+
+      it("introduces no banking value along with the styling", async () => {
+        await saveThreeAccounts();
+        askToRemove(2);
+
+        const prompt = removePrompt() as HTMLElement;
+        for (const value of [A_ACCOUNT, B_ACCOUNT, C_ACCOUNT, A_ROUTING, B_ROUTING, C_ROUTING]) {
+          expect(prompt.outerHTML).not.toContain(value);
+        }
+        // The safe tail, and no other run of digits.
+        expect((prompt.textContent?.match(/\d{3,}/g) ?? [])).toEqual(["5566"]);
+      });
+
+      it("warns him that how his pay is divided may need attention", async () => {
+        await saveThreeAccounts();
+        askToRemove(2);
+        expect(removePrompt()?.textContent).toMatch(/how your pay is divided/i);
+      });
+
+      it("changes NOTHING when he cancels, and does not save merely because he cancelled", async () => {
+        await saveThreeAccounts();
+        const saves = vi.mocked(saveOwnPayrollPayment).mock.calls.length;
+
+        askToRemove(2);
+        fireEvent.click(action("remove-cancel"));
+
+        expect(removePrompt()).toBeNull();
+        expect(capsule().querySelectorAll("[data-pp-account]")).toHaveLength(3);
+        expect(accounts).toHaveLength(3);
+        expect(vi.mocked(saveOwnPayrollPayment).mock.calls.length).toBe(saves);
+        // Every account still shows its own masked tail, and the allocation is untouched.
+        expect(accountCard(1).textContent).toMatch(/••••2233/);
+        expect(accountCard(2).textContent).toMatch(/••••5566/);
+        expect(accountCard(3).textContent).toMatch(/••••8899/);
+      });
+
+      it("treats Escape as cancelling, because a dialog a worker cannot dismiss is a trap", async () => {
+        await saveThreeAccounts();
+        askToRemove(2);
+
+        fireEvent.keyDown(document, { key: "Escape" });
+
+        expect(removePrompt()).toBeNull();
+        expect(capsule().querySelectorAll("[data-pp-account]")).toHaveLength(3);
+      });
+
+      it("removes the account he asked about once he says he means it", async () => {
+        await saveThreeAccounts();
+
+        askToRemove(2);
+        fireEvent.click(action("remove-confirm"));
+
+        expect(removePrompt()).toBeNull();
+        expect(capsule().querySelectorAll("[data-pp-account]")).toHaveLength(2);
+        // The one that went is the one he pointed at. What survives keeps its own details, which
+        // is asserted in full by the identity tests above.
+        expect(field("institution", accountCard(1)).value).toBe("QA Test Bank");
+        expect(field("institution", accountCard(2)).value).toBe("QA Third Bank");
+      });
+
+      /**
+       * A NEW ACCOUNT'S PLAINTEXT IS IN STATE, AND MUST NOT REACH THE QUESTION.
+       *
+       * This is the case a dialog could get wrong without anybody noticing: the account he is
+       * removing is one he has just typed, so the browser is holding the whole account number and
+       * the whole routing number in memory. The masked tail comes from the SERVER, and an account
+       * the server has never seen therefore has none - so it is named by his bank alone rather
+       * than by helpfully reaching for the value that is lying around.
+       */
+      it("puts no protected value in the question, not even one he typed a moment ago", async () => {
+        await open();
+        chooseMethod("bank");
+        await waitFor(() => expect(accountCard(1)).toBeTruthy());
+        await enterAccount(1, {
+          institution: "QA Test Bank",
+          type: "CHECKING",
+          routing: A_ROUTING,
+          account: A_ACCOUNT,
+          confirmation: A_ACCOUNT,
+        });
+        fireEvent.click(action("add-account"));
+        await enterAccount(2, {
+          institution: "QA Savings Bank",
+          type: "SAVINGS",
+          routing: B_ROUTING,
+          account: B_ACCOUNT,
+          confirmation: B_ACCOUNT,
+        });
+
+        askToRemove(2);
+        const prompt = removePrompt() as HTMLElement;
+
+        expect(prompt.outerHTML).not.toContain(B_ACCOUNT);
+        expect(prompt.outerHTML).not.toContain(B_ROUTING);
+        expect(prompt.textContent).not.toMatch(/\d{5,}/);
+        // Nothing has been saved for it, so there is no tail to show and none is invented.
+        expect(prompt.querySelector("[data-pp-remove-tail]")).toBeNull();
+        expect(prompt.querySelector("[data-pp-remove-bank]")?.textContent).toBe(
+          "QA Savings Bank",
+        );
+      });
+
+      /**
+       * REMOVING THE REMAINDER ACCOUNT LEAVES THE REMAINDER UNASSIGNED, ON PURPOSE.
+       *
+       * The account that was to receive whatever is left is gone, so the instruction no longer
+       * says where the rest of his wages go. This screen does not pick a replacement for him -
+       * choosing which account gets the remainder of his pay is not a decision software should
+       * make quietly - and the server refuses the proposal until he has made it.
+       */
+      it("leaves the remainder unassigned, and picks nothing for him", async () => {
+        await saveThreeAccounts();
+
+        // Set amounts, with the SECOND account taking whatever is left.
+        fireEvent.click(capsule().querySelector('[data-pp-mode="fixed"] input') as HTMLElement);
+        const remainders = capsule().querySelectorAll<HTMLInputElement>(
+          "[data-pp-remainder-for] input",
+        );
+        fireEvent.click(remainders[1]);
+        const amounts = capsule().querySelectorAll<HTMLInputElement>(
+          '[data-pp-field="amount"]',
+        );
+        fireEvent.change(amounts[0], { target: { value: "500" } });
+        fireEvent.change(amounts[1], { target: { value: "250" } });
+        fireEvent.click(action("save"));
+        await waitFor(() =>
+          expect(accounts[1]?.allocationKind).toBe("REMAINING_BALANCE"),
+        );
+
+        askToRemove(2);
+        fireEvent.click(action("remove-confirm"));
+
+        // No survivor was quietly promoted, and the screen asks him to choose.
+        expect(
+          Array.from(
+            capsule().querySelectorAll<HTMLInputElement>("[data-pp-remainder-for] input"),
+          ).filter((input) => input.checked),
+        ).toHaveLength(0);
+        expect(capsule().querySelector("[data-pp-remainder-missing]")).not.toBeNull();
+
+        // And it does not go on until he has.
+        fireEvent.click(action("review"));
+        await waitFor(() =>
+          expect(
+            capsule().querySelector(
+              '[data-pp-violation="REMAINING_BALANCE_ACCOUNT_REQUIRED"]',
+            ),
+          ).not.toBeNull(),
+        );
+        expect(getOwnPayrollPaymentReview).not.toHaveBeenCalled();
+      });
     });
   });
 
@@ -982,6 +1603,9 @@ describe("Module 4.4 - how the worker gets paid", () => {
       chooseMethod("bank");
       await waitFor(() => expect(accountCard(1)).toBeTruthy());
 
+      // The account number is typed, because a NEW account establishes its own rather than
+      // inheriting one (QA-L4-R1). What is left unstated is what the reported rules are about.
+      await enterAccount(1, { account: ACCOUNT, confirmation: ACCOUNT });
       fireEvent.click(action("save"));
       await waitFor(() =>
         expect(capsule().querySelector('[data-pp-violations="true"]')).not.toBeNull(),
@@ -1006,6 +1630,9 @@ describe("Module 4.4 - how the worker gets paid", () => {
         account: ACCOUNT,
         confirmation: ACCOUNT,
       });
+      // Account 2 states its own account number and nothing else, so the rule it breaks is the
+      // one about its bank's name.
+      await enterAccount(2, { account: OTHER_ACCOUNT, confirmation: OTHER_ACCOUNT });
       fireEvent.click(action("save"));
 
       await waitFor(() =>
@@ -1043,17 +1670,14 @@ describe("Module 4.4 - how the worker gets paid", () => {
       method = BANK;
       mode = null;
       accounts = [
-        {
+        serverAccount({
           position: 1,
           accountType: "CHECKING",
           financialInstitutionName: "Frost Bank",
           routingNumber: ROUTING,
           accountNumber: ACCOUNT,
-          allocationKind: null,
-          allocationPercentage: null,
-          allocationAmount: null,
           confirmedAt: "2026-08-20T09:00:00.000Z",
-        },
+        }),
       ];
       savedAt = "2026-08-20T09:00:00.000Z";
 
@@ -1074,17 +1698,14 @@ describe("Module 4.4 - how the worker gets paid", () => {
     it("tells him he has already typed the account number twice", async () => {
       method = BANK;
       accounts = [
-        {
+        serverAccount({
           position: 1,
           accountType: "SAVINGS",
           financialInstitutionName: "Frost Bank",
           routingNumber: ROUTING,
           accountNumber: ACCOUNT,
-          allocationKind: null,
-          allocationPercentage: null,
-          allocationAmount: null,
           confirmedAt: "2026-08-20T09:00:00.000Z",
-        },
+        }),
       ];
       savedAt = "2026-08-20T09:00:00.000Z";
 
@@ -1096,17 +1717,14 @@ describe("Module 4.4 - how the worker gets paid", () => {
     it("carries the account number forward when he changes only his bank's name", async () => {
       method = BANK;
       accounts = [
-        {
+        serverAccount({
           position: 1,
           accountType: "CHECKING",
           financialInstitutionName: "Frost Bank",
           routingNumber: ROUTING,
           accountNumber: ACCOUNT,
-          allocationKind: null,
-          allocationPercentage: null,
-          allocationAmount: null,
           confirmedAt: "2026-08-20T09:00:00.000Z",
-        },
+        }),
       ];
       savedAt = "2026-08-20T09:00:00.000Z";
 
@@ -1256,6 +1874,730 @@ describe("Module 4.4 - how the worker gets paid", () => {
       expect(saveOwnPayrollPayment).toHaveBeenCalled();
       expect(getOwnPayrollPaymentReview).toHaveBeenCalled();
       expect(completeOnboardingModule).not.toHaveBeenCalled();
+    });
+  });
+
+  /* ------------------------------------------------------------------------ */
+  /*  What he can see and click - QA-L4-UX-1 through UX-5                      */
+  /* ------------------------------------------------------------------------ */
+
+  describe("he can tell what to click, and is told each thing once", () => {
+    beforeEach(async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+    });
+
+    it("gives him REAL BUTTONS for the two things he can do, and says which goes forward", () => {
+      const review = action("review") as HTMLButtonElement;
+      const save = action("save") as HTMLButtonElement;
+
+      for (const button of [review, save]) {
+        // A button element, not a run of text with a click handler on it. A keyboard reaches it,
+        // Enter and Space work on it, and assistive technology announces it, for free.
+        expect(button.tagName).toBe("BUTTON");
+        expect(button.getAttribute("type")).toBe("button");
+        expect(button.disabled).toBe(false);
+        expect(button.className.split(/\s+/)).toContain("wf-btn");
+      }
+
+      // The hierarchy: going forward is the emphasised one, saving for later sits beside it.
+      expect(review.className).toMatch(/\bwf-btn-primary\b/);
+      expect(save.className).toMatch(/\bwf-btn-secondary\b/);
+      expect(review.textContent?.trim()).toBe("Review info");
+      expect(save.textContent?.trim()).toBe("Save and finish later");
+    });
+
+    it("makes Add another account a button too, and takes it away at the third", () => {
+      const add = action("add-account") as HTMLButtonElement;
+      expect(add.tagName).toBe("BUTTON");
+      expect(add.className.split(/\s+/)).toContain("wf-btn");
+      expect(add.textContent?.trim()).toBe("Add another account");
+      // Secondary, so finding it is easy and it does not compete with going forward.
+      expect(add.className).toMatch(/\bwf-btn-secondary\b/);
+      expect(action("review").className).toMatch(/\bwf-btn-primary\b/);
+
+      fireEvent.click(add);
+      expect(accountCard(2)).toBeTruthy();
+      fireEvent.click(action("add-account"));
+      expect(accountCard(3)).toBeTruthy();
+      // The ceiling is where it was.
+      expect(capsule().querySelector('[data-pp-action="add-account"]')).toBeNull();
+      expect(capsule().querySelector("[data-pp-account-ceiling]")).not.toBeNull();
+    });
+
+    it("gives the remove control a visible shape as well", () => {
+      fireEvent.click(action("add-account"));
+      const remove = accountCard(2).querySelector<HTMLButtonElement>(
+        '[data-pp-remove-account="2"]',
+      );
+      expect(remove?.tagName).toBe("BUTTON");
+      expect(remove?.className.split(/\s+/)).toContain("wf-btn");
+      // Quiet, because it is not what he came here to do.
+      expect(remove?.className).toMatch(/\bwf-btn-ghost\b/);
+    });
+
+    /**
+     * THE ACTUAL CAUSE OF WHAT QA SAW, ASSERTED DIRECTLY.
+     *
+     * The controls on this screen were written against `wf-button`, `wf-button-secondary` and
+     * `wf-button-quiet`. No stylesheet in this application defines any of them - the shared
+     * primitive is `wf-btn` with its modifiers, which every other Workforce screen uses - so they
+     * reached the worker as unstyled native buttons, which is to say as text he could not tell was
+     * clickable. It was not a design judgement that went wrong; it was three class names nothing
+     * had ever styled.
+     *
+     * So this asserts the property rather than the symptom: every shared class this module puts on
+     * the screen is one the shared stylesheet actually defines. A future control written against a
+     * name that does not exist trips this the moment it is rendered.
+     */
+    it("styles itself with shared classes the application actually defines", () => {
+      const stylesheet = readFileSync(
+        resolve(process.cwd(), "app/workforce/workforce.css"),
+        "utf8",
+      );
+
+      const used = new Set<string>();
+      for (const element of Array.from(capsule().querySelectorAll<HTMLElement>("*"))) {
+        for (const token of Array.from(element.classList)) {
+          if (token.startsWith("wf-")) used.add(token);
+        }
+      }
+
+      expect(used.size).toBeGreaterThan(0);
+      for (const token of used) {
+        expect(stylesheet).toMatch(new RegExp(`\\.${token}\\b`));
+      }
+      // And the three names that never existed are gone from the module entirely.
+      expect(capsule().outerHTML).not.toMatch(/wf-button/);
+    });
+
+    it("still saves what he has entered when he clicks Save and finish later", async () => {
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING,
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+      fireEvent.click(action("save"));
+
+      await waitFor(() => expect(accounts).toHaveLength(1));
+      expect(capsule().querySelector('[data-pp-saved="true"]')).not.toBeNull();
+    });
+
+    it("still opens the review when he clicks Review info", async () => {
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING,
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+      fireEvent.click(action("review"));
+
+      await waitFor(() =>
+        expect(capsule().querySelector("[data-pp-review]")).not.toBeNull(),
+      );
+    });
+
+    /* --------------------------------------------------------------- UX-5 */
+
+    it("uses the owner's wording, and no longer the wording it replaced", async () => {
+      expect(capsule().textContent).toMatch(/Review info/);
+      expect(capsule().textContent).not.toMatch(/Check what I have entered/i);
+      expect(capsule().textContent).not.toMatch(/Change something/i);
+
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING,
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+      fireEvent.click(action("review"));
+      await waitFor(() =>
+        expect(capsule().querySelector("[data-pp-review]")).not.toBeNull(),
+      );
+
+      expect(action("change").textContent?.trim()).toBe("Edit payment information");
+      expect(capsule().textContent).not.toMatch(/Change something/i);
+    });
+
+    /* --------------------------------------------------------------- UX-2 */
+
+    it("asks for the account number twice, and explains why ONCE", () => {
+      const card = accountCard(1);
+      const said = card.textContent ?? "";
+
+      // The instruction survives, in full.
+      expect(said).toMatch(/Type the account number again/i);
+      expect(said).toMatch(/catch a wrong digit before payday/i);
+      expect(said).toMatch(/rather than copying it/i);
+
+      // And it is given once, where it used to be given three times over.
+      expect((said.match(/wrong digit/gi) ?? []).length).toBe(1);
+      expect((said.match(/payday/gi) ?? []).length).toBe(1);
+      expect((said.match(/rather than (copying|pasting)/gi) ?? []).length).toBe(1);
+    });
+
+    it("keeps the paste refusal to the point, since the reason is already above the box", () => {
+      fireEvent.paste(field("account-confirm", accountCard(1)), {
+        clipboardData: { getData: () => ACCOUNT },
+      });
+
+      const note = accountCard(1).querySelector("[data-pp-entry-blocked]");
+      expect(note?.textContent).toMatch(/rather than pasting it/i);
+      // It no longer re-argues the case for typing it twice.
+      expect(note?.textContent).not.toMatch(/payday|twice/i);
+    });
+
+    /* --------------------------------------------------------------- UX-3 */
+
+    it("HIDES WHAT HE TYPED once he moves on from the box", async () => {
+      const box = field("account", accountCard(1));
+      typeInto(box, ACCOUNT);
+      expect(box.value).toBe(ACCOUNT);
+
+      moveOnFrom(box);
+
+      // What is on screen is the masked tail, in the same shape as everywhere else.
+      expect(box.value).toBe("••••7890");
+      expect(box.getAttribute("data-pp-masked")).toBe("true");
+      // And the value he typed is not in the page at all any more.
+      expect(capsule().outerHTML).not.toContain(ACCOUNT);
+    });
+
+    it("hides the second box on the same terms", async () => {
+      const again = field("account-confirm", accountCard(1));
+      typeInto(again, ACCOUNT);
+      moveOnFrom(again);
+
+      expect(again.value).toBe("••••7890");
+      expect(capsule().outerHTML).not.toContain(ACCOUNT);
+    });
+
+    it("shows bullets alone for a value too short to have a tail worth showing", () => {
+      const box = field("account", accountCard(1));
+      typeInto(box, "1234");
+      moveOnFrom(box);
+      expect(box.value).toBe("••••");
+    });
+
+    /**
+     * IT CANNOT BE TALKED INTO ADOPTING ITS OWN MASK.
+     *
+     * The box displays a mask while he is not in it, so anything that echoes what is displayed back
+     * as a change is offering the mask as the value. Taking it would replace his account number
+     * with a picture of its last four digits - and the server would then be asked to confirm THAT.
+     */
+    it("never takes the mask it is showing as the value", () => {
+      const box = field("account", accountCard(1));
+      typeInto(box, ACCOUNT);
+      moveOnFrom(box);
+      expect(box.value).toBe("••••7890");
+
+      fireEvent.change(box, { target: { value: "••••7890" } });
+
+      // Unchanged: what he typed is still what will be sent.
+      moveInto(box);
+      expect(box.value).toBe(ACCOUNT);
+    });
+
+    it("gives him HIS OWN VALUE back when he returns to the box, rather than an empty one", () => {
+      const box = field("account", accountCard(1));
+      typeInto(box, ACCOUNT);
+      moveOnFrom(box);
+      expect(box.value).toBe("••••7890");
+
+      moveInto(box);
+
+      expect(box.value).toBe(ACCOUNT);
+      expect(box.getAttribute("data-pp-masked")).toBeNull();
+    });
+
+    /**
+     * MASKING IS THE DISPLAY, AND THE SERVER'S COMPARISON IS UNTOUCHED.
+     *
+     * This is the assertion that says the mask is not a shortcut to throwing the value away: both
+     * boxes are typed, both are left, and what goes on the wire is both values IN FULL - because
+     * the SERVER compares them and its comparison is what confirms the account number (10-R10).
+     */
+    it("still sends both values in full for the server to compare", async () => {
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING,
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+      moveOnFrom(field("account", accountCard(1)));
+      moveOnFrom(field("account-confirm", accountCard(1)));
+      expect(field("account", accountCard(1)).value).toBe("••••7890");
+
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(1));
+
+      const sent = vi.mocked(saveOwnPayrollPayment).mock.calls.at(-1)?.[1];
+      expect(sent?.accounts?.[0]?.accountNumber).toBe(ACCOUNT);
+      expect(sent?.accounts?.[0]?.accountNumberConfirmation).toBe(ACCOUNT);
+      // And the server, not the browser, is what recorded the confirmation.
+      expect(accounts[0].confirmedAt).not.toBeNull();
+    });
+
+    it("lets the server refuse a mismatch it can no longer see on screen", async () => {
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING,
+        account: ACCOUNT,
+        confirmation: OTHER_ACCOUNT,
+      });
+      moveOnFrom(field("account", accountCard(1)));
+      moveOnFrom(field("account-confirm", accountCard(1)));
+      fireEvent.click(action("save"));
+
+      await waitFor(() =>
+        expect(
+          capsule().querySelector(
+            '[data-pp-refusal="ACCOUNT_NUMBER_CONFIRMATION_MISMATCH"]',
+          ),
+        ).not.toBeNull(),
+      );
+      expect(accounts).toHaveLength(0);
+    });
+
+    it("puts nothing back in the boxes after a save, masked or otherwise", async () => {
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING,
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(1));
+
+      // Empty, and therefore not masked either - a mask of nothing would imply we had put
+      // something back, and nothing in this capsule can retrieve a saved account number.
+      await waitFor(() => expect(field("account", accountCard(1)).value).toBe(""));
+      expect(field("account-confirm", accountCard(1)).value).toBe("");
+      expect(field("account", accountCard(1)).getAttribute("data-pp-masked")).toBeNull();
+      // The saved tail is stated as text beside the box instead.
+      expect(accountCard(1).textContent).toMatch(/••••7890/);
+    });
+  });
+
+  /* ------------------------------------------------------------------------ */
+  /*  When red appears, and when it does not - QA-L4-UX-7                      */
+  /* ------------------------------------------------------------------------ */
+
+  describe("red says he must fix something now, not that he has not finished typing", () => {
+    /** The red summary of what the server says is outstanding, or null. */
+    function summary(): HTMLElement | null {
+      return capsule().querySelector<HTMLElement>('[data-pp-violations="true"]');
+    }
+
+    /**
+     * THE EXACT THING QA SAW, AND THE REASON IT WAS SEEN.
+     *
+     * Choosing a payment method is itself saved, so the server is asked before the worker has been
+     * given a box to type in - and its perfectly correct answer is that he has no account yet.
+     * That answer was going straight onto the screen in a red box headed "Before you can go on",
+     * while he was going on.
+     */
+    it("says NOTHING is outstanding merely because he chose Direct Deposit", async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(saveOwnPayrollPayment).toHaveBeenCalled());
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+
+      expect(summary()).toBeNull();
+      expect(capsule().textContent).not.toMatch(/Before you can go on/i);
+      expect(capsule().textContent).not.toMatch(/Add the account you would like/i);
+
+      // The server DID say so. It is simply not an answer to a question he has asked.
+      expect(violationsOf().map((violation) => violation.code)).toContain(
+        "DEPOSIT_ACCOUNT_REQUIRED",
+      );
+    });
+
+    it("stays quiet while he is working through the first account", async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+
+      await enterAccount(1, { institution: "Frost", type: "CHECKING", routing: "0210" });
+      expect(summary()).toBeNull();
+
+      await enterAccount(1, { account: "12345" });
+      expect(summary()).toBeNull();
+      expect(capsule().querySelector(".wf-error")).toBeNull();
+    });
+
+    it("does not greet a returning worker with a red box either", async () => {
+      method = BANK;
+      accounts = [];
+      savedAt = "2026-08-20T09:00:00.000Z";
+
+      await open();
+      await waitFor(() =>
+        expect(capsule().querySelector("[data-pp-details]")).not.toBeNull(),
+      );
+
+      expect(summary()).toBeNull();
+      expect(capsule().querySelector("[data-pp-resumed]")).not.toBeNull();
+    });
+
+    it("TELLS HIM when he asks to go on without an account, in the words he needs", async () => {
+      method = BANK;
+      accounts = [];
+      savedAt = "2026-08-20T09:00:00.000Z";
+      await open();
+      await waitFor(() =>
+        expect(capsule().querySelector("[data-pp-details]")).not.toBeNull(),
+      );
+
+      fireEvent.click(action("review"));
+
+      await waitFor(() =>
+        expect(
+          capsule().querySelector('[data-pp-violation="DEPOSIT_ACCOUNT_REQUIRED"]'),
+        ).not.toBeNull(),
+      );
+      expect(summary()?.textContent).toMatch(/Before you can go on/i);
+      expect(summary()?.textContent).toMatch(
+        /Add the account you would like your pay sent to/i,
+      );
+      // And it did not go on.
+      expect(getOwnPayrollPaymentReview).not.toHaveBeenCalled();
+    });
+
+    it("CLEARS IT the moment he does something about it", async () => {
+      method = BANK;
+      accounts = [];
+      savedAt = "2026-08-20T09:00:00.000Z";
+      await open();
+      await waitFor(() =>
+        expect(capsule().querySelector("[data-pp-details]")).not.toBeNull(),
+      );
+      fireEvent.click(action("review"));
+      await waitFor(() => expect(summary()).not.toBeNull());
+
+      // Adding the account is doing something about it, so the complaint goes at once rather
+      // than sitting there while he types.
+      fireEvent.click(action("add-account"));
+      expect(summary()).toBeNull();
+
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING,
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+      expect(summary()).toBeNull();
+
+      // And when he asks again, he goes through.
+      fireEvent.click(action("review"));
+      await waitFor(() =>
+        expect(capsule().querySelector("[data-pp-review]")).not.toBeNull(),
+      );
+    });
+
+    /**
+     * THE ALLOCATION RULES ARE TIMED THE SAME WAY, and the running total is not a rule.
+     *
+     * A worker halfway through dividing his pay between two accounts has, necessarily, a total
+     * that is not yet a hundred. Being told that in a red box is being told off for typing. The
+     * running total beside the boxes is the helpful version of the same fact and stays.
+     */
+    it("waits until he asks to go on before calling his percentages wrong", async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING,
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+      fireEvent.click(action("add-account"));
+      await enterAccount(2, {
+        institution: "Second Bank",
+        type: "SAVINGS",
+        routing: ROUTING,
+        account: OTHER_ACCOUNT,
+        confirmation: OTHER_ACCOUNT,
+      });
+      fireEvent.click(
+        capsule().querySelector('[data-pp-mode="percentage"] input') as HTMLElement,
+      );
+      const shares = capsule().querySelectorAll<HTMLInputElement>(
+        '[data-pp-field="percentage"]',
+      );
+      fireEvent.change(shares[0], { target: { value: "60" } });
+      fireEvent.change(shares[1], { target: { value: "30" } });
+
+      // Nothing red, and the running total still tells him where he is.
+      expect(summary()).toBeNull();
+      const total = capsule().querySelector("[data-pp-percentage-total]");
+      expect(total?.textContent).toMatch(/has to be exactly 100%/);
+      expect(total?.closest(".wf-error")).toBeNull();
+
+      // He asks to go on. NOW it is his question, and it is answered.
+      fireEvent.click(action("review"));
+      await waitFor(() =>
+        expect(
+          capsule().querySelector('[data-pp-violation="PERCENTAGE_TOTAL_INVALID"]'),
+        ).not.toBeNull(),
+      );
+      expect(capsule().querySelector("[data-pp-review]")).toBeNull();
+
+      // He corrects it, and the red goes with the condition that earned it.
+      fireEvent.change(
+        capsule().querySelectorAll<HTMLInputElement>('[data-pp-field="percentage"]')[1],
+        { target: { value: "40" } },
+      );
+      expect(summary()).toBeNull();
+
+      fireEvent.click(action("review"));
+      await waitFor(() =>
+        expect(capsule().querySelector("[data-pp-review]")).not.toBeNull(),
+      );
+    });
+
+    /* ---------------------------------------------------------------------- */
+    /*  And not while the answer is still on its way - QA-L4-UX-7A             */
+    /* ---------------------------------------------------------------------- */
+
+    describe("and not while the answer to his question is still on its way", () => {
+      /**
+       * A SAVE THIS TEST DECIDES THE TIMING OF.
+       *
+       * The flash real-browser QA reported lives entirely inside the window between the click and
+       * the response, so a suite that cannot hold a request open cannot see it. This holds the next
+       * save open until the test lets it finish, and applies the governed rules when it does.
+       */
+      function heldSave(): { release: () => void } {
+        let release: (() => void) | null = null;
+        vi.mocked(saveOwnPayrollPayment).mockImplementationOnce(
+          (_id, input) =>
+            new Promise((resolve) => {
+              release = () => resolve(save(input));
+            }),
+        );
+        return {
+          release: () => {
+            if (!release) throw new Error("The save was never called.");
+            release();
+          },
+        };
+      }
+
+      /** A / B / C, valid: five hundred, whatever is left, two hundred and fifty. */
+      async function validThreeAccounts(): Promise<void> {
+        await open();
+        chooseMethod("bank");
+        await waitFor(() => expect(accountCard(1)).toBeTruthy());
+        await enterAccount(1, {
+          institution: "QA Test Bank",
+          type: "CHECKING",
+          routing: ROUTING,
+          account: "1111222233",
+          confirmation: "1111222233",
+        });
+        fireEvent.click(action("add-account"));
+        await enterAccount(2, {
+          institution: "QA Savings Bank",
+          type: "SAVINGS",
+          routing: ROUTING,
+          account: "4444555566",
+          confirmation: "4444555566",
+        });
+        fireEvent.click(action("add-account"));
+        await enterAccount(3, {
+          institution: "QA Third Bank",
+          type: "CHECKING",
+          routing: ROUTING,
+          account: "7777888899",
+          confirmation: "7777888899",
+        });
+
+        fireEvent.click(capsule().querySelector('[data-pp-mode="fixed"] input') as HTMLElement);
+        const remainders = capsule().querySelectorAll<HTMLInputElement>(
+          "[data-pp-remainder-for] input",
+        );
+        fireEvent.click(remainders[1]);
+        const amounts = capsule().querySelectorAll<HTMLInputElement>(
+          '[data-pp-field="amount"]',
+        );
+        fireEvent.change(amounts[0], { target: { value: "500" } });
+        fireEvent.change(amounts[1], { target: { value: "250" } });
+      }
+
+      /**
+       * THE DEFECT, AS THE BROWSER SHOWED IT.
+       *
+       * The proposal is valid and the review opens, so nothing is wrong with the outcome. What was
+       * wrong was the frame in between: the summary rendered the violations of the LAST answer the
+       * server gave - collected when the form was still empty - as though they were the answer to
+       * the question he had just asked.
+       */
+      it("SHOWS NO RED while a valid review request is in flight", async () => {
+        await validThreeAccounts();
+        const held = heldSave();
+
+        fireEvent.click(action("review"));
+        await waitFor(() => expect(saveOwnPayrollPayment).toHaveBeenCalledTimes(2));
+
+        // In flight. Nothing has been refused, so nothing is presented as refused.
+        expect(summary()).toBeNull();
+        expect(capsule().textContent).not.toMatch(/Before you can go on/i);
+        // And he cannot ask twice while we are asking once.
+        expect((action("review") as HTMLButtonElement).disabled).toBe(true);
+        expect((action("save") as HTMLButtonElement).disabled).toBe(true);
+
+        held.release();
+
+        await waitFor(() =>
+          expect(capsule().querySelector("[data-pp-review]")).not.toBeNull(),
+        );
+        expect(summary()).toBeNull();
+        // The review is the real one: three accounts, with what each is to receive.
+        expect(capsule().querySelectorAll("[data-pp-review-account]")).toHaveLength(3);
+      });
+
+      it("shows no red on the way through a valid review after the remainder was removed", async () => {
+        await validThreeAccounts();
+        fireEvent.click(action("save"));
+        await waitFor(() => expect(accounts).toHaveLength(3));
+        await waitFor(() => expect(accounts[1]?.allocationKind).toBe("REMAINING_BALANCE"));
+        const [a, , c] = accounts.map((account) => account.accountId);
+
+        // Remove the account that was taking whatever was left, through the confirmation.
+        askToRemove(2);
+        await waitFor(() => expect(removePrompt()).not.toBeNull());
+        fireEvent.click(action("remove-confirm"));
+        await waitFor(() => expect(removePrompt()).toBeNull());
+
+        // Choose the survivor that is to take it, which is the worker's own decision to make.
+        const remainders = capsule().querySelectorAll<HTMLInputElement>(
+          "[data-pp-remainder-for] input",
+        );
+        expect(remainders).toHaveLength(2);
+        fireEvent.click(remainders[1]);
+        fireEvent.change(
+          capsule().querySelector('[data-pp-field="amount"]') as HTMLInputElement,
+          { target: { value: "500" } },
+        );
+
+        const held = heldSave();
+        fireEvent.click(action("review"));
+        await waitFor(() =>
+          expect(saveOwnPayrollPayment).toHaveBeenCalledTimes(3),
+        );
+
+        expect(summary()).toBeNull();
+
+        held.release();
+        await waitFor(() =>
+          expect(capsule().querySelector("[data-pp-review]")).not.toBeNull(),
+        );
+
+        // The two survivors, under their own identities, with what each is to receive.
+        expect(accounts.map((account) => account.accountId)).toEqual([a, c]);
+        expect(accounts[0].allocationKind).toBe("FIXED_AMOUNT");
+        expect(accounts[1].allocationKind).toBe("REMAINING_BALANCE");
+        expect(accounts[0].accountNumber).toBe("1111222233");
+        expect(accounts[1].accountNumber).toBe("7777888899");
+      });
+
+      /**
+       * AND A REAL REFUSAL IS STILL A REFUSAL. This is the assertion that says the correction
+       * suppressed a FRAME rather than the rules: the same request, genuinely invalid, is answered
+       * in red the moment the answer arrives.
+       */
+      it("SHOWS THE RED as soon as a real answer says something is wrong", async () => {
+        await validThreeAccounts();
+        // Take the remainder away, so the proposal genuinely breaks a rule.
+        fireEvent.click(
+          capsule().querySelector('[data-pp-mode="percentage"] input') as HTMLElement,
+        );
+        const shares = capsule().querySelectorAll<HTMLInputElement>(
+          '[data-pp-field="percentage"]',
+        );
+        fireEvent.change(shares[0], { target: { value: "60" } });
+        fireEvent.change(shares[1], { target: { value: "10" } });
+        fireEvent.change(shares[2], { target: { value: "10" } });
+
+        const held = heldSave();
+        fireEvent.click(action("review"));
+        await waitFor(() => expect(saveOwnPayrollPayment).toHaveBeenCalledTimes(2));
+
+        // Still nothing while it is in flight: we do not know yet.
+        expect(summary()).toBeNull();
+
+        held.release();
+
+        // Now we know, and he is told.
+        await waitFor(() =>
+          expect(
+            capsule().querySelector('[data-pp-violation="PERCENTAGE_TOTAL_INVALID"]'),
+          ).not.toBeNull(),
+        );
+        expect(capsule().querySelector("[data-pp-review]")).toBeNull();
+
+        // And correcting it still clears it, which is UX-7 unchanged.
+        fireEvent.change(
+          capsule().querySelectorAll<HTMLInputElement>('[data-pp-field="percentage"]')[1],
+          { target: { value: "40" } },
+        );
+        expect(summary()).toBeNull();
+      });
+
+      it("says what is happening while he waits, and refuses nothing on a request that failed", async () => {
+        await validThreeAccounts();
+
+        let fail: (() => void) | null = null;
+        vi.mocked(saveOwnPayrollPayment).mockImplementationOnce(
+          () =>
+            new Promise((_resolve, reject) => {
+              fail = () => reject(new Error("the network went away"));
+            }),
+        );
+
+        fireEvent.click(action("review"));
+        await waitFor(() => expect(saveOwnPayrollPayment).toHaveBeenCalledTimes(2));
+
+        // A neutral in-progress state, not a refusal.
+        expect(capsule().querySelector("[data-pp-in-flight]")).not.toBeNull();
+        expect(summary()).toBeNull();
+        expect(capsule().querySelector(".wf-error")).toBeNull();
+
+        (fail as unknown as () => void)();
+
+        // A request that genuinely failed is still said, in the existing safe words.
+        await waitFor(() =>
+          expect(capsule().querySelector("[data-pp-refusal]")).not.toBeNull(),
+        );
+        expect(capsule().querySelector("[data-pp-in-flight]")).toBeNull();
+        expect(capsule().textContent).toMatch(/nothing was saved/i);
+      });
+    });
+
+    it("still refuses to open the review, whatever it is or is not showing him", async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+
+      // Nothing on screen was complaining, and the server still decides.
+      expect(summary()).toBeNull();
+      fireEvent.click(action("review"));
+      await waitFor(() => expect(saveOwnPayrollPayment).toHaveBeenCalledTimes(2));
+      expect(getOwnPayrollPaymentReview).not.toHaveBeenCalled();
+      expect(capsule().querySelector("[data-pp-review]")).toBeNull();
     });
   });
 

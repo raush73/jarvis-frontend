@@ -45,9 +45,20 @@ export type PayrollAccountEntry = {
    *
    * Never derived from a banking value, and never sent anywhere. It exists so a row keeps its
    * identity across a re-render while the worker retypes the thing that would otherwise identify
-   * it.
+   * it. IT IS NOT THE SERVER'S IDENTIFIER and must never be sent as one: it is minted by this
+   * browser, means nothing to anybody else, and is reused across reloads.
    */
   key: string;
+  /**
+   * THE SERVER'S OWN identifier for this account, or null while the server has never seen it
+   * (owner ruling QA-L4-R1).
+   *
+   * This is what tells the server which held account a row IS, and it is the reason a row may keep
+   * its protected banking values while omitting them. It is echoed back exactly as received and is
+   * never invented here - a row this browser created has no server identity until a save gives it
+   * one, and claiming one would be claiming another account's protected values.
+   */
+  accountId: string | null;
   accountType: PayrollDepositAccountType | null;
   financialInstitutionName: string;
   /** Entered once. There is no second entry for the routing number in V1 (10-R3). */
@@ -73,6 +84,8 @@ export function newAccountEntry(
   rows += 1;
   return {
     key: `row-${rows}`,
+    // A brand-new row. The server has never seen it, so it names nothing (QA-L4-R1).
+    accountId: null,
     accountType: null,
     financialInstitutionName: "",
     routingNumber: "",
@@ -105,6 +118,7 @@ export function entriesFromServer(
     rows += 1;
     return {
       key: `row-${rows}`,
+      accountId: account.accountId,
       accountType: account.accountType,
       financialInstitutionName: account.financialInstitutionName,
       routingNumber: "",
@@ -124,9 +138,14 @@ export function entriesFromServer(
  * What one row states on the wire.
  *
  * OMITTED IS NOT EMPTY. A protected value the worker did not retype is omitted, which tells the
- * server to keep what it holds; sending an empty string would state that he cleared it. The two
- * account-number entries travel together or not at all, because a first entry with nothing to
- * compare it against is an unconfirmed account number.
+ * server to keep what it holds FOR THIS ACCOUNT; sending an empty string would state that he
+ * cleared it. The two account-number entries travel together or not at all, because a first entry
+ * with nothing to compare it against is an unconfirmed account number.
+ *
+ * AND OMITTING THEM ONLY MEANS ANYTHING BECAUSE `accountId` TRAVELS (owner ruling QA-L4-R1). "Keep
+ * what you hold" is a statement about a particular account, so the row says which one it is. The
+ * `position` beside it is display order and the server re-derives it; a row that relied on it as
+ * identity is what let a removal move one account's protected values onto another.
  */
 export function toAccountInput(
   entry: PayrollAccountEntry,
@@ -138,6 +157,8 @@ export function toAccountInput(
     financialInstitutionName: entry.financialInstitutionName.trim(),
     allocationKind: entry.allocationKind,
   };
+
+  if (entry.accountId !== null) input.accountId = entry.accountId;
 
   const routing = entry.routingNumber.trim();
   if (routing.length > 0) input.routingNumber = routing;
@@ -176,6 +197,9 @@ export function withoutEnteredValues(
 ): PayrollAccountEntry {
   return {
     ...entry,
+    // A row the server has just accepted takes the identity the server gave it, which for a new
+    // row is the first identity it has ever had (QA-L4-R1).
+    accountId: saved?.accountId ?? entry.accountId,
     routingNumber: "",
     accountNumber: "",
     accountNumberConfirmation: "",
@@ -185,4 +209,41 @@ export function withoutEnteredValues(
       ? saved.accountConfirmationMethod !== null
       : entry.confirmed,
   };
+}
+
+/**
+ * Match what came back from a save onto the rows on screen, BY IDENTITY (owner ruling QA-L4-R1).
+ *
+ * WHY NOT BY POSITION IN THE TWO LISTS. Because the browser's list and the server's list are two
+ * lists, and the QA-L4 defect was what happens when code assumes two lists are one: reading the
+ * server's second account onto the row sitting second on screen is right until the moment the two
+ * orders differ, and then it silently attaches one account's masked tail - and the worker's belief
+ * about which account he is looking at - to a different account.
+ *
+ * A ROW THE SERVER ALREADY KNEW takes the account it names. A NEW ROW takes the first returned
+ * account that no row claimed, in order, because that is the only thing that can identify the
+ * account the server has just minted an identifier for: the browser had nothing to name it by, and
+ * the server answered in the order it was asked.
+ */
+export function reconcileEntries(
+  entries: readonly PayrollAccountEntry[],
+  saved: readonly PayrollPaymentAccountView[],
+): PayrollAccountEntry[] {
+  const byId = new Map(saved.map((account) => [account.accountId, account]));
+  const claimed = new Set(
+    entries
+      .map((entry) => entry.accountId)
+      .filter((id): id is string => id !== null && byId.has(id)),
+  );
+  const unclaimed = saved.filter((account) => !claimed.has(account.accountId));
+
+  let next = 0;
+  return entries.map((entry) =>
+    withoutEnteredValues(
+      entry,
+      entry.accountId !== null && byId.has(entry.accountId)
+        ? byId.get(entry.accountId)
+        : unclaimed[next++],
+    ),
+  );
 }
