@@ -60,7 +60,7 @@ export default function PaymentMethodChoice({
           <span className="pp-choice-detail">
             Your pay goes straight into your own bank or credit union account on payday. You can
             split it between up to three accounts. You will need your routing number and account
-            number, which are on your cheques or in your bank&rsquo;s app.
+            number, which are on your checks or in your bank&rsquo;s app.
           </span>
         </span>
       </label>

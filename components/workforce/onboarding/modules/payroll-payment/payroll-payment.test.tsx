@@ -40,6 +40,11 @@ import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { saveWorkerSession } from "@/lib/workforce/workerSession";
+import { PAYROLL_PAYMENT_WORKER_REFUSAL_CODES } from "@/lib/workforce/payrollPaymentApi";
+import {
+  payrollPaymentRefusalMessage,
+  payrollPaymentViolationMessage,
+} from "./payrollPaymentRefusal";
 import type {
   PayrollPaymentAccountView,
   PayrollPaymentInterview,
@@ -245,7 +250,19 @@ function violationsOf(): PayrollPaymentViolation[] {
         field: "accountNumber",
       });
     }
-    if (account.routingNumber === "" || !/^\d{9}$/.test(account.routingNumber)) {
+    // THE THREE ROUTING CONDITIONS, IN THE ORDER THE SERVER DECIDES THEM (owner ruling 10A-R1).
+    // Absence first, and absence is of the RESOLVED account above - an omitted routing number on a
+    // held account carried the stored value forward in `mergeAccount`, so it is not missing here.
+    // The two validity codes describe a value that IS present and must not answer for one that
+    // is not: telling a worker that the routing number he never entered is the wrong shape sends
+    // him to check a field he has not filled in.
+    if (account.routingNumber === "") {
+      found.push({
+        code: "ROUTING_NUMBER_REQUIRED",
+        position: account.position,
+        field: "routingNumber",
+      });
+    } else if (!/^\d{9}$/.test(account.routingNumber)) {
       found.push({
         code: "ROUTING_NUMBER_FORMAT_INVALID",
         position: account.position,
@@ -624,7 +641,12 @@ describe("Module 4.4 - how the worker gets paid", () => {
     it("registers ONE renderer, under the module key, and the runtime renders it", async () => {
       expect(resolveOnboardingModuleRenderer(MODULE_KEY)).toBeTypeOf("function");
       await open();
-      expect(screen.getByText("How you get paid")).toBeTruthy();
+      // The owner's heading for this screen, and the module's only one - so this asserts both that
+      // the runtime rendered the capsule and that it is titled what he ruled it should be.
+      const heading = screen.getByText("Payroll Distribution");
+      expect(heading.tagName).toBe("H2");
+      expect(heading.classList.contains("pp-title")).toBe(true);
+      expect(screen.queryByText(/How you get paid/i)).toBeNull();
     });
 
     it("does not register a renderer for anything else", () => {
@@ -714,7 +736,7 @@ describe("Module 4.4 - how the worker gets paid", () => {
     });
 
     it("says where to find a routing number rather than assuming he knows", () => {
-      expect(accountCard(1).textContent).toMatch(/bottom left of your cheques/i);
+      expect(accountCard(1).textContent).toMatch(/bottom left of your checks/i);
     });
 
     it("catches a routing number no bank can have, arithmetically and at once", async () => {
@@ -1089,6 +1111,40 @@ describe("Module 4.4 - how the worker gets paid", () => {
       // The routing tail too, which QA could not see because all three shared one routing number.
       expect(accountCard(2).textContent).toMatch(/••••0700/);
       expect(accountCard(2).textContent).not.toMatch(/••••7020/);
+    });
+
+    /**
+     * AND NO SURVIVOR IS ASKED FOR A ROUTING NUMBER IT ALREADY HAS (owner ruling 10A-R1).
+     *
+     * The save after a removal resends no protected value and renumbers the surviving rows from
+     * one, which is exactly the request a routing-presence rule reading the request body would have
+     * refused for every account at once. Both survivors keep their own routing number, so neither
+     * is missing one and neither acquired the removed account's.
+     */
+    it("asks no survivor for the routing number it already has", async () => {
+      await saveThreeAccounts();
+      await removeAccountAt(2);
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(2));
+
+      // Nothing was resent, and nothing is reported missing.
+      for (const account of lastSent()?.accounts ?? []) {
+        expect(account.routingNumber).toBeUndefined();
+      }
+      expect(violationsOf().map((violation) => violation.code)).not.toContain(
+        "ROUTING_NUMBER_REQUIRED",
+      );
+      expect(
+        capsule().querySelector('[data-pp-violation="ROUTING_NUMBER_REQUIRED"]'),
+      ).toBeNull();
+
+      // Each survivor's OWN routing number, so nothing moved by position to make that true.
+      await waitFor(() => expect(accountCard(2).textContent).toMatch(/••••0700/));
+      expect(accountCard(1).textContent).toMatch(/••••0001/);
+      expect(capsule().textContent).not.toMatch(/••••7020/);
+      // Neither card is being told to enter a routing number it has.
+      expect(accountCard(1).querySelector("[data-pp-routing-required]")).toBeNull();
+      expect(accountCard(2).querySelector("[data-pp-routing-required]")).toBeNull();
     });
 
     it("adopts the returned masks BY IDENTITY, not by their place in the response", async () => {
@@ -2191,6 +2247,442 @@ describe("Module 4.4 - how the worker gets paid", () => {
   /* ------------------------------------------------------------------------ */
   /*  When red appears, and when it does not - QA-L4-UX-7                      */
   /* ------------------------------------------------------------------------ */
+
+  /* ------------------------------------------------------------------------ */
+  /*  The routing number is required - owner ruling 10A-R1                     */
+  /* ------------------------------------------------------------------------ */
+
+  /**
+   * EVERY ACCOUNT NEEDS A ROUTING NUMBER, AND THE SCREEN'S PART IN THAT IS TWO SENTENCES.
+   *
+   * One while he is filling the account in, so he knows the field is not optional; one when he asks
+   * to go on, which is the server's own answer put in front of him. Neither is enforcement:
+   * `readyForReview` still decides whether the review opens and the browser re-implements no rule.
+   *
+   * THE FIRST OF THE TWO IS BOLD AND RED, BY OWNER RULING, AND THAT IS NOT UX-7 GIVING WAY. It was
+   * a clause in the muted help paragraph until the owner met it in a real browser and ruled that a
+   * worker would miss it. A static "this field is not optional" said before he starts and an
+   * actionable "here is what the server refused" said after he asks to go on are different things,
+   * and only the second is validation output - which is why the first can be loud from the first
+   * frame without UX-7 or UX-7A being touched.
+   *
+   * THE ONE THING THIS SCREEN MUST NOT CONCLUDE IS THAT AN EMPTY BOX MEANS AN ACCOUNT WITHOUT A
+   * ROUTING NUMBER. After any save the box is empty for EVERY account, because the worker is shown
+   * a mask and there is no call here that could obtain anything wider (10-R7). So the affordance
+   * keys off what the server says it HOLDS - the masked tail - and never off what is in the input.
+   * An affordance that read the input would demand that a worker retype his routing number every
+   * time he corrected his bank's spelling, which is the mandatory stop 10A-R1 names.
+   */
+  describe("the routing number is required, and the screen says so honestly", () => {
+    function summary(): HTMLElement | null {
+      return capsule().querySelector<HTMLElement>('[data-pp-violations="true"]');
+    }
+
+    /** The required-routing line on one account, or null when it is not being said. */
+    function requiredNote(position: number): HTMLElement | null {
+      return accountCard(position).querySelector<HTMLElement>(
+        "[data-pp-routing-required]",
+      );
+    }
+
+    /** The sentence the owner ruled must be shown, exactly as he wrote it. */
+    const REQUIRED_SENTENCE =
+      "Routing number is required for every account and cannot be left blank.";
+
+    /** A new account complete in every respect BUT the routing number. */
+    async function accountWithoutRouting(): Promise<void> {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+    }
+
+    /** A save whose timing this test decides, for the in-flight frame (QA-L4-UX-7A). */
+    function heldSave(): { release: () => void } {
+      let release: (() => void) | null = null;
+      vi.mocked(saveOwnPayrollPayment).mockImplementationOnce(
+        (_id, input) =>
+          new Promise((resolve) => {
+            release = () => resolve(save(input));
+          }),
+      );
+      return {
+        release: () => {
+          if (!release) throw new Error("The save was never called.");
+          release();
+        },
+      };
+    }
+
+    it("tells him a new account's routing number is required, beside the box", async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+
+      // THE OWNER'S OWN SENTENCE, WHOLE. He found the previous wording in a browser and ruled it
+      // too easy to miss, so what it now says is his text rather than a paraphrase of it.
+      expect(requiredNote(1)?.textContent?.trim()).toBe(REQUIRED_SENTENCE);
+      expect(field("routing", accountCard(1)).getAttribute("aria-required")).toBe(
+        "true",
+      );
+      expect(summary()).toBeNull();
+      // And it still says where to find the number, which is the part he may not know.
+      expect(accountCard(1).textContent).toMatch(/bottom left of your checks/i);
+    });
+
+    /**
+     * ITS OWN LINE, IN ITS OWN VOICE - which is the whole of the owner's correction.
+     *
+     * The sentence existed before this and the browser QA still failed, because it was a clause at
+     * the tail of the muted grey help paragraph. So proving the words are present proves nothing
+     * about what was actually wrong. What follows asserts the two properties the owner ruled on -
+     * SEPARATE and BOLD RED - and asserts the second against the stylesheet, in the manner this
+     * suite already uses for QA-L4-UX-1: a class name on an element proves nothing if nothing
+     * styles it, and that failure is exactly the one being corrected here.
+     */
+    it("gives that sentence its own line, apart from the ordinary help copy", async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+
+      const note = requiredNote(1);
+      // A block of its own, and not a fragment inside another paragraph.
+      expect(note?.tagName).toBe("P");
+      expect(note?.closest(".pp-help")).toBeNull();
+      // The grey paragraph is still there saying where to find the number, and is a DIFFERENT
+      // element - so the requirement is not buried in the copy it sits beside.
+      const help = accountCard(1).querySelector<HTMLElement>(".pp-help");
+      expect(help).not.toBeNull();
+      expect(help).not.toBe(note);
+      expect(help?.textContent).not.toMatch(/cannot be left blank/i);
+      expect(help?.contains(note as Node)).toBe(false);
+
+      // It carries the module's required-field class rather than the error class, because it is
+      // stating a requirement in advance and not reporting a fault.
+      expect(note?.classList.contains("pp-field-required")).toBe(true);
+      expect(note?.classList.contains("pp-help")).toBe(false);
+      expect(note?.classList.contains("pp-field-error")).toBe(false);
+      // Read out with the box too, not left to sighted workers.
+      const describedBy =
+        field("routing", accountCard(1)).getAttribute("aria-describedby") ?? "";
+      expect(describedBy.split(/\s+/)).toContain(note?.id);
+    });
+
+    it("styles that line BOLD and RED in the module's own stylesheet", () => {
+      const stylesheet = readFileSync(
+        resolve(
+          process.cwd(),
+          "components/workforce/onboarding/modules/payroll-payment/payroll-payment.css",
+        ),
+        "utf8",
+      );
+
+      const rule = /\.pp-field-required\s*\{([^}]*)\}/.exec(stylesheet);
+      expect(rule).not.toBeNull();
+      const declared = rule?.[1] ?? "";
+
+      // BOLD. Asserted as a weight at or above the CSS bold threshold rather than as one exact
+      // number, so the intent is what is pinned and not a particular figure.
+      const weight = /font-weight:\s*(\d+)/.exec(declared);
+      expect(weight).not.toBeNull();
+      expect(Number(weight?.[1])).toBeGreaterThanOrEqual(700);
+
+      // RED, through the application's error colour token - the same one `.pp-field-error` uses, so
+      // this line is the same red the worker already reads as consequential.
+      expect(declared).toMatch(/color:\s*var\(--color-error-text/);
+      const errorRule = /\.pp-field-error\s*\{([^}]*)\}/.exec(stylesheet);
+      expect(errorRule?.[1]).toMatch(/color:\s*var\(--color-error-text/);
+
+      // And it is a distinct rule from the muted help voice, which must not have become bold or red
+      // by this correction.
+      const helpRule = /\.pp-note,\s*\.pp-help,[^{]*\{([^}]*)\}/.exec(stylesheet);
+      expect(helpRule?.[1]).toMatch(/color:\s*var\(--color-text-muted/);
+      expect(helpRule?.[1]).not.toMatch(/font-weight/);
+    });
+
+    /**
+     * "CHEQUE" IS NOT A WORD IN A UNITED STATES PAYROLL APPLICATION (owner correction 2).
+     *
+     * The owner read it on the routing field during browser QA and rejected the spelling. It is
+     * asserted over both places the worker can meet it - the copy this module renders, and the
+     * sentence every governed refusal would put in front of him - because the routing vocabulary
+     * spans both and correcting one would have left the other saying it.
+     */
+    it("says nothing about cheques, in a United States payroll application", async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+      await enterAccount(1, { routing: ROUTING_BAD_CHECKSUM });
+
+      // Everything on screen: the method choice, the routing help, the required line, the ABA
+      // complaint and the allocation copy beneath them.
+      expect(capsule().textContent).not.toMatch(/cheque/i);
+      expect(capsule().textContent).toMatch(/bottom left of your checks/i);
+      expect(accountCard(1).textContent).toMatch(/against your check or your bank/i);
+      expect(capsule().textContent).toMatch(/on your checks or in your bank/i);
+
+      // And every sentence a refusal or a reported violation could say, which is where the routing
+      // wording actually lives. Asserted over the whole vocabulary rather than the three routing
+      // codes, so this cannot be reintroduced anywhere in it.
+      for (const code of PAYROLL_PAYMENT_WORKER_REFUSAL_CODES) {
+        expect(payrollPaymentRefusalMessage(code)).not.toMatch(/cheque/i);
+        expect(payrollPaymentViolationMessage(code)).not.toMatch(/cheque/i);
+      }
+      expect(payrollPaymentRefusalMessage("ROUTING_NUMBER_REQUIRED")).toMatch(
+        /bottom left of a check\./i,
+      );
+      expect(payrollPaymentRefusalMessage("ROUTING_NUMBER_FORMAT_INVALID")).toMatch(
+        /bottom left of a check\./i,
+      );
+      expect(payrollPaymentRefusalMessage("ROUTING_NUMBER_CHECKSUM_INVALID")).toMatch(
+        /against your check or your bank/i,
+      );
+    });
+
+    it("TELLS HIM when he asks to go on without one, and does not go on", async () => {
+      await accountWithoutRouting();
+
+      fireEvent.click(action("review"));
+
+      await waitFor(() =>
+        expect(
+          capsule().querySelector('[data-pp-violation="ROUTING_NUMBER_REQUIRED"]'),
+        ).not.toBeNull(),
+      );
+      const said = summary()?.textContent ?? "";
+      expect(said).toMatch(/Before you can go on/i);
+      expect(said).toMatch(/Account 1: Enter the routing number/i);
+      // It sends him to ENTER a number rather than to check one, which is the distinction 10A-R1
+      // draws between an absent value and a malformed one.
+      expect(said).not.toMatch(/Check it and save again/i);
+
+      // The review was never even asked for, let alone opened.
+      expect(getOwnPayrollPaymentReview).not.toHaveBeenCalled();
+      expect(capsule().querySelector("[data-pp-review]")).toBeNull();
+    });
+
+    it("stays quiet while he is merely building the account", async () => {
+      // The server is asked as soon as he chooses Direct Deposit and again on every save, so it has
+      // been saying the routing number is missing since long before he finished typing one
+      // (QA-L4-UX-7). A held account with no routing number is the same situation on resume.
+      method = BANK;
+      mode = FIXED;
+      accounts = [
+        serverAccount({
+          position: 1,
+          accountType: "CHECKING",
+          financialInstitutionName: "Frost Bank",
+          accountNumber: ACCOUNT,
+          allocationKind: "REMAINING_BALANCE",
+          confirmedAt: "2026-08-20T09:00:00.000Z",
+        }),
+      ];
+      savedAt = "2026-08-20T09:00:00.000Z";
+      expect(violationsOf().map((violation) => violation.code)).toContain(
+        "ROUTING_NUMBER_REQUIRED",
+      );
+
+      await open();
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+
+      // NO COMPLAINT ON ARRIVAL, AND NONE WHILE HE TYPES. The distinction the owner drew in
+      // correction 1 is asserted here rather than assumed: the STATIC requirement line is present
+      // and is meant to be, because it states in advance that the field is not optional. What must
+      // not be present is the server's ACTUAL REFUSAL, which he has not yet asked for and has done
+      // nothing to earn - so the violation summary stays away and no validation error is rendered.
+      expect(requiredNote(1)).not.toBeNull();
+      expect(summary()).toBeNull();
+      expect(capsule().querySelector(".wf-error")).toBeNull();
+      expect(capsule().querySelector(".pp-field-error")).toBeNull();
+      await enterAccount(1, { routing: "0210" });
+      expect(summary()).toBeNull();
+      expect(
+        capsule().querySelector('[data-pp-violation="ROUTING_NUMBER_REQUIRED"]'),
+      ).toBeNull();
+    });
+
+    it("CLEARS IT the moment he enters the routing number", async () => {
+      await accountWithoutRouting();
+      fireEvent.click(action("review"));
+      await waitFor(() => expect(summary()).not.toBeNull());
+
+      // Typing into the field he was told about is doing something about it, so the complaint goes
+      // at once rather than sitting there while he types.
+      await enterAccount(1, { routing: ROUTING });
+      expect(summary()).toBeNull();
+
+      // And when he asks again, he goes through.
+      fireEvent.click(action("review"));
+      await waitFor(() =>
+        expect(capsule().querySelector("[data-pp-review]")).not.toBeNull(),
+      );
+      expect(summary()).toBeNull();
+    });
+
+    it("shows no stale required-routing red while a valid review is in flight", async () => {
+      // QA-L4-UX-7A over this violation: the last answer the server gave still says the routing
+      // number is missing, and for the length of the round trip that answer is about an older
+      // question. A screen that does not yet know says nothing.
+      await accountWithoutRouting();
+      fireEvent.click(action("review"));
+      await waitFor(() =>
+        expect(
+          capsule().querySelector('[data-pp-violation="ROUTING_NUMBER_REQUIRED"]'),
+        ).not.toBeNull(),
+      );
+
+      await enterAccount(1, { routing: ROUTING });
+      const held = heldSave();
+      fireEvent.click(action("review"));
+      await waitFor(() =>
+        expect(capsule().querySelector("[data-pp-in-flight]")).not.toBeNull(),
+      );
+
+      expect(summary()).toBeNull();
+      expect(
+        capsule().querySelector('[data-pp-violation="ROUTING_NUMBER_REQUIRED"]'),
+      ).toBeNull();
+
+      held.release();
+      await waitFor(() =>
+        expect(capsule().querySelector("[data-pp-review]")).not.toBeNull(),
+      );
+      expect(summary()).toBeNull();
+    });
+
+    it("does NOT ask an existing account to type its routing number again", async () => {
+      // THE MANDATORY-STOP CASE, AS THE BROWSER MEETS IT. The value is held server-side and the
+      // browser has only the mask, so the box is empty - and an empty box on this account is the
+      // normal, correct state rather than a missing routing number.
+      method = BANK;
+      mode = FIXED;
+      accounts = [
+        serverAccount({
+          position: 1,
+          accountType: "CHECKING",
+          financialInstitutionName: "Frost Bank",
+          routingNumber: ROUTING,
+          accountNumber: ACCOUNT,
+          allocationKind: "REMAINING_BALANCE",
+          confirmedAt: "2026-08-20T09:00:00.000Z",
+        }),
+      ];
+      savedAt = "2026-08-20T09:00:00.000Z";
+
+      await open();
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+
+      expect(field("routing", accountCard(1)).value).toBe("");
+      // NO RED LINE, AND NOT MERELY NO HOOK. For this worker "it cannot be left blank" would be
+      // false - leaving it blank is exactly what he should do - so the sentence is absent from the
+      // card altogether, and what he gets instead is the mask and permission to leave it alone.
+      expect(requiredNote(1)).toBeNull();
+      expect(accountCard(1).textContent).not.toMatch(/cannot be left blank/i);
+      expect(accountCard(1).querySelector(".pp-field-required")).toBeNull();
+      expect(field("routing", accountCard(1)).getAttribute("aria-required")).toBeNull();
+      expect(
+        accountCard(1).querySelector("[data-pp-routing-stored]"),
+      ).not.toBeNull();
+      expect(accountCard(1).textContent).toMatch(/Leave this blank to keep it/i);
+
+      // He corrects only his bank's spelling and asks to go on. No routing number travels, none is
+      // asked for, and the one the server holds is untouched.
+      await enterAccount(1, { institution: "Frost Bank NA" });
+      fireEvent.click(action("review"));
+      await waitFor(() =>
+        expect(capsule().querySelector("[data-pp-review]")).not.toBeNull(),
+      );
+
+      const sent = vi.mocked(saveOwnPayrollPayment).mock.calls.at(-1)?.[1];
+      expect(sent?.accounts?.[0]?.routingNumber).toBeUndefined();
+      expect(accounts[0]?.routingNumber).toBe(ROUTING);
+      expect(summary()).toBeNull();
+    });
+
+    it("leaves the existing ABA feedback exactly as it was", async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING_BAD_CHECKSUM,
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+
+      // Still caught beside the box, arithmetically and at once.
+      expect(
+        accountCard(1).querySelector("[data-pp-routing-invalid]"),
+      ).not.toBeNull();
+
+      fireEvent.click(action("review"));
+      await waitFor(() =>
+        expect(
+          capsule().querySelector(
+            '[data-pp-violation="ROUTING_NUMBER_CHECKSUM_INVALID"]',
+          ),
+        ).not.toBeNull(),
+      );
+      // A SUPPLIED value that is wrong is not an absent one, and does not answer as one.
+      expect(
+        capsule().querySelector('[data-pp-violation="ROUTING_NUMBER_REQUIRED"]'),
+      ).toBeNull();
+      expect(capsule().querySelector("[data-pp-review]")).toBeNull();
+    });
+
+    it("names the account actually missing its routing number, and not the one beside it", async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING,
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+
+      fireEvent.click(action("add-account"));
+      await enterAccount(2, {
+        institution: "Second Bank",
+        type: "SAVINGS",
+        account: OTHER_ACCOUNT,
+        confirmation: OTHER_ACCOUNT,
+      });
+      fireEvent.click(
+        capsule().querySelector('[data-pp-mode="percentage"] input') as HTMLElement,
+      );
+      const shares = capsule().querySelectorAll<HTMLInputElement>(
+        '[data-pp-field="percentage"]',
+      );
+      fireEvent.change(shares[0], { target: { value: "60" } });
+      fireEvent.change(shares[1], { target: { value: "40" } });
+
+      fireEvent.click(action("review"));
+      await waitFor(() =>
+        expect(
+          capsule().querySelector('[data-pp-violation="ROUTING_NUMBER_REQUIRED"]'),
+        ).not.toBeNull(),
+      );
+
+      const said = summary()?.textContent ?? "";
+      expect(said).toMatch(/Account 2: Enter the routing number/i);
+      expect(said).not.toMatch(/Account 1: Enter the routing number/i);
+      // And the two cards say two different things, each about its own account.
+      expect(
+        accountCard(1).querySelector("[data-pp-routing-stored]"),
+      ).not.toBeNull();
+      expect(requiredNote(1)).toBeNull();
+      expect(requiredNote(2)).not.toBeNull();
+      expect(capsule().querySelector("[data-pp-review]")).toBeNull();
+    });
+  });
 
   describe("red says he must fix something now, not that he has not finished typing", () => {
     /** The red summary of what the server says is outstanding, or null. */

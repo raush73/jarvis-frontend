@@ -57,6 +57,27 @@
   margin: 0;
 }
 
+/*
+ * A FIELD THAT MUST BE FILLED IN, SAID BEFORE HE FINDS OUT THE HARD WAY (owner ruling 10A-R1,
+ * owner browser QA correction 1).
+ *
+ * NOT THE SAME THING AS `.pp-field-error` ABOVE, WHICH IS WHY IT IS NOT THAT CLASS. That one
+ * reports something that has gone wrong; this one states a requirement in advance, before the
+ * worker has done anything at all. They share the red because both are the same kind of
+ * consequential, and this one is bold on top of it because the owner found the requirement too easy
+ * to miss when it sat in the muted help voice above.
+ *
+ * IT IS A WHOLE SENTENCE, so the rule at the top of this file holds: the red says "attend to this"
+ * and the words say what and why. A worker who cannot distinguish this red from the grey beside it
+ * has lost nothing, because the sentence itself tells him the field cannot be left blank.
+ */
+.pp-field-required {
+  color: var(--color-error-text, #a3241f);
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
 /* ------------------------------------------------------------------ choices */
 
 .pp-fieldset {
@@ -301,7 +322,7 @@
  * The waiting message.
  *
  * Set apart because it is the most important sentence on the screen: the instruction is NOT in force
- * yet. A worker who reads this panel as a confirmation and is then paid by cheque was misled here.
+ * yet. A worker who reads this panel as a confirmation and is then paid by check was misled here.
  */
 .pp-review-pending {
   margin: 0;

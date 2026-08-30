@@ -309,6 +309,19 @@ export const PAYROLL_PAYMENT_WORKER_REFUSAL_CODES = [
   "REMAINING_BALANCE_ACCOUNT_REQUIRED",
   "MULTIPLE_REMAINING_BALANCE_ACCOUNTS",
   "ALLOCATION_VALUE_INVALID",
+  /**
+   * The account has no routing number at all (owner ruling 10A-R1).
+   *
+   * DISTINCT FROM THE TWO BELOW, AND THE DISTINCTION IS THE WHOLE POINT. Those two say something
+   * about a value that WAS entered; this one says none was. A worker told his routing number is
+   * the wrong shape when he entered none is being sent to check a field he never filled in.
+   *
+   * IT IS NEVER RAISED BECAUSE THE BROWSER LACKS THE PLAINTEXT. An account the server already
+   * holds a routing number for is resaved with the value omitted, because the worker holds only a
+   * mask of it - and the server keeps what it holds for that account (QA-L4-FUNC-1, QA-L4-R1).
+   * The server decides presence from what it actually holds, never from what the request carried.
+   */
+  "ROUTING_NUMBER_REQUIRED",
   "ROUTING_NUMBER_FORMAT_INVALID",
   "ROUTING_NUMBER_CHECKSUM_INVALID",
   "ACCOUNT_NUMBER_INVALID",

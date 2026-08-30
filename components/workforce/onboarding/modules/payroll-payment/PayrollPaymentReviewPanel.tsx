@@ -15,7 +15,7 @@
  * him plainly that it has not happened yet.
  *
  * THE HONESTY OF THE WAITING MESSAGE MATTERS MORE THAN ITS REASSURANCE. A worker who is told
- * "you're all set" and then is paid by paper cheque was misled by this screen. So the wording
+ * "you're all set" and then is paid by paper check was misled by this screen. So the wording
  * describes the true state: we have his instruction, it has not been put in force, and somebody
  * will do that next.
  *
@@ -50,7 +50,7 @@ function shareOf(
     return `${account.allocationPercentage}% of your pay`;
   }
   if (account.allocationAmount) {
-    return `$${account.allocationAmount} of each paycheque`;
+    return `$${account.allocationAmount} of each paycheck`;
   }
   return "Not set yet";
 }
@@ -137,7 +137,7 @@ export default function PayrollPaymentReviewPanel({
       <p className="pp-review-pending" role="status" data-pp-review-pending>
         This is what you have told us, and it has not been put in place yet. Nothing has been sent to
         your bank. You will be asked to confirm it in a later step, and we will tell you which
-        paycheque it starts with.
+        paycheck it starts with.
       </p>
     </section>
   );

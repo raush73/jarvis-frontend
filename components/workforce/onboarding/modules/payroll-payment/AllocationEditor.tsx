@@ -92,7 +92,7 @@ export default function AllocationEditor({
           <span className="pp-choice-body">
             <span className="pp-choice-title">By percentage</span>
             <span className="pp-choice-detail">
-              Each account gets a share of every paycheque - for example 80% to one and 20% to
+              Each account gets a share of every paycheck - for example 80% to one and 20% to
               another. The shares have to add up to 100%. Choose this if you want the split to stay
               the same however much you earn.
             </span>

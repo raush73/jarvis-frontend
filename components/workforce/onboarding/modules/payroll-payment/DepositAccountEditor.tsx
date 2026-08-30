@@ -3,7 +3,7 @@
 /**
  * Module 4.4 - one bank account, as the worker enters it.
  *
- * WHAT HE IS ASKED FOR IS WHAT IS ON HIS CHEQUE, and the wording says where to find it. A worker who
+ * WHAT HE IS ASKED FOR IS WHAT IS ON HIS CHECK, and the wording says where to find it. A worker who
  * has never set this up before does not know what a routing number is, and telling him "enter your
  * routing number" is not asking a question - it is assuming the answer.
  *
@@ -152,12 +152,46 @@ export default function DepositAccountEditor({
           Routing number
         </label>
         <p className="pp-help" id={`${ids}-routing-help`}>
-          Nine digits, printed at the bottom left of your cheques. Your bank&rsquo;s app will show it
-          too.
-          {entry.storedRoutingMasked
-            ? ` We have ${entry.storedRoutingMasked} saved. Leave this blank to keep it.`
-            : ""}
+          Nine digits, printed at the bottom left of your checks. Your bank&rsquo;s app will show it
+          too.{" "}
+          {entry.storedRoutingMasked ? (
+            <span data-pp-routing-stored>
+              We have {entry.storedRoutingMasked} saved. Leave this blank to keep it.
+            </span>
+          ) : null}
         </p>
+        {/*
+          THAT IT IS REQUIRED, ON ITS OWN LINE AND IN ITS OWN VOICE (owner ruling 10A-R1, owner
+          browser QA correction 1). It was a clause at the end of the muted help sentence above, and
+          the owner found it in a real browser and ruled that a worker would miss it: a requirement
+          he only discovers by being refused at Review is a requirement stated too late. So it is
+          lifted out into its own bold red line, `.pp-field-required`, sitting immediately above the
+          box it governs - the last thing he reads before he types.
+
+          RED HERE MEANS "THIS IS NOT OPTIONAL", NOT "YOU HAVE DONE SOMETHING WRONG". Which is why
+          it is not `.pp-field-error` and is not routed through the validation summary: it is
+          present from the moment the card appears, before he has typed anything, and it complains
+          about nothing. The actionable refusal remains the server's, shown only once he asks to go
+          on (QA-L4-UX-7), and this static line neither triggers nor suppresses it.
+
+          AND IT IS SAID ONLY WHEN IT IS TRUE OF HIM. An account whose routing number the server
+          already holds is resaved with this box EMPTY, because the worker holds only a mask of the
+          value and his browser cannot resend what it does not have (10-R7, QA-L4-FUNC-1). Telling
+          THAT worker the box cannot be left blank would be false - leaving it blank is exactly what
+          he should do - so he gets the stored-value sentence above instead and no red line at all.
+          `aria-required` is withheld from the same accounts and for the same reason: "the browser
+          has no plaintext routing number" is not "this account has no routing number", and the
+          server decides which of those is the case.
+        */}
+        {entry.storedRoutingMasked === null ? (
+          <p
+            className="pp-field-required"
+            id={`${ids}-routing-required`}
+            data-pp-routing-required
+          >
+            Routing number is required for every account and cannot be left blank.
+          </p>
+        ) : null}
         <input
           id={`${ids}-routing`}
           className="pp-input"
@@ -166,7 +200,14 @@ export default function DepositAccountEditor({
           autoComplete="off"
           spellCheck={false}
           data-pp-field="routing"
-          aria-describedby={`${ids}-routing-help`}
+          // The requirement is part of what this box IS, so it is read out with the box rather than
+          // left for a sighted worker only.
+          aria-describedby={
+            entry.storedRoutingMasked === null
+              ? `${ids}-routing-help ${ids}-routing-required`
+              : `${ids}-routing-help`
+          }
+          aria-required={entry.storedRoutingMasked === null || undefined}
           aria-invalid={routingWrong || undefined}
           value={entry.routingNumber}
           disabled={disabled}
@@ -175,7 +216,7 @@ export default function DepositAccountEditor({
         {routingWrong ? (
           <p className="pp-field-error" role="status" data-pp-routing-invalid>
             That is not a routing number a bank can have, so one of the digits is probably wrong.
-            Check it against your cheque or your bank&rsquo;s app.
+            Check it against your check or your bank&rsquo;s app.
           </p>
         ) : null}
         {routingTyped && !routingComplete ? (

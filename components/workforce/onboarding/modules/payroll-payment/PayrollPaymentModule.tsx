@@ -21,7 +21,7 @@
  *     of the review does not finish this module. Putting a payroll instruction in force is a
  *     separate governed act that does not exist yet (10-R15).
  *  2. HE CANNOT CHOOSE WHEN IT STARTS. There is no effective-date control, because the authoritative
- *     effective date is not his to choose. The review says he will be told which paycheque it
+ *     effective date is not his to choose. The review says he will be told which paycheck it
  *     starts with, which is the truth.
  *  3. HE CANNOT GET A CARD HERE. Choosing the payroll card records a CHOICE. Nothing in this capsule
  *     creates, orders, assigns or activates a card, and nothing is sent outside Jarvis (10-R14).
@@ -476,7 +476,14 @@ export function PayrollPaymentModule({
 
   return (
     <section className="pp-module" data-pp-state={stage}>
-      <h2 className="pp-title">How you get paid</h2>
+      {/*
+        THE OWNER'S HEADING (owner ruling, final 10A-R1 UI correction). "How you get paid" described
+        the question this screen opens with; what the screen actually does, once he has chosen his
+        own bank, is show him how his payroll is DISTRIBUTED across the accounts he named - which is
+        the heading's job to say. A label only: nothing below it changes, and no domain, API or
+        persisted name carries this wording.
+      */}
+      <h2 className="pp-title">Payroll Distribution</h2>
 
       {interview.savedAt && stage !== "REVIEW" ? (
         <p className="pp-note" role="status" data-pp-resumed>

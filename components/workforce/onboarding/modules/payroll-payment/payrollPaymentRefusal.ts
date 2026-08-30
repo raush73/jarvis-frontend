@@ -59,10 +59,14 @@ const REFUSAL_MESSAGES: Record<PayrollPaymentWorkerRefusalCode, string> = {
     "Only one account can get whatever is left of your pay. Choose one and save again. Nothing was saved.",
   ALLOCATION_VALUE_INVALID:
     "One of the amounts below is missing or is not a figure we can use. Check them and save again. Nothing was saved.",
+  // ABSENCE, AND IT SAYS SO (owner ruling 10A-R1). It sends him to enter the number rather than to
+  // check one, which is what the two sentences below do and what an absent value must not be told.
+  ROUTING_NUMBER_REQUIRED:
+    "Enter the routing number - the nine digits printed at the bottom left of a check. Nothing was saved.",
   ROUTING_NUMBER_FORMAT_INVALID:
-    "A routing number is the nine digits printed at the bottom left of a cheque. Check it and save again. Nothing was saved.",
+    "A routing number is the nine digits printed at the bottom left of a check. Check it and save again. Nothing was saved.",
   ROUTING_NUMBER_CHECKSUM_INVALID:
-    "That routing number is not one a bank can have, so a digit is probably wrong. Check it against your cheque or your bank's app and save again. Nothing was saved.",
+    "That routing number is not one a bank can have, so a digit is probably wrong. Check it against your check or your bank's app and save again. Nothing was saved.",
   ACCOUNT_NUMBER_INVALID:
     "Check the account number and save again. Nothing was saved.",
   ACCOUNT_NUMBER_CONFIRMATION_REQUIRED:
