@@ -1331,6 +1331,36 @@ describe("when the worker's part is done", () => {
     expect(vi.mocked(completeOnboardingModule)).not.toHaveBeenCalled();
   });
 
+  /**
+   * RE-ENTRY IN A SESSION THAT CAPTURED NOTHING - which is every session but the one he
+   * finished in, and always the one a later packet opens.
+   *
+   * The recorded projection says THAT evidence was captured and never WHICH artifact it was, so
+   * a draft seeded from a read holds no binding and every document on the record answers
+   * `needsFreshCapture`. That is the right answer for a save and no kind of answer for a worker:
+   * his part is done, there is no Save on his screen, and a demand for a new picture beside
+   * "we have your picture" is the surface contradicting itself about his own record.
+   */
+  it("asks a finished worker for nothing, in a session that captured nothing", async () => {
+    serverState = fixtureState({ record: recorded() });
+    serverSubjects = [
+      fixtureSubject({ current: fixtureExecution(), requiresExecution: false }),
+    ];
+    resetEmploymentEligibilityDrafts();
+
+    openModule(DOCUMENTS);
+
+    expect(
+      await screen.findByText("Your part is complete. MW4H will review your documents."),
+    ).toBeTruthy();
+    // What he has is still said, and said truthfully.
+    expect(screen.getByText(/We have your picture of this document/)).toBeTruthy();
+    // And nothing at all about saving, on a screen he cannot save from.
+    expect(document.querySelector("[data-ee-recapture-blocked]")).toBeNull();
+    expect(screen.queryByText("Check the following before saving.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
   it("asks him to sign again when he changes the record he signed about", async () => {
     await completeTheWorkerPhase();
     await screen.findByText("Your part is complete. MW4H will review your documents.");

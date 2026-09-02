@@ -29,6 +29,29 @@ export function priorityLabel(value: string): string {
   return PRIORITY_LABELS[value as EmergencyContactPriority] ?? value;
 }
 
+/**
+ * How a contact is identified to the worker: "Emergency Contact 1", and so on.
+ *
+ * THE NUMBER IS THE GOVERNED ORDER OF CONTACT ATTEMPT AND NOTHING ELSE. It is the priority's
+ * own position in the governed list, so "Emergency Contact 2" means the person we would call
+ * second - not the second card drawn on the screen. Numbering by position in an array would
+ * quietly say the wrong thing the moment a worker set his contacts in another order, and the
+ * order is the whole point of the attribute.
+ *
+ * An ungoverned value has no place in the order, so it is named by its own term rather than
+ * given a number that would mean nothing. It has already been reported as a violation.
+ */
+const CONTACT_ORDINALS = new Map<string, number>(
+  EMERGENCY_CONTACT_PRIORITIES.map((priority, rank) => [priority as string, rank + 1]),
+);
+
+export function contactOrdinalLabel(priority: string): string {
+  const ordinal = CONTACT_ORDINALS.get(priority);
+  return ordinal === undefined
+    ? priorityLabel(priority)
+    : `Emergency Contact ${String(ordinal)}`;
+}
+
 export function PriorityControl({
   id,
   value,

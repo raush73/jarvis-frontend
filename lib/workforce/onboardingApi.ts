@@ -183,6 +183,53 @@ function absorbRenewedSession(res: Response): void {
   if (token && expiresAt) renewWorkerSessionToken(token, expiresAt);
 }
 
+/**
+ * Told when a worker request that COULD have changed onboarding state succeeded.
+ *
+ * `path` and `method` are the request's own, so a listener can scope what it does. Nothing
+ * about the change itself is carried, and deliberately: the transport does not know what a
+ * module's write meant, and a listener that was told would be deciding completion from a
+ * response body instead of re-reading the server's own answer.
+ */
+export type OnboardingWriteListener = (event: {
+  path: string;
+  method: string;
+}) => void;
+
+const writeListeners = new Set<OnboardingWriteListener>();
+
+/**
+ * Subscribe to successful onboarding writes. Returns the unsubscribe, for effect cleanup.
+ *
+ * This exists because the runtime's cached projection has to be invalidated by SOMETHING,
+ * and the only place that sees every worker write is the one transport they all share. A
+ * module that completes through its own governed endpoint - a certification, an execution -
+ * therefore invalidates the projection exactly as the generic completion call does, without
+ * the runtime knowing that module exists and without that module knowing the runtime does.
+ *
+ * It is a notification and never an answer: what a listener may do with it is re-read from
+ * the server. Nothing here makes the browser authoritative for anything.
+ */
+export function onOnboardingWrite(listener: OnboardingWriteListener): () => void {
+  writeListeners.add(listener);
+  return () => {
+    writeListeners.delete(listener);
+  };
+}
+
+function announceWrite(path: string, method: string): void {
+  // Only a SUCCESSFUL write, because a refusal recorded nothing: re-reading after one would
+  // spend a request to be told what the client already holds.
+  for (const listener of [...writeListeners]) {
+    try {
+      listener({ path, method });
+    } catch {
+      // A listener's own failure is its own. It must not turn a completed write into a
+      // failed one for the caller who performed it.
+    }
+  }
+}
+
 function extractMessage(body: unknown): { message: string; fieldErrors: string[] } {
   if (body && typeof body === "object") {
     const record = body as Record<string, unknown>;
@@ -255,6 +302,8 @@ export async function onboardingWorkerFetch<T>(
     const { message, fieldErrors } = extractMessage(payload);
     throw new OnboardingApiError(message, res.status, code, fieldErrors);
   }
+
+  if (method !== "GET") announceWrite(path, method);
 
   return (payload as Envelope<T>).value;
 }

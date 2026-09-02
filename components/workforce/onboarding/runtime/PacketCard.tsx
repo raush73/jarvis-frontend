@@ -35,7 +35,6 @@ export function formatActivity(timestamp: string | null): string | null {
 }
 
 export function PacketCard({ packet, showResume = true }: Props) {
-  const outstanding = packet.completion.requiredCount - packet.completion.completeCount;
   const lastActivity = formatActivity(packet.lastActivityAt);
 
   return (
@@ -43,11 +42,6 @@ export function PacketCard({ packet, showResume = true }: Props) {
       <div className="ob-packet-card-head">
         <div>
           <h2 className="ob-packet-card-title">Onboarding</h2>
-          {/*
-            The calling workflow's own statement of why this packet exists. The runtime
-            does not invent a purpose, because it did not decide the packet was required.
-          */}
-          <p className="ob-packet-card-purpose">{packet.invocationReason}</p>
         </div>
         <OnboardingPacketStatusBadge
           packetState={packet.packetState}
@@ -63,9 +57,22 @@ export function PacketCard({ packet, showResume = true }: Props) {
           <dd>{packet.completion.requiredCount}</dd>
         </div>
         <div>
-          <dt>Outstanding</dt>
-          <dd>{outstanding > 0 ? outstanding : "None"}</dd>
+          <dt>Still to do</dt>
+          {/*
+            The count the SERVER says is his, not sections minus completions. A section waiting
+            on our team is incomplete and is not something he can do anything about, and
+            counting it here would hand him a task that does not exist.
+          */}
+          <dd>
+            {packet.workerOutstandingCount > 0 ? packet.workerOutstandingCount : "Nothing"}
+          </dd>
         </div>
+        {packet.awaitingAdministrativeActionCount > 0 ? (
+          <div>
+            <dt>Waiting on us</dt>
+            <dd>{packet.awaitingAdministrativeActionCount}</dd>
+          </div>
+        ) : null}
         {lastActivity ? (
           <div>
             <dt>Last activity</dt>

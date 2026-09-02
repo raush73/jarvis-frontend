@@ -47,14 +47,61 @@ import {
 } from "./payrollPaymentRefusal";
 import type {
   PayrollPaymentAccountView,
+  PayrollPaymentRecordedAccountView,
+  PayrollPaymentAuthorization,
+  PayrollPaymentAuthorizationBlocker,
   PayrollPaymentInterview,
   PayrollPaymentReview,
   PayrollPaymentViolation,
   SavePayrollPaymentAccountInput,
   SavePayrollPaymentInterviewInput,
 } from "@/lib/workforce/payrollPaymentApi";
+import type { OnboardingExecutionSubject } from "@/lib/workforce/onboardingExecutionApi";
 
 const push = vi.fn();
+
+/*
+  [ADDED BY GATE 10C.] Two things a browser has and jsdom does not, both needed because the
+  terminal act of this module is now a DRAWN signature rendered by the delivered shared capture
+  surface. Copied from the delivered execution capture suite rather than invented, so what runs
+  here is the same drawing path a worker's pointer runs.
+
+  Without the first, the testing library degrades a pointer event to a bare Event carrying no
+  coordinate, and every signature assertion below would pass while proving nothing was drawn.
+*/
+if (typeof window.PointerEvent === "undefined") {
+  class TestPointerEvent extends MouseEvent {
+    readonly pointerId: number;
+    readonly pointerType: string;
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 0;
+      this.pointerType = init.pointerType ?? "mouse";
+    }
+  }
+  Object.defineProperty(window, "PointerEvent", {
+    configurable: true,
+    writable: true,
+    value: TestPointerEvent,
+  });
+}
+
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+  configurable: true,
+  writable: true,
+  value: () => ({
+    setTransform: () => {},
+    clearRect: () => {},
+    beginPath: () => {},
+    moveTo: () => {},
+    lineTo: () => {},
+    stroke: () => {},
+    lineWidth: 0,
+    lineCap: "butt",
+    lineJoin: "miter",
+    strokeStyle: "",
+  }),
+});
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace: vi.fn(), back: vi.fn() }),
@@ -87,6 +134,8 @@ vi.mock("@/lib/workforce/payrollPaymentApi", async (importOriginal) => {
     getOwnPayrollPayment: vi.fn(),
     saveOwnPayrollPayment: vi.fn(),
     getOwnPayrollPaymentReview: vi.fn(),
+    getOwnPayrollPaymentAuthorization: vi.fn(),
+    authorizeOwnPayrollPayment: vi.fn(),
   };
 });
 
@@ -99,6 +148,8 @@ const {
   getOwnPayrollPayment,
   saveOwnPayrollPayment,
   getOwnPayrollPaymentReview,
+  getOwnPayrollPaymentAuthorization,
+  authorizeOwnPayrollPayment,
   PAYROLL_PAYMENT_MAX_DEPOSIT_ACCOUNTS,
 } = await import("@/lib/workforce/payrollPaymentApi");
 const { OnboardingRuntimeProvider } = await import(
@@ -166,6 +217,7 @@ function resetServer(): void {
   accounts = [];
   savedAt = null;
   minted = 0;
+  authorizedAt = null;
 }
 
 /** Readable, opaque, and not derived from anything the worker can change. */
@@ -347,6 +399,36 @@ function accountViews(): PayrollPaymentAccountView[] {
   }));
 }
 
+/**
+ * The accounts as they come back on a RECORDED outcome, which is NOT the interview's projection.
+ *
+ * THE MISSING `accountId` IS THE POINT AND MUST STAY MISSING. The recorded instruction is an
+ * immutable version, so the server exposes no stable draft identifier on it - there is nothing to
+ * echo back and nothing to carry forward. This fake used to hand back the interview's own account
+ * views here, `accountId` and all, which made it strictly more generous than the real server: the
+ * authorization screen keyed its list on a field that exists in this file and nowhere in a real
+ * response, and every test passed while a real browser logged a React key warning. A fake that is
+ * kinder than the server proves nothing, so this one is not.
+ */
+function recordedAccountViews(): PayrollPaymentRecordedAccountView[] {
+  // Field by field rather than a spread minus one, so this is an object LITERAL: the excess-property
+  // check then makes putting `accountId` back a compile error rather than a silent regression.
+  return accountViews().map((account) => ({
+    position: account.position,
+    accountType: account.accountType,
+    financialInstitutionName: account.financialInstitutionName,
+    routingNumberEntered: account.routingNumberEntered,
+    routingNumberMasked: account.routingNumberMasked,
+    accountNumberEntered: account.accountNumberEntered,
+    accountNumberMasked: account.accountNumberMasked,
+    allocationKind: account.allocationKind,
+    allocationPercentage: account.allocationPercentage,
+    allocationAmount: account.allocationAmount,
+    accountConfirmationMethod: account.accountConfirmationMethod,
+    accountConfirmationRecordedAt: account.accountConfirmationRecordedAt,
+  }));
+}
+
 function interviewView(): PayrollPaymentInterview {
   const violations = violationsOf();
   return {
@@ -450,6 +532,113 @@ function save(input: SavePayrollPaymentInterviewInput): PayrollPaymentInterview 
 
   savedAt = "2026-08-26T12:00:00.000Z";
   return interviewView();
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Gate 10C: the authorization stage, as the server projects it               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE SECURED OWNER-RATIFIED AUTHORIZATION STATEMENT, spelled out here in full.
+ *
+ * Written out rather than imported from the component or the client, deliberately. A test that
+ * imported the sentence it is checking would agree with any wording the implementation happened to
+ * hold, including a paraphrase - which is the one thing that must never pass. This is the wording
+ * as governance ratified it, and it is the only wording that satisfies these assertions.
+ */
+const AUTHORIZATION_STATEMENT =
+  "I authorize Millwrights4Hire to use the payroll payment information I provided to pay wages " +
+  "owed to me using the payment method I selected. I confirm that the information I provided is " +
+  "accurate and that I am authorized to use the account identified above. I understand that I " +
+  "can later request a change to my payroll payment instructions.";
+
+const AUTHORIZATION_REVISION = "10C.1";
+const AUTHORIZATION_HASH = "c".repeat(64);
+
+/** Server-side truth about the act: set only when the fake server records one. */
+let authorizedAt: string | null = null;
+
+function authorizationSubject(): OnboardingExecutionSubject {
+  const done = authorizedAt !== null;
+  return {
+    moduleKey: MODULE_KEY,
+    subjectKey: "WORKER_PAYMENT_AUTHORIZATION",
+    title: "Your payroll payment authorization",
+    requiredForm: "ELECTRONIC_SIGNATURE",
+    content: {
+      kind: "GOVERNED_TEXT",
+      ref: "PAYROLL_PAYMENT_AUTHORIZATION",
+      revision: AUTHORIZATION_REVISION,
+      ruleRevision: AUTHORIZATION_REVISION,
+      title: "Your payroll payment authorization",
+      contentHash: AUTHORIZATION_HASH,
+      lines: [{ label: AUTHORIZATION_STATEMENT, field: null }],
+    },
+    current: done
+      ? {
+          executionId: "exec-payroll-1",
+          moduleKey: MODULE_KEY,
+          subjectKey: "WORKER_PAYMENT_AUTHORIZATION",
+          executionForm: "ELECTRONIC_SIGNATURE",
+          executedContent: {
+            kind: "GOVERNED_TEXT",
+            ref: "PAYROLL_PAYMENT_AUTHORIZATION",
+            revision: AUTHORIZATION_REVISION,
+            ruleRevision: AUTHORIZATION_REVISION,
+            contentHash: AUTHORIZATION_HASH,
+          },
+          evidenceKind: "NATIVE_CAPTURE",
+          evidence: null,
+          executedAt: authorizedAt as string,
+          supersededAt: null,
+          supersedesId: null,
+        }
+      : null,
+    history: [],
+    requiresExecution: !done,
+  };
+}
+
+/**
+ * The stage as the server would build it: available only when the proposal is admissible and the
+ * worker has not already signed.
+ */
+function authorizationView(): PayrollPaymentAuthorization {
+  const ready = violationsOf().length === 0 && method !== null;
+  const blockers: PayrollPaymentAuthorizationBlocker[] = [];
+  if (authorizedAt !== null) blockers.push("ALREADY_AUTHORIZED");
+  else if (!ready) blockers.push("PROPOSAL_NOT_REVIEW_READY");
+
+  return {
+    review: ready ? reviewView() : null,
+    available: blockers.length === 0,
+    blockers,
+    guidance: [
+      "This is the last step. Up to now, what you told us has only been saved. Signing here puts your payroll payment instructions in force.",
+      "If your details change later, you can tell us and we will record new instructions. We keep what you signed before, exactly as you signed it.",
+    ],
+    authorization: authorizationSubject(),
+    executed:
+      authorizedAt === null
+        ? null
+        : {
+            paymentMethod: method as PayrollPaymentReview["paymentMethod"],
+            setVersion: 1,
+            authorizedAt,
+            effectiveFrom: "2026-09-01",
+            accounts: recordedAccountViews(),
+          },
+  };
+}
+
+/** Record the act the way the server does: only if it is open, and once. */
+function authorize(): PayrollPaymentAuthorization {
+  if (authorizedAt !== null) throw new Refusal("ALREADY_AUTHORIZED");
+  if (violationsOf().length > 0 || method === null) {
+    throw new Refusal("PROPOSAL_NOT_REVIEW_READY");
+  }
+  authorizedAt = "2026-09-01T15:00:00.000Z";
+  return authorizationView();
 }
 
 function reviewView(): PayrollPaymentReview {
@@ -626,6 +815,10 @@ beforeEach(() => {
   vi.mocked(getOwnPayrollPayment).mockImplementation(async () => interviewView());
   vi.mocked(saveOwnPayrollPayment).mockImplementation(async (_id, input) => save(input));
   vi.mocked(getOwnPayrollPaymentReview).mockImplementation(async () => reviewView());
+  vi.mocked(getOwnPayrollPaymentAuthorization).mockImplementation(async () =>
+    authorizationView(),
+  );
+  vi.mocked(authorizeOwnPayrollPayment).mockImplementation(async () => authorize());
 });
 
 afterEach(() => {
@@ -1860,22 +2053,59 @@ describe("Module 4.4 - how the worker gets paid", () => {
       const pending = capsule().querySelector("[data-pp-review-pending]")?.textContent ?? "";
       expect(pending).toMatch(/has not been put in place yet/i);
       expect(pending).toMatch(/Nothing has been sent to your bank/i);
-      expect(pending).toMatch(/asked to confirm it in a later step/i);
+      // [AMENDED BY GATE 10C.] It used to say he would be asked to confirm it in a LATER step. The
+      // later step is now immediately below this panel, so the paragraph points at it instead.
+      expect(pending).toMatch(/Signing below is what puts it in force/i);
     });
 
-    it("offers NO signature, authorization, activation or effective date", async () => {
+    /*
+      [AMENDED BY GATE 10C, and split in two.] This asserted that the review offered NO signature,
+      which was the truth of Gate 10B. Gate 10C gives the worker exactly one act, so the assertion
+      inverts for the signature alone: it must now be THERE, on the delivered shared surface. Every
+      other absence this test guarded is untouched below, because none of them was authorized.
+    */
+    it("offers the ONE governed act, and nothing else acts on his record", async () => {
       await reachReview();
+      await waitFor(() =>
+        expect(
+          capsule().querySelector('[data-pp-authorize-state="READY"]'),
+        ).not.toBeNull(),
+      );
 
+      // The act is the DELIVERED card's, not this capsule's.
+      expect(capsule().querySelector("[data-subject-key]")).not.toBeNull();
+      expect(capsule().querySelector('[data-capture-pad="ELECTRONIC_SIGNATURE"]')).not.toBeNull();
+
+      // And the things Gate 10C did not authorize are still absent, not merely disabled.
       const text = capsule().textContent ?? "";
-      expect(text).not.toMatch(/sign|signature|authorize|authorise|activate|execute/i);
-      expect(text).not.toMatch(/effective date|starts on|takes effect on/i);
-      expect(capsule().querySelector("canvas")).toBeNull();
+      expect(text).not.toMatch(/activate|effective date|starts on|takes effect on/i);
       expect(capsule().querySelector('input[type="date"]')).toBeNull();
 
       const controls = Array.from(capsule().querySelectorAll("button")).map(
         (button) => button.getAttribute("data-pp-action"),
       );
-      expect(controls).toEqual(["change"]);
+      // This capsule's OWN actions at review: going back to edit, and nothing more. The submit and
+      // clear controls inside the card carry no `data-pp-action`, because they are not ours.
+      expect(controls.filter((name) => name !== null)).toEqual(["change"]);
+    });
+
+    it("does NOT offer Save and finish later as the last thing to do", async () => {
+      await reachReview();
+      await waitFor(() =>
+        expect(
+          capsule().querySelector('[data-pp-authorize-state="READY"]'),
+        ).not.toBeNull(),
+      );
+
+      /*
+        SECURED OWNER RULING. `Save and finish later` is an abandonment and resume action. It is
+        truthful on the entry screen, where he may genuinely be leaving partway through - and it is
+        asserted present there by the suite above. It is NOT the successful terminal action for
+        this module, so once he has read everything through it is ABSENT rather than disabled, and
+        the governed signature is the only way forward.
+      */
+      expect(capsule().querySelector('[data-pp-action="save"]')).toBeNull();
+      expect(capsule().textContent).not.toMatch(/Save and finish later/i);
     });
 
     it("lets him go back and change something", async () => {
@@ -1924,11 +2154,18 @@ describe("Module 4.4 - how the worker gets paid", () => {
       expect(text).not.toMatch(/card number|activated|shipped|mailed/i);
     });
 
-    it("creates nothing: the only calls made are this module's own three", async () => {
+    it("creates nothing: the only calls made are this module's own", async () => {
       await reachCardReview();
       expect(getOwnPayrollPayment).toHaveBeenCalled();
       expect(saveOwnPayrollPayment).toHaveBeenCalled();
       expect(getOwnPayrollPaymentReview).toHaveBeenCalled();
+      /*
+        [AMENDED BY GATE 10C. Reading the authorization stage is a fourth call, and it is a READ -
+        it neither performs the act nor creates a card. What this test has always been about is
+        that merely REACHING the review creates nothing, and the two assertions below are still
+        what say so: the act was not performed, and the module was not completed from here.]
+      */
+      expect(authorizeOwnPayrollPayment).not.toHaveBeenCalled();
       expect(completeOnboardingModule).not.toHaveBeenCalled();
     });
   });
@@ -3090,6 +3327,564 @@ describe("Module 4.4 - how the worker gets paid", () => {
       await waitFor(() => expect(saveOwnPayrollPayment).toHaveBeenCalledTimes(2));
       expect(getOwnPayrollPaymentReview).not.toHaveBeenCalled();
       expect(capsule().querySelector("[data-pp-review]")).toBeNull();
+    });
+  });
+
+  /* ------------------------------------------------------------------------ */
+  /*  Gate 10C - putting it in force                                           */
+  /* ------------------------------------------------------------------------ */
+
+  describe("Gate 10C - the last step, and what it truthfully leaves behind", () => {
+    const PAD_RECT = {
+      width: 400,
+      height: 160,
+      top: 40,
+      left: 20,
+      right: 420,
+      bottom: 200,
+      x: 20,
+      y: 40,
+      toJSON: () => ({}),
+    } as DOMRect;
+
+    function pad(): HTMLCanvasElement {
+      const element = capsule().querySelector<HTMLCanvasElement>("[data-capture-pad]");
+      if (!element) throw new Error("no signature surface rendered");
+      element.getBoundingClientRect = () => PAD_RECT;
+      return element;
+    }
+
+    /** Draw a mark the way a pointer draws one, and refuse to pretend if nothing registered. */
+    async function drawSignature(): Promise<void> {
+      const surface = pad();
+      const points = Array.from({ length: 8 }, (_, index) => ({
+        x: 10 + index * 6,
+        y: 20 + (index % 2) * 4,
+      }));
+      fireEvent.pointerDown(surface, {
+        pointerId: 1,
+        pointerType: "mouse",
+        clientX: PAD_RECT.left + points[0].x,
+        clientY: PAD_RECT.top + points[0].y,
+      });
+      for (const point of points.slice(1)) {
+        fireEvent.pointerMove(surface, {
+          pointerId: 1,
+          pointerType: "mouse",
+          clientX: PAD_RECT.left + point.x,
+          clientY: PAD_RECT.top + point.y,
+        });
+      }
+      fireEvent.pointerUp(surface, { pointerId: 1, pointerType: "mouse" });
+
+      // Guards the helper: a draw that recorded nothing would let everything below pass hollow.
+      if (surface.dataset.hasMark !== "true") {
+        throw new Error("the draw registered no mark");
+      }
+    }
+
+    /** The authorization stage's own section, once it has read the server. */
+    async function stage(state: string): Promise<HTMLElement> {
+      await waitFor(() =>
+        expect(
+          capsule().querySelector(`[data-pp-authorize-state="${state}"]`),
+        ).not.toBeNull(),
+      );
+      return capsule().querySelector(
+        `[data-pp-authorize-state="${state}"]`,
+      ) as HTMLElement;
+    }
+
+    async function reachBankAuthorization(): Promise<void> {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING,
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+      fireEvent.click(action("review"));
+      await stage("READY");
+    }
+
+    async function reachCardAuthorization(): Promise<void> {
+      await open();
+      chooseMethod("card");
+      await waitFor(() => expect(saveOwnPayrollPayment).toHaveBeenCalled());
+      fireEvent.click(action("review"));
+      await stage("READY");
+    }
+
+    /**
+     * Sign, and wait for the recorded outcome.
+     *
+     * The submit control belongs to the DELIVERED shared card, so it is found by the shared card's
+     * own attribute. Nothing in this capsule provides it.
+     */
+    async function sign(): Promise<void> {
+      await drawSignature();
+      const submit = capsule().querySelector<HTMLButtonElement>("[data-execution-submit]");
+      if (!submit) throw new Error("no submit control on the governed card");
+      expect(submit.disabled).toBe(false);
+      fireEvent.click(submit);
+      await waitFor(() => expect(authorizeOwnPayrollPayment).toHaveBeenCalled());
+    }
+
+    /* ---------------------------------------------------- 1, 2: he is asked */
+
+    it("presents the governed authorization once the proposal is review-ready", async () => {
+      await reachBankAuthorization();
+      const section = await stage("READY");
+
+      expect(section.querySelector("[data-pp-authorization-statement]")).not.toBeNull();
+      expect(
+        section.querySelector('[data-subject-key="WORKER_PAYMENT_AUTHORIZATION"]'),
+      ).not.toBeNull();
+      // The act the subject requires, taken from the subject and not chosen here.
+      expect(
+        section
+          .querySelector("[data-required-form]")
+          ?.getAttribute("data-required-form"),
+      ).toBe("ELECTRONIC_SIGNATURE");
+    });
+
+    it("displays the ratified statement EXACTLY, with nothing added to it", async () => {
+      await reachBankAuthorization();
+      const section = await stage("READY");
+
+      const governed = section.querySelector("[data-pp-authorization-statement]") as HTMLElement;
+      const shown = (governed.querySelector(".ob-exec-content")?.textContent ?? "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      /*
+        CONTAINS, not merely resembles. The governed region also carries the subject's title, so
+        an equality assertion would be about the card's layout rather than about the wording. What
+        matters is that the ratified sentence is present WORD FOR WORD - and that the words nobody
+        ratified are not.
+      */
+      expect(shown).toContain(AUTHORIZATION_STATEMENT);
+
+      const text = section.textContent ?? "";
+      expect(text).not.toMatch(/under penalt(y|ies) of perjury/i);
+      expect(text).not.toMatch(/NACHA|ACH network|Regulation E/i);
+      expect(text).not.toMatch(/citizen|lawful permanent resident|Form I-9|Form W-4/i);
+    });
+
+    it("explains it in OUR words, kept outside the thing he signs", async () => {
+      await reachBankAuthorization();
+      const section = await stage("READY");
+
+      const guidance = section.querySelector("[data-pp-authorize-guidance]") as HTMLElement;
+      expect(guidance.textContent).toMatch(/This is the last step/i);
+
+      // Our explanation is NOT inside the governed region, which is what he is signing.
+      const governed = section.querySelector(".ob-exec-content") as HTMLElement;
+      expect(governed.textContent).not.toMatch(/This is the last step/i);
+    });
+
+    /* ------------------------------------------------------- 3, 4: he signs */
+
+    it("lets him sign, and sends back the version he was shown", async () => {
+      await reachBankAuthorization();
+      await sign();
+
+      const [, input] = vi.mocked(authorizeOwnPayrollPayment).mock.calls[0];
+      expect(input.performedForm).toBe("ELECTRONIC_SIGNATURE");
+      expect(input.presented).toEqual({
+        revision: AUTHORIZATION_REVISION,
+        contentHash: AUTHORIZATION_HASH,
+        ruleRevision: AUTHORIZATION_REVISION,
+      });
+      // A real mark went with it - not an empty capture, and not an attestation.
+      expect(input.capture?.strokes.length).toBeGreaterThan(0);
+      expect(input.capture?.strokes[0].points.length).toBeGreaterThan(1);
+    });
+
+    it("tells him his DIRECT DEPOSIT instructions are in effect, and promises nothing more", async () => {
+      await reachBankAuthorization();
+      await sign();
+      const done = await stage("EXECUTED");
+
+      expect(done.textContent).toContain("Payroll Payment complete");
+      expect(
+        done.querySelector('[data-pp-outcome="DEPOSIT"]')?.textContent,
+      ).toBe(
+        "Your payroll payment instructions have been saved and are now in effect.",
+      );
+
+      /*
+        THE SIX THINGS THIS SENTENCE MUST NOT IMPLY. Gate 10C put a governed instruction on record.
+        It moved no money, contacted no bank, verified no ownership, told no payroll provider, ran
+        no payroll and identified no paycheck - and a worker who reads any of those here has been
+        told something we did not do.
+      */
+      const text = done.textContent ?? "";
+      expect(text).not.toMatch(/transferred|deposited|funds (were|have been) sent/i);
+      expect(text).not.toMatch(/verified|confirmed with your bank|your bank (has )?accepted/i);
+      expect(text).not.toMatch(/payroll provider|submitted to payroll|payroll run/i);
+      expect(text).not.toMatch(/paycheck|pay check|first pay|next pay/i);
+    });
+
+    it("tells him his CARD SELECTION is complete, and that MW4H still has work to do", async () => {
+      await reachCardAuthorization();
+      await sign();
+      const done = await stage("EXECUTED");
+
+      expect(done.textContent).toContain("Payroll Payment complete");
+      expect(done.querySelector('[data-pp-outcome="CARD"]')?.textContent).toBe(
+        "You selected an MW4H Comdata Payroll Card. Your payroll payment selection is complete. MW4H will complete the card setup.",
+      );
+
+      // No deposit account is shown for a card, because there is none to show.
+      expect(done.querySelector("[data-pp-executed-accounts]")).toBeNull();
+    });
+
+    /* ------------------------------------------- 6: no downstream promises */
+
+    it("promises no particular paycheck, at ANY point in the module", async () => {
+      await reachBankAuthorization();
+      expect(capsule().textContent).not.toMatch(/which paycheck/i);
+      expect(capsule().textContent).not.toMatch(/paycheck it starts with/i);
+
+      await sign();
+      await stage("EXECUTED");
+      expect(capsule().textContent).not.toMatch(/paycheck/i);
+
+      /*
+        AND NOT IN THE SOURCE EITHER, so a promise cannot survive in a branch this suite happens
+        not to render. The removed wording is checked by its distinctive half rather than by the
+        word `paycheck` alone, which honest wording could one day need.
+      */
+      const capsuleRoot = resolve(
+        process.cwd(),
+        "components/workforce/onboarding/modules/payroll-payment",
+      );
+      for (const file of [
+        "PayrollPaymentReviewPanel.tsx",
+        "PayrollPaymentModule.tsx",
+        "PayrollPaymentAuthorization.tsx",
+      ]) {
+        const source = readFileSync(resolve(capsuleRoot, file), "utf8");
+        // Comments are stripped WHOLE, so a note explaining why the promise was removed does not
+        // read as the promise itself. What is left is what could reach a worker.
+        const rendered = source
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .replace(/^[ \t]*\/\/.*$/gm, "");
+        expect(rendered).not.toMatch(/which paycheck/i);
+      }
+    });
+
+    /* --------------------------------- 8, 9: Gate 10B truth is not regressed */
+
+    it("keeps the Gate 10B states truthful: entered is not authorized", async () => {
+      await open();
+      chooseMethod("bank");
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+      await enterAccount(1, {
+        institution: "Frost Bank",
+        type: "CHECKING",
+        routing: ROUTING,
+        account: ACCOUNT,
+        confirmation: ACCOUNT,
+      });
+      fireEvent.click(action("save"));
+      await waitFor(() => expect(accounts).toHaveLength(1));
+
+      // Saved and admissible - and still NOT in force. Nothing was authorized by saving.
+      expect(authorizeOwnPayrollPayment).not.toHaveBeenCalled();
+      expect(capsule().querySelector("[data-pp-saved]")).not.toBeNull();
+      expect(capsule().querySelector('[data-pp-authorize-state="EXECUTED"]')).toBeNull();
+    });
+
+    it("keeps a partial proposal resumable, and refuses to offer the act for it", async () => {
+      // Half an account: a bank name and a routing number, and nothing else.
+      accounts = [
+        serverAccount({
+          position: 1,
+          financialInstitutionName: "Frost Bank",
+          routingNumber: ROUTING,
+        }),
+      ];
+      method = BANK;
+      savedAt = "2026-08-26T12:00:00.000Z";
+
+      await open();
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+      expect(capsule().querySelector("[data-pp-resumed]")).not.toBeNull();
+      // What he held is still held, and the protected half comes back MASKED as it always has.
+      expect(field("institution", accountCard(1)).value).toBe("Frost Bank");
+      expect(accountCard(1).textContent).toMatch(/••••0021/);
+
+      // He can still leave and come back: the abandonment action is here, and it is truthful.
+      expect(capsule().querySelector('[data-pp-action="save"]')).not.toBeNull();
+
+      // And the server will not let him put it in force.
+      expect(authorizationView().available).toBe(false);
+      expect(authorizationView().blockers).toEqual(["PROPOSAL_NOT_REVIEW_READY"]);
+    });
+
+    it("shows him WHY he cannot sign yet, in his own words and never as a code", async () => {
+      await reachBankAuthorization();
+
+      // The server changes its mind between reads: the proposal stopped being admissible.
+      vi.mocked(getOwnPayrollPaymentAuthorization).mockResolvedValueOnce({
+        ...authorizationView(),
+        review: null,
+        available: false,
+        blockers: ["PROPOSAL_NOT_REVIEW_READY"],
+      });
+      fireEvent.click(action("change"));
+      await waitFor(() => expect(accountCard(1)).toBeTruthy());
+      fireEvent.click(action("review"));
+
+      const blocked = await stage("BLOCKED");
+      expect(blocked.textContent).toMatch(/Finish the payment details above/i);
+      expect(blocked.textContent).not.toContain("PROPOSAL_NOT_REVIEW_READY");
+      expect(capsule().querySelector("[data-capture-pad]")).toBeNull();
+    });
+
+    /* --------------------------------------- 10: nothing downstream is done */
+
+    it("represents no card fulfilment as done, and offers no way to ask for one", async () => {
+      await reachCardAuthorization();
+      await sign();
+      const done = await stage("EXECUTED");
+
+      const text = done.textContent ?? "";
+      expect(text).not.toMatch(/card (number|is ready|is active|was issued|has been (sent|mailed|shipped|assigned|activated))/i);
+      expect(text).not.toMatch(/activated|shipped|mailed|in the (mail|post)/i);
+      expect(text).not.toMatch(/Comdata (has been|was) (contacted|notified|sent)/i);
+
+      // And no control that could start it. Gate 10D is MW4H's work, not a button on his screen.
+      const controls = Array.from(capsule().querySelectorAll("button")).map(
+        (button) => button.textContent ?? "",
+      );
+      expect(controls.join(" ")).not.toMatch(/card|order|activate|fulfil/i);
+    });
+
+    /* ------------------------------------- the boundary the browser can see */
+
+    it("never completes the module itself, and never sees a banking value", async () => {
+      await reachBankAuthorization();
+      await sign();
+      await stage("EXECUTED");
+
+      /*
+        COMPLETION IS THE SERVER'S. The runtime's completion call is not made by this capsule at
+        any point, including after the act - what finished this module is derived from the
+        instruction, the act, and the binding between them, all of which are the server's facts.
+      */
+      expect(completeOnboardingModule).not.toHaveBeenCalled();
+
+      expect(capsule().outerHTML).not.toContain(ACCOUNT);
+      expect(capsule().outerHTML).not.toContain(ROUTING);
+      const sent = JSON.stringify(vi.mocked(authorizeOwnPayrollPayment).mock.calls);
+      expect(sent).not.toContain(ACCOUNT);
+      expect(sent).not.toContain(ROUTING);
+    });
+
+    it("offers NO way to change instructions already in force", async () => {
+      await reachBankAuthorization();
+      await sign();
+      const done = await stage("EXECUTED");
+
+      /*
+        PRE_DISPATCH confirm-or-update is governed, deferred and UNBUILT. What he is told is that
+        he can tell us, which is true and needs no control; a button here would be a Slice E
+        surface arriving early.
+      */
+      expect(done.querySelector("[data-pp-executed-change]")?.textContent).toMatch(
+        /tell us and we will record new instructions/i,
+      );
+      const controls = Array.from(capsule().querySelectorAll("button"));
+      expect(controls.map((button) => button.textContent ?? "").join(" ")).not.toMatch(
+        /change|update|confirm|replace/i,
+      );
+      expect(capsule().textContent).not.toMatch(/before (your pay|dispatch)|confirm these are still/i);
+    });
+
+    it("signs ONCE: a second attempt is refused and told plainly", async () => {
+      await reachBankAuthorization();
+      await sign();
+      await stage("EXECUTED");
+
+      // The card is gone with the act, so there is nothing left to click twice.
+      expect(capsule().querySelector("[data-execution-submit]")).toBeNull();
+      expect(vi.mocked(authorizeOwnPayrollPayment).mock.calls).toHaveLength(1);
+    });
+
+    it("says plainly when nothing was put in force, and blames nobody", async () => {
+      await reachBankAuthorization();
+      vi.mocked(authorizeOwnPayrollPayment).mockRejectedValueOnce(
+        new Refusal("INSTRUCTION_BINDING_UNAVAILABLE"),
+      );
+      await sign();
+
+      const refusalNotice = await waitFor(() => {
+        const element = capsule().querySelector("[data-pp-authorize-refusal]");
+        if (!element) throw new Error("no refusal shown");
+        return element as HTMLElement;
+      });
+      expect(refusalNotice.textContent).toMatch(/nothing was put in force/i);
+      expect(refusalNotice.textContent).not.toContain("INSTRUCTION_BINDING_UNAVAILABLE");
+      expect(capsule().querySelector('[data-pp-authorize-state="EXECUTED"]')).toBeNull();
+    });
+
+    it("shows what is on record when he comes back to a finished module", async () => {
+      authorizedAt = "2026-09-01T15:00:00.000Z";
+      method = BANK;
+      accounts = [
+        serverAccount({
+          position: 1,
+          accountType: "CHECKING",
+          financialInstitutionName: "Frost Bank",
+          routingNumber: ROUTING,
+          accountNumber: ACCOUNT,
+          confirmedAt: "2026-08-26T12:00:00.000Z",
+        }),
+      ];
+      savedAt = "2026-08-26T12:00:00.000Z";
+
+      vi.mocked(getOnboardingRuntime).mockResolvedValue(
+        fixtureRuntime({
+          packets: [
+            fixturePacket({ modules: [payrollModule({ status: "COMPLETE" })] }),
+          ],
+        }),
+      );
+      render(
+        <OnboardingRuntimeProvider>
+          <OnboardingModuleHost
+            invocationId={INVOCATION_ID}
+            moduleSlug={MODULE_SLUG}
+            stepSlug={STEP}
+          />
+        </OnboardingRuntimeProvider>,
+      );
+
+      const done = await stage("EXECUTED");
+      expect(done.textContent).toContain("Payroll Payment complete");
+      // Not the entry form, and not an invitation to carry on with something already finished.
+      expect(capsule().querySelector("[data-pp-method-choice]")).toBeNull();
+      expect(capsule().querySelector("[data-pp-resumed]")).toBeNull();
+      expect(capsule().outerHTML).not.toContain(ACCOUNT);
+      expect(capsule().outerHTML).not.toContain(ROUTING);
+    });
+
+    /* ------------------------------- the recorded list, as React sees it */
+
+    /**
+     * The recorded accounts are a real list, so React holds them to a real list's rules.
+     *
+     * This escaped to a live browser because the fake server was kinder than the real one: it
+     * returned the interview's account views for the recorded outcome, `accountId` included, so a
+     * list keyed on that field looked correct in every test and warned on the one response that
+     * matters. The fake no longer supplies it, and these assert what is left.
+     */
+    describe("what is on record renders as a well-formed list", () => {
+      /*
+        THE CONSOLE PROOF IS NOT HERE, AND THAT IS DELIBERATE. React warns about a missing key once
+        per component per React instance, and several tests above render this component's executed
+        stage first - so an assertion on `console.error` in this file would be silent whether the
+        keys were sound or not. It lives in PayrollPaymentAuthorization.recorded-list.test.tsx,
+        which gets a fresh registry. What is asserted here is the end-to-end shape: that the real
+        worker path produces a list whose rows are distinct, ordered by the server, and free of any
+        protected value.
+      */
+
+      it("keys MULTIPLE recorded accounts uniquely and deterministically", async () => {
+        authorizedAt = "2026-09-01T15:00:00.000Z";
+        method = BANK;
+        mode = "PERCENTAGE";
+        accounts = [
+          serverAccount({
+            position: 1,
+            accountType: "CHECKING",
+            financialInstitutionName: "Frost Bank",
+            routingNumber: ROUTING,
+            accountNumber: ACCOUNT,
+            allocationKind: "PERCENTAGE",
+            allocationPercentage: "60",
+            confirmedAt: "2026-08-26T12:00:00.000Z",
+          }),
+          serverAccount({
+            position: 2,
+            accountType: "SAVINGS",
+            financialInstitutionName: "Frost Bank",
+            routingNumber: ROUTING,
+            accountNumber: "9876543210",
+            allocationKind: "PERCENTAGE",
+            allocationPercentage: "40",
+            confirmedAt: "2026-08-26T12:00:00.000Z",
+          }),
+        ];
+        savedAt = "2026-08-26T12:00:00.000Z";
+        vi.mocked(getOnboardingRuntime).mockResolvedValue(
+          fixtureRuntime({
+            packets: [
+              fixturePacket({ modules: [payrollModule({ status: "COMPLETE" })] }),
+            ],
+          }),
+        );
+
+        render(
+          <OnboardingRuntimeProvider>
+            <OnboardingModuleHost
+              invocationId={INVOCATION_ID}
+              moduleSlug={MODULE_SLUG}
+              stepSlug={STEP}
+            />
+          </OnboardingRuntimeProvider>,
+        );
+        const done = await stage("EXECUTED");
+
+        const rendered = Array.from(
+          done.querySelectorAll("[data-pp-executed-account]"),
+        ).map((node) => node.getAttribute("data-pp-executed-account"));
+        expect(rendered).toEqual(["1", "2"]);
+        // Unique, and in the server's order rather than one this screen chose.
+        expect(new Set(rendered).size).toBe(rendered.length);
+      });
+
+      it("needs no protected banking value to identify a row", async () => {
+        await reachBankAuthorization();
+        await sign();
+        const done = await stage("EXECUTED");
+
+        /*
+          The key is `position`, and the proof that no banking value is standing in for identity is
+          that neither full value appears anywhere in the rendered markup - attributes included.
+          A key built from a routing or account number would have to.
+        */
+        const row = done.querySelector("[data-pp-executed-account]") as HTMLElement;
+        expect(row.getAttribute("data-pp-executed-account")).toBe("1");
+        for (const attribute of Array.from(row.attributes)) {
+          expect(attribute.value).not.toContain(ACCOUNT);
+          expect(attribute.value).not.toContain(ROUTING);
+        }
+        expect(done.outerHTML).not.toContain(ACCOUNT);
+        expect(done.outerHTML).not.toContain(ROUTING);
+      });
+
+      it("still says what it said before, and shows only masked digits", async () => {
+        await reachBankAuthorization();
+        await sign();
+        const done = await stage("EXECUTED");
+
+        // The worker-facing outcome is untouched by the key correction.
+        expect(done.textContent).toContain("Payroll Payment complete");
+        expect(done.querySelector('[data-pp-outcome="DEPOSIT"]')?.textContent).toBe(
+          "Your payroll payment instructions have been saved and are now in effect.",
+        );
+        const row = done.querySelector("[data-pp-executed-account]") as HTMLElement;
+        expect(row.textContent).toContain("Frost Bank");
+        expect(row.textContent).toContain(ACCOUNT.slice(-4));
+        expect(row.textContent).not.toContain(ACCOUNT);
+      });
     });
   });
 

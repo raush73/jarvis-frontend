@@ -14,12 +14,36 @@ import Link from "next/link";
 import {
   modulePath,
   type OnboardingRuntimeModule,
+  type OnboardingWorkerAction,
 } from "@/lib/workforce/onboardingRuntimeApi";
 import OnboardingModuleStatus from "../status/OnboardingModuleStatus";
 
 type Props = {
   invocationId: string;
   module: OnboardingRuntimeModule;
+};
+
+/**
+ * The worker-facing words for each governed action.
+ *
+ * PRESENTATION OF THE SERVER'S ANSWER, and nothing more. Which action a module offers is
+ * decided server-side from its record, its packet and its restart posture; this only spells
+ * that answer in the ratified vocabulary. A module key appears nowhere in this file, so no
+ * screen here can decide that a particular section happens to be editable.
+ */
+const ACTION_LABELS: Record<Exclude<OnboardingWorkerAction, "NONE">, string> = {
+  ENTER: "Enter Info",
+  CONTINUE: "Continue",
+  EDIT: "Edit Info",
+  VIEW: "View Info",
+};
+
+/** The one action carries the page's emphasis only where there is work outstanding. */
+const ACTION_EMPHASIS: Record<Exclude<OnboardingWorkerAction, "NONE">, string> = {
+  ENTER: "wf-btn-primary",
+  CONTINUE: "wf-btn-primary",
+  EDIT: "wf-btn-ghost",
+  VIEW: "wf-btn-ghost",
 };
 
 /** Why the calling workflow asked for this module, in the worker's terms. */
@@ -33,11 +57,20 @@ const REASON_TEXT: Record<string, string> = {
 export function ModuleCard({ invocationId, module }: Props) {
   const satisfiedSteps = module.steps.filter((step) => step.satisfied).length;
   const complete = module.status === "COMPLETE" || module.status === "ALREADY_COMPLETE";
-  const openable = module.actionable || module.restart.posture === "RE_ENTERABLE";
+  const action = module.workerAction;
 
   return (
-    <li className="ob-module-card" data-module-key={module.moduleKey}>
+    <li
+      className="ob-module-card"
+      data-module-key={module.moduleKey}
+      data-worker-action={action}
+    >
       <div className="ob-module-card-head">
+        {/*
+          THREE SEPARATE THINGS, said separately: what the section is, where it stands, and
+          what the worker may do about it. The name and the status are here; the action is a
+          control of its own further down, and the status is never that control.
+        */}
         <h3 className="ob-module-card-title">{module.title}</h3>
         {/*
           The status the SERVER derived, in the server's words. A governed outcome - a
@@ -84,21 +117,19 @@ export function ModuleCard({ invocationId, module }: Props) {
 
       <div className="ob-module-card-action">
         {/*
-          The action is offered only where the SERVER said it is available. Navigation
-          never enables something the server would refuse.
+          ONE action, and only the one the SERVER named. Navigation never enables something
+          the server would refuse, and where the server offers nothing this renders nothing
+          rather than an action the worker would be turned away from.
         */}
-        {openable ? (
+        {action === "NONE" ? null : (
           <Link
-            className={`wf-btn ${complete ? "wf-btn-ghost" : "wf-btn-primary"} wf-btn-sm`}
+            className={`wf-btn ${ACTION_EMPHASIS[action]} wf-btn-sm`}
+            data-module-action={action}
             href={modulePath(invocationId, module.moduleSlug, module.resumeStepSlug)}
           >
-            {complete
-              ? "Review or update"
-              : satisfiedSteps > 0
-                ? "Continue"
-                : "Start"}
+            {ACTION_LABELS[action]}
           </Link>
-        ) : null}
+        )}
       </div>
     </li>
   );

@@ -8,11 +8,15 @@
  * "the review shows masked values" is a property of the contract rather than a habit of this
  * component.
  *
- * THIS IS A PROPOSAL AND THE SCREEN SAYS SO. There is no signature control here, no authorize
- * button, no activate button, no effective date and no completion. Not hidden, not disabled -
- * ABSENT (10-R15). What the worker has done is tell us how he would like to be paid; putting that
- * instruction in force is a separate, later, governed act, and this panel's last paragraph tells
- * him plainly that it has not happened yet.
+ * THIS PANEL IS STILL A PROPOSAL AND STILL SAYS SO. There is no signature control HERE, no
+ * authorize button, no activate button, no effective date and no completion. Not hidden, not
+ * disabled - ABSENT. What the worker has done is tell us how he would like to be paid, and this
+ * panel's last paragraph tells him plainly that it has not happened yet.
+ *
+ * [MAINTAINED BY GATE 10C. The governed act now exists and is composed BENEATH this panel by
+ * `PayrollPaymentAuthorization`, using the delivered shared execution card. It is deliberately not
+ * folded into this component: what he is asked to check and what he is asked to sign are two
+ * things, and a panel that did both would blur the moment the proposal becomes an instruction.]
  *
  * THE HONESTY OF THE WAITING MESSAGE MATTERS MORE THAN ITS REASSURANCE. A worker who is told
  * "you're all set" and then is paid by paper check was misled by this screen. So the wording
@@ -134,10 +138,23 @@ export default function PayrollPaymentReviewPanel({
         </div>
       )}
 
+      {/*
+        [AMENDED BY GATE 10C, and the removed half is the point. This paragraph used to end "you
+        will be asked to confirm it in a later step, and we will tell you which paycheck it starts
+        with". The later step is now the signature immediately below this panel, so the first half
+        was describing a wait that no longer exists - and the second half was a promise about
+        DOWNSTREAM PAYROLL PROCESSING that this gate does not own and cannot keep. Gate 10C
+        establishes the governed instruction; which paycheck it first affects is a payroll question
+        with no answer here, and a screen that names one is guessing on the worker's behalf about
+        his money. Nothing replaces it, because no other downstream promise would be any truer.
+
+        WHAT SURVIVES IS THE PART THAT IS STILL TRUE at the moment he reads it: this is a proposal,
+        it is not in force, and nothing has gone to his bank. The signature below is what changes
+        the first two, and the third stays true afterwards.
+      */}
       <p className="pp-review-pending" role="status" data-pp-review-pending>
         This is what you have told us, and it has not been put in place yet. Nothing has been sent to
-        your bank. You will be asked to confirm it in a later step, and we will tell you which
-        paycheck it starts with.
+        your bank. Signing below is what puts it in force.
       </p>
     </section>
   );

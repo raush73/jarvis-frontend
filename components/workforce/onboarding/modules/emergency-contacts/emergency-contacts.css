@@ -44,12 +44,11 @@
   gap: 16px;
 }
 
-/*
- * A deactivated contact is dimmed, but the state is never communicated by that alone: the
- * checkbox beside it says what it means in words, and so does the read-only view.
- */
-.ec-contact.is-inactive {
-  opacity: 0.78;
+/* Which contact this card is. The heading carries the identification; nothing narrates it. */
+.ec-contact-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .ec-contact-head {
@@ -130,10 +129,6 @@
 
 .ec-choice-label {
   font-weight: 550;
-}
-
-.ec-status {
-  max-width: 420px;
 }
 
 /* --------------------------------------------------------------- messaging */

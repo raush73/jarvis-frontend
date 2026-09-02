@@ -55,6 +55,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { packetPath } from "@/lib/workforce/onboardingRuntimeApi";
 import ExecutionSubjectCard from "@/components/workforce/onboarding/execution/ExecutionSubjectCard";
 import type { ExecutionAct } from "@/components/workforce/onboarding/execution/ExecutionFormControl";
 import type { ExecutionRefusal } from "@/components/workforce/onboarding/execution/useExecutionSubmission";
@@ -113,6 +115,17 @@ export function FederalTaxCertification({
   const [refusal, setRefusal] = useState<ExecutionRefusal | null>(null);
   const [reloads, setReloads] = useState(0);
   const [viewError, setViewError] = useState<unknown>(null);
+
+  /**
+   * Whether he has ASKED to change choices that are already in force.
+   *
+   * Closed until he says so, and that is a sequencing decision rather than a restriction: a
+   * worker who has just signed has finished, and putting the machinery for signing again in
+   * front of him reads as though something were still expected of him. Nothing about the
+   * governed later election is removed, weakened or conditioned by this - it is one control
+   * away, it is the same panel, and the server decides it exactly as before.
+   */
+  const [changeRequested, setChangeRequested] = useState(false);
 
   /**
    * The two governed affirmations, held for the length of one attempt and nowhere else.
@@ -280,7 +293,7 @@ export function FederalTaxCertification({
           <p className="ft-note">
             This is what we have on record. Nothing changes it on its own, and we will not change it
             without you - nobody here can alter your choices for you. If something needs to change,
-            you can tell us below while your onboarding is open.
+            you can tell us here while your onboarding is open.
           </p>
         </div>
 
@@ -313,20 +326,54 @@ export function FederalTaxCertification({
         )}
 
         {/*
-          HIS WHOLE RECORD, AND THE GOVERNED WAY TO ADD TO IT. History first, because what he has
-          already elected is the context for electing again; then the two governed reasons, whose
-          wording is the server's. Both are append-only: the panel below produces a NEW election
-          through the same governed sequence as his first one, and the panel above it is a record
-          rather than a set of controls.
+          WHERE HE GOES NEXT, once he has been told it is done and given his copy. Signing was the
+          last thing this module asked of him, and his sections are where he sees what that left
+          outstanding - so the ordinary next step is offered plainly, and it is a link to a screen
+          rather than anything that touches his record.
         */}
-        <FederalTaxHistory history={stage.history} onOpenArtifact={openArtifact} />
+        <div className="wf-btn-row">
+          <Link
+            className="wf-btn wf-btn-primary"
+            data-ft-return-to-packet
+            href={packetPath(invocationId)}
+          >
+            Back to my sections
+          </Link>
+          {!changeRequested ? (
+            <button
+              type="button"
+              className="wf-btn wf-btn-ghost wf-btn-sm"
+              data-ft-change-request
+              onClick={() => setChangeRequested(true)}
+            >
+              Something needs to change
+            </button>
+          ) : null}
+        </div>
 
-        <FederalTaxNewElection
-          invocationId={invocationId}
-          newElection={stage.newElection}
-          changeable={changeable}
-          onCertified={setStage}
-        />
+        {/*
+          HIS WHOLE RECORD, AND THE GOVERNED WAY TO ADD TO IT - on request, and unchanged in every
+          other respect. History first, because what he has already elected is the context for
+          electing again; then the two governed reasons, whose wording is the server's. Both are
+          append-only: the panel below produces a NEW election through the same governed sequence
+          as his first one, and the panel above it is a record rather than a set of controls.
+
+          IT IS NOT REMOVED AND IT IS NOT GATED BY ANYTHING GOVERNED. What decides whether he may
+          elect again is the server's `newElection`, exactly as before; this only declines to put
+          it in front of a worker who has not said he needs it.
+        */}
+        {changeRequested ? (
+          <>
+            <FederalTaxHistory history={stage.history} onOpenArtifact={openArtifact} />
+
+            <FederalTaxNewElection
+              invocationId={invocationId}
+              newElection={stage.newElection}
+              changeable={changeable}
+              onCertified={setStage}
+            />
+          </>
+        ) : null}
       </section>
     );
   }

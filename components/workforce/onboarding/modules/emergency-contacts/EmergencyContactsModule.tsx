@@ -28,7 +28,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ONBOARDING_HOME } from "@/lib/workforce/onboardingRuntimeApi";
+import { packetPath } from "@/lib/workforce/onboardingRuntimeApi";
 import type { OnboardingModuleRendererProps } from "@/components/workforce/onboarding/runtime/moduleRegistry";
 import { useOnboardingRuntime } from "@/components/workforce/onboarding/runtime/OnboardingRuntimeContext";
 import OnboardingErrorNotice from "@/components/workforce/onboarding/runtime/OnboardingErrorNotice";
@@ -38,7 +38,6 @@ import {
   EMERGENCY_CONTACT_PRIORITIES,
   EMERGENCY_CONTACT_RELATIONSHIPS,
   EMERGENCY_CONTACT_RELATIONSHIP_OTHER,
-  EMERGENCY_CONTACT_STATUSES,
   emergencyContactRefusalCode,
   getOwnEmergencyContacts,
   saveOwnEmergencyContacts,
@@ -55,7 +54,7 @@ import ContactEditor, {
 import ConfirmUnchanged from "./ConfirmUnchanged";
 import UnsavedChangesPrompt from "./UnsavedChangesPrompt";
 import { designationLabel } from "./DesignationSelect";
-import { priorityLabel } from "./PriorityControl";
+import { contactOrdinalLabel, priorityLabel } from "./PriorityControl";
 import { relationshipLabel } from "./RelationshipSelect";
 import "./emergency-contacts.css";
 
@@ -139,9 +138,6 @@ export function validateContactSet(contacts: readonly ContactDraft[]): Violation
       ? contact.priority
       : null;
     if (!priority) add("VALUE_NOT_GOVERNED", null, "priority");
-    if (!(EMERGENCY_CONTACT_STATUSES as readonly string[]).includes(contact.status)) {
-      add("VALUE_NOT_GOVERNED", priority, "status");
-    }
     if (
       contact.designation !== "" &&
       !(EMERGENCY_CONTACT_DESIGNATIONS as readonly string[]).includes(
@@ -194,10 +190,11 @@ export function validateContactSet(contacts: readonly ContactDraft[]): Violation
     }
   }
 
-  if (!contacts.some((contact) => contact.status === "ACTIVE")) {
-    add("ACTIVE_CONTACT_REQUIRED");
-  }
-
+  // ACTIVE_CONTACT_REQUIRED is not tested here, and its absence is not a relaxation. Every
+  // contact the worker lists is submitted as active, so a set with any contact in it
+  // satisfies the rule and a set with none is already refused above as CONTACTS_REQUIRED.
+  // The server continues to enforce both rules independently, and its message is still
+  // carried below if it ever refuses one.
   return violations;
 }
 
@@ -243,10 +240,7 @@ function isBlank(contact: ContactDraft): boolean {
     "preferredLanguage",
     "designation",
   ];
-  return (
-    contact.status === "ACTIVE" &&
-    stated.every((field) => contact[field].trim().length === 0)
-  );
+  return stated.every((field) => contact[field].trim().length === 0);
 }
 
 /** What the worker is actually proposing: the blank rows he has not filled in do not count. */
@@ -289,6 +283,24 @@ export function EmergencyContactsModule({
   /** The set as the server last confirmed it. What "unchanged" is measured against. */
   const [baseline, setBaseline] = useState<string>(fingerprint([]));
   const [saving, setSaving] = useState(false);
+  /**
+   * True from the moment the worker presses Save & Continue until the section is actually
+   * finished - the save, the completion, and the re-read of his packet that follows it.
+   *
+   * IT COVERS THE WHOLE OPERATION AND NOT MERELY THE FIRST REQUEST IN IT, which is the point:
+   * a state that ended when the save returned told him his contacts were saved while the
+   * section was still being finished, and left both buttons live in front of a worker with
+   * nothing to do but press one of them again.
+   */
+  const [finishing, setFinishing] = useState(false);
+  /**
+   * The same fact, readable before React has re-rendered.
+   *
+   * Two presses landing in one tick would both read `finishing` as false, because state a
+   * handler closed over is the state at its render. The ref is what makes the second press
+   * a no-op rather than a second completion recorded for one decision.
+   */
+  const finishingRef = useRef(false);
   const [saveError, setSaveError] = useState<unknown>(null);
   const [completionError, setCompletionError] = useState<unknown>(null);
   const [savedVersion, setSavedVersion] = useState<number | null>(null);
@@ -496,26 +508,43 @@ export function EmergencyContactsModule({
    * `confirmNoChange`; continuing past a record he did not change says nothing of the kind.
    */
   const saveAndContinue = useCallback(async () => {
-    const alreadyOnTheRecord = !dirty && profile !== null && profile.setVersion !== null;
-    if (!alreadyOnTheRecord) {
-      const persisted = await save();
-      if (!persisted) return;
-    }
+    // A second press cannot start a second one. The controls are disabled while this runs, so
+    // this guards the case a control cannot - a re-entrant call between renders - and it is
+    // the same guard that keeps two completions from being recorded for one decision.
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    setFinishing(true);
     try {
-      await complete();
-      setCompletionError(null);
-    } catch (failure: unknown) {
-      setCompletionError(failure);
+      const alreadyOnTheRecord = !dirty && profile !== null && profile.setVersion !== null;
+      if (!alreadyOnTheRecord) {
+        const persisted = await save();
+        if (!persisted) return;
+      }
+      try {
+        await complete();
+        setCompletionError(null);
+      } catch (failure: unknown) {
+        setCompletionError(failure);
+      }
+    } finally {
+      finishingRef.current = false;
+      setFinishing(false);
     }
   }, [complete, dirty, profile, save]);
 
   /** The affirmative no-change act. It writes no version; it says the record still stands. */
   const confirmUnchanged = useCallback(async () => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    setFinishing(true);
     try {
       await complete({ confirmNoChange: true });
       setCompletionError(null);
     } catch (failure: unknown) {
       setCompletionError(failure);
+    } finally {
+      finishingRef.current = false;
+      setFinishing(false);
     }
   }, [complete]);
 
@@ -567,7 +596,7 @@ export function EmergencyContactsModule({
     );
   }
 
-  const disabled = saving || busy;
+  const disabled = saving || busy || finishing;
   const takenBy = (contact: ContactDraft): string[] =>
     contacts
       .filter((other) => other.key !== contact.key)
@@ -590,8 +619,17 @@ export function EmergencyContactsModule({
           >
             Change these contacts
           </button>
-          <Link className="wf-btn wf-btn-primary" href={ONBOARDING_HOME}>
-            Go to my onboarding
+          {/*
+            HIS OWN PACKET, not the list of every packet he has ever had. This section is one
+            part of one packet, and what he wants after reading his record back is the rest of
+            that packet - so the way out leads to where the remaining work is.
+          */}
+          <Link
+            className="wf-btn wf-btn-primary"
+            data-ec-return-to-packet
+            href={packetPath(invocationId)}
+          >
+            Back to my sections
           </Link>
         </div>
       </section>
@@ -645,7 +683,7 @@ export function EmergencyContactsModule({
             fieldErrors={errorsFor(contact)}
             disabled={disabled}
             onChange={(field, value) => change(contact.key, field, value)}
-            onRemove={contact.isNew ? () => removeContact(contact.key) : undefined}
+            onRemove={() => removeContact(contact.key)}
           />
         ))}
       </ul>
@@ -658,17 +696,29 @@ export function EmergencyContactsModule({
             disabled={disabled}
             onClick={addContact}
           >
-            Add another contact
+            {contacts.length === 0 ? "Add a contact" : "Add another contact"}
           </button>
         </div>
       ) : null}
 
-      {dirty ? (
+      {/*
+        WHAT IS ACTUALLY HAPPENING, for as long as it is happening. It says finishing rather
+        than saving because the save is only the first part of it, and a worker told "saved"
+        while his packet is still being brought up to date has been told something that is
+        true of one request and not of the operation he asked for.
+      */}
+      {finishing ? (
+        <p className="ec-saved" role="status" data-ec-finishing="true">
+          Finishing this section. Please wait.
+        </p>
+      ) : null}
+
+      {dirty && !finishing ? (
         <p className="ec-dirty" role="status" data-ec-unsaved="true">
           You have changes that are not saved yet.
         </p>
       ) : null}
-      {!dirty && savedVersion !== null ? (
+      {!dirty && !finishing && savedVersion !== null ? (
         <p className="ec-saved" role="status" data-ec-saved-version={savedVersion}>
           Your emergency contacts are saved.
         </p>
@@ -687,9 +737,10 @@ export function EmergencyContactsModule({
           type="button"
           className="wf-btn wf-btn-primary"
           disabled={disabled}
+          aria-busy={finishing || undefined}
           onClick={() => void saveAndContinue()}
         >
-          Save &amp; Continue
+          {finishing ? "Finishing." : "Save & Continue"}
         </button>
       </div>
 
@@ -713,15 +764,21 @@ export function EmergencyContactsModule({
   );
 }
 
+/**
+ * What the worker actually needs to be told, and nothing he can already see.
+ *
+ * Three facts survive, each because leaving it out would cost him something: that the ORDER
+ * he sets is the order we call in, which is the one thing a list of names cannot show; that
+ * three is the limit, so he plans rather than discovers it; and that nothing is stored until
+ * he presses Save, which is the module's own unusual behaviour and the only warning standing
+ * between him and lost work. What an emergency contact is, is not explained.
+ */
 function Intro() {
   return (
     <div className="ec-intro">
       <p>
-        Tell us who we should call if something happens to you at work. We will contact
-        them in the order you set.
-      </p>
-      <p className="ec-intro-detail">
-        You can give us up to three people. Nothing here is saved until you press Save.
+        We call these people in the order you set, and you can give us up to three. Nothing
+        is saved until you press Save.
       </p>
     </div>
   );
@@ -742,6 +799,11 @@ function RecordedContacts({ profile }: { profile: EmergencyContactProfile }) {
           data-contact-priority={contact.priority}
           data-contact-status={contact.status}
         >
+          {/*
+            The same identification the editor uses, from the same governed order, so the
+            record and the form cannot number the same person differently.
+          */}
+          <h3 className="ec-contact-title">{contactOrdinalLabel(contact.priority)}</h3>
           <p className="ec-recorded-name">
             {contact.fullName}
             <span className="ec-recorded-meta">

@@ -99,7 +99,7 @@ export function OnboardingDashboard() {
       {!runtime.requiresPacketSelection && outstanding.length > 0 ? (
         <section className="wf-section" aria-labelledby="ob-outstanding">
           <h2 className="wf-section-title" id="ob-outstanding">
-            Outstanding
+            In progress
           </h2>
           <div className="ob-packet-list">
             {outstanding.map((packet) => (

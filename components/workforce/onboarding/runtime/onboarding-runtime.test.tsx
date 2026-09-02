@@ -67,7 +67,7 @@ const {
   getRuntimeModuleDraft,
   saveRuntimeModuleDraft,
 } = await import("@/lib/workforce/onboardingRuntimeApi");
-const { completeOnboardingModule, OnboardingApiError } = await import(
+const { completeOnboardingModule, onboardingWorkerFetch, OnboardingApiError } = await import(
   "@/lib/workforce/onboardingApi"
 );
 const { getOnboardingWorkerStatus, getOnboardingWorkerCompletionDetail } = await import(
@@ -138,6 +138,44 @@ function registerFixtureRenderers(): void {
 
 function renderWithRuntime(ui: React.ReactNode) {
   return render(<OnboardingRuntimeProvider>{ui}</OnboardingRuntimeProvider>);
+}
+
+/**
+ * The same packet as the SERVER reports it once FIXTURE_ALPHA is recorded complete.
+ *
+ * Every field is stated as a fixture VALUE, including the action the server now offers on a
+ * completed module, so what these suites prove is that the runtime renders the server's answer
+ * rather than that it can reproduce the server's reasoning.
+ */
+function completedAlphaPacket() {
+  return twoModulePacket({
+    modules: [
+      fixtureModule({
+        moduleKey: "FIXTURE_ALPHA",
+        title: "Fixture Alpha",
+        position: 1,
+        status: "COMPLETE",
+        steps: [step("one", "Alpha question one", true)],
+        resumeStepSlug: "one",
+        actionable: false,
+        restart: RESTART_RE_ENTERABLE,
+        workerAction: "EDIT",
+        derivedStatus: fixtureStatus({
+          state: "COMPLETE",
+          label: "Complete",
+          outstanding: false,
+          workerActionable: false,
+        }),
+      }),
+      fixtureModule({
+        moduleKey: "FIXTURE_BETA",
+        title: "Fixture Beta",
+        position: 2,
+        steps: [step("first", "Beta question one"), step("second", "Beta question two")],
+        resumeStepSlug: "first",
+      }),
+    ],
+  });
 }
 
 beforeEach(() => {
@@ -304,6 +342,8 @@ describe("hosting fixture modules", () => {
       />,
     );
 
+    vi.mocked(getOnboardingPacket).mockResolvedValue(completedAlphaPacket());
+
     fireEvent.click(await screen.findByText("Finish Alpha"));
 
     await waitFor(() => {
@@ -313,11 +353,252 @@ describe("hosting fixture modules", () => {
         invocationId: INVOCATION_ID,
       });
     });
-    // The projection is re-read rather than patched locally: status, progress, next
-    // module, and resume target all changed on the server.
+
+    // The projection is re-read rather than patched locally: status, progress, next module,
+    // and resume target all changed on the server. ONE PACKET IS RE-READ, not the worker's
+    // whole onboarding history, which is the same read a packet with many historical packets
+    // behind it would otherwise pay for.
     await waitFor(() => {
-      expect(vi.mocked(getOnboardingRuntime).mock.calls.length).toBeGreaterThan(1);
+      expect(vi.mocked(getOnboardingPacket)).toHaveBeenCalledWith(INVOCATION_ID);
     });
+    expect(vi.mocked(getOnboardingRuntime).mock.calls.length).toBe(1);
+  });
+
+  /**
+   * FINISHING A SECTION DOES NOT WALK THE WORKER OUT OF THE WORKSPACE.
+   *
+   * The container used to send him back to "Your sections" on every ordinary completion. In
+   * practice that took him away from whatever the section had just put in front of him - a
+   * confirmation, a copy of his own record, a result he had not read yet - and made moving
+   * through onboarding a series of returns to a menu. The rail is the navigation; leaving is
+   * something he chooses.
+   */
+  it("keeps the worker in the workspace once a module completes", async () => {
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(
+      fixtureRuntime({ packets: [twoModulePacket()] }),
+    );
+    vi.mocked(getOnboardingPacket).mockResolvedValue(completedAlphaPacket());
+
+    renderWithRuntime(
+      <OnboardingModuleHost
+        invocationId={INVOCATION_ID}
+        moduleSlug="fixture-alpha"
+        stepSlug="one"
+      />,
+    );
+
+    fireEvent.click(await screen.findByText("Finish Alpha"));
+
+    // The completion is recorded and the packet is brought up to date, and that is all that
+    // happens: no navigation of any kind, to his sections or anywhere else.
+    await waitFor(() => {
+      expect(vi.mocked(getOnboardingPacket)).toHaveBeenCalledWith(INVOCATION_ID);
+    });
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The case that made the old behaviour a defect rather than a preference.
+   *
+   * A section whose completion leaves something the worker must still read, keep or
+   * acknowledge has to be able to show it to him. Under the old rule the container decided to
+   * leave and the content went with it; now nothing needs to ask permission to stay.
+   */
+  it("leaves required post-act content on screen after completion", async () => {
+    registerOnboardingModuleRenderer("FIXTURE_TERMINAL", ({ complete }) => (
+      <div data-testid="terminal-renderer">
+        <button type="button" onClick={() => void complete()}>
+          Finish Terminal
+        </button>
+      </div>
+    ));
+    vi.mocked(getRuntimeModuleDraft).mockResolvedValue({
+      packetId: "pkt-fixture-1",
+      moduleKey: "FIXTURE_TERMINAL",
+      data: {},
+      updatedAt: null,
+    });
+    const packet = fixturePacket({
+      modules: [
+        fixtureModule({
+          moduleKey: "FIXTURE_TERMINAL",
+          title: "Fixture Terminal",
+          steps: [step("one", "The only question")],
+          resumeStepSlug: "one",
+        }),
+      ],
+    });
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(fixtureRuntime({ packets: [packet] }));
+    vi.mocked(getOnboardingPacket).mockResolvedValue(packet);
+
+    renderWithRuntime(
+      <OnboardingModuleHost
+        invocationId={INVOCATION_ID}
+        moduleSlug="fixture-terminal"
+        stepSlug="one"
+      />,
+    );
+
+    fireEvent.click(await screen.findByText("Finish Terminal"));
+
+    // The completion is recorded and the packet is brought up to date exactly as before.
+    // What does not happen is the worker being taken off the content he was left with.
+    await waitFor(() => {
+      expect(vi.mocked(getOnboardingPacket)).toHaveBeenCalledWith(INVOCATION_ID);
+    });
+    expect(push).not.toHaveBeenCalled();
+    expect(screen.getByTestId("terminal-renderer")).toBeTruthy();
+  });
+
+  it("records nothing about where the browser went next", async () => {
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(
+      fixtureRuntime({ packets: [twoModulePacket()] }),
+    );
+    vi.mocked(getOnboardingPacket).mockResolvedValue(completedAlphaPacket());
+
+    renderWithRuntime(
+      <OnboardingModuleHost
+        invocationId={INVOCATION_ID}
+        moduleSlug="fixture-alpha"
+        stepSlug="one"
+      />,
+    );
+
+    fireEvent.click(await screen.findByText("Finish Alpha"));
+
+    // WHERE THE WORKER GOES IS NOT PART OF WHAT IS RECORDED. The completion request carries
+    // the module and its packet, and nothing about the screen he sees afterwards.
+    await waitFor(() => {
+      expect(vi.mocked(completeOnboardingModule)).toHaveBeenCalledWith("FIXTURE_ALPHA", {
+        invocationId: INVOCATION_ID,
+      });
+    });
+  });
+});
+
+// ==========================================================================
+// The packet projection, kept current without a browser reload (QA-L5-FUNC-1)
+// ==========================================================================
+
+/**
+ * A worker write performed through the ONE shared transport, by a caller the runtime knows
+ * nothing about.
+ *
+ * This is how a module that completes through its OWN governed endpoint - a certification, an
+ * execution - reaches the runtime: it does not. The transport says a write succeeded, and the
+ * runtime re-reads. Nothing here names a module, and nothing about the write is inspected.
+ */
+async function writeThroughTheSharedTransport(path: string): Promise<void> {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => ({ ok: true, value: {} }),
+    })),
+  );
+  try {
+    await onboardingWorkerFetch(path, { method: "POST", body: {} });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}
+
+describe("keeping the packet projection current", () => {
+  it("re-reads the packet after a module's own governed write, with no browser reload", async () => {
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(
+      fixtureRuntime({ packets: [twoModulePacket()] }),
+    );
+    vi.mocked(getOnboardingPacket).mockResolvedValue(completedAlphaPacket());
+
+    const view = renderWithRuntime(
+      <OnboardingModuleHost
+        invocationId={INVOCATION_ID}
+        moduleSlug="fixture-alpha"
+        stepSlug="one"
+      />,
+    );
+
+    await screen.findByTestId("alpha-renderer");
+    // Nothing has been written, so nothing is re-read. A refresh on every navigation would
+    // be a request per screen for an answer that had not changed.
+    expect(vi.mocked(getOnboardingPacket)).not.toHaveBeenCalled();
+    expect(screen.getByText("0 of 2 sections complete")).toBeTruthy();
+
+    await act(async () => {
+      await writeThroughTheSharedTransport(
+        "/workforce/onboarding/modules/fixture-alpha/some-governed-act",
+      );
+    });
+
+    // Client-side navigation to another screen of the same packet.
+    view.rerender(
+      <OnboardingRuntimeProvider>
+        <OnboardingModuleHost
+          invocationId={INVOCATION_ID}
+          moduleSlug="fixture-beta"
+          stepSlug="first"
+        />
+      </OnboardingRuntimeProvider>,
+    );
+
+    // The rail and the progress counter now say what the SERVER says, without an F5, and
+    // one packet was re-read rather than the worker's entire runtime.
+    await waitFor(() => {
+      expect(screen.getByText("1 of 2 sections complete")).toBeTruthy();
+    });
+    expect(vi.mocked(getOnboardingPacket)).toHaveBeenCalledWith(INVOCATION_ID);
+    expect(vi.mocked(getOnboardingRuntime).mock.calls.length).toBe(1);
+
+    const rail = document.querySelector('[data-module-key="FIXTURE_ALPHA"]');
+    expect(rail?.querySelector('[data-state="COMPLETE"]')).toBeTruthy();
+  });
+
+  it("re-reads the packet when the worker lands on his sections after a write", async () => {
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(
+      fixtureRuntime({ packets: [twoModulePacket()] }),
+    );
+    vi.mocked(getOnboardingPacket).mockResolvedValue(completedAlphaPacket());
+
+    const view = renderWithRuntime(
+      <OnboardingModuleHost
+        invocationId={INVOCATION_ID}
+        moduleSlug="fixture-alpha"
+        stepSlug="one"
+      />,
+    );
+    await screen.findByTestId("alpha-renderer");
+
+    await act(async () => {
+      await writeThroughTheSharedTransport(
+        "/workforce/onboarding/modules/fixture-alpha/some-governed-act",
+      );
+    });
+
+    view.rerender(
+      <OnboardingRuntimeProvider>
+        <OnboardingPacketView invocationId={INVOCATION_ID} />
+      </OnboardingRuntimeProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("1 of 2 sections complete")).toBeTruthy();
+    });
+    const card = document.querySelector('[data-module-key="FIXTURE_ALPHA"]');
+    expect(card?.getAttribute("data-worker-action")).toBe("EDIT");
+    expect(vi.mocked(getOnboardingRuntime).mock.calls.length).toBe(1);
+  });
+
+  it("asks for nothing when no write has happened", async () => {
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(
+      fixtureRuntime({ packets: [twoModulePacket()] }),
+    );
+
+    renderWithRuntime(<OnboardingPacketView invocationId={INVOCATION_ID} />);
+
+    await screen.findByText("Your sections");
+    expect(vi.mocked(getOnboardingPacket)).not.toHaveBeenCalled();
   });
 });
 
@@ -441,6 +722,8 @@ describe("resume", () => {
             step("second", "Beta question two", false),
           ],
           resumeStepSlug: "second",
+          // The SERVER's answer for a module already under way, in the ratified vocabulary.
+          workerAction: "CONTINUE",
         }),
       ],
     });
@@ -598,6 +881,8 @@ describe("out-of-order completion", () => {
           status: "BLOCKED",
           actionable: false,
           restart: RESTART_CLOSED,
+          // A governed dependency is unsatisfied, so the server names no action at all.
+          workerAction: "NONE",
         }),
       ],
     });
@@ -615,10 +900,261 @@ describe("out-of-order completion", () => {
 });
 
 // ==========================================================================
+// Status and action are different things (QA-L5-UX-3)
+// ==========================================================================
+
+/**
+ * A packet screen answers three questions about each section, and they are not the same
+ * question: what it is, where it stands, and what the worker may do about it.
+ *
+ * Every module below states its action as a fixture VALUE, because the action is the SERVER's
+ * answer. Nothing in the runtime works out that a completed section happens to be re-enterable
+ * or that an outstanding one happens to be reachable - it is told, and it renders what it was
+ * told. That is what keeps the screen from offering a worker something the server would refuse.
+ */
+describe("status, and the action beside it", () => {
+  async function openPacketWith(modules: ReturnType<typeof fixtureModule>[]) {
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(
+      fixtureRuntime({ packets: [fixturePacket({ modules })] }),
+    );
+    renderWithRuntime(<OnboardingPacketView invocationId={INVOCATION_ID} />);
+    await screen.findByText("Your sections");
+  }
+
+  function card(moduleKey: string): Element {
+    const found = document.querySelector(`[data-module-key="${moduleKey}"]`);
+    if (!found) throw new Error(`no card for ${moduleKey}`);
+    return found;
+  }
+
+  /** The one control the card offers, if it offers one. */
+  function action(moduleKey: string): HTMLAnchorElement | null {
+    return card(moduleKey).querySelector("[data-module-action]");
+  }
+
+  it("says the ratified word for each thing the server says he may do", async () => {
+    await openPacketWith([
+      fixtureModule({
+        moduleKey: "FIXTURE_ALPHA",
+        title: "Nothing entered yet",
+        position: 1,
+        status: "PENDING",
+        workerAction: "ENTER",
+      }),
+      fixtureModule({
+        moduleKey: "FIXTURE_BETA",
+        title: "Part way through",
+        position: 2,
+        // The RECORD is still pending - being part way through is the status authority's
+        // answer, not a fifth record state - and the action follows the authority.
+        status: "PENDING",
+        steps: [step("first", "Beta question one", true), step("second", "Beta two")],
+        resumeStepSlug: "second",
+        workerAction: "CONTINUE",
+        derivedStatus: fixtureStatus({ state: "IN_PROGRESS", label: "In progress" }),
+      }),
+      fixtureModule({
+        moduleKey: "FIXTURE_GAMMA",
+        title: "Finished, and his to change",
+        position: 3,
+        status: "COMPLETE",
+        actionable: false,
+        restart: RESTART_RE_ENTERABLE,
+        workerAction: "EDIT",
+        derivedStatus: fixtureStatus({
+          state: "COMPLETE",
+          label: "Complete",
+          outstanding: false,
+          workerActionable: false,
+        }),
+      }),
+      fixtureModule({
+        moduleKey: "FIXTURE_DELTA",
+        title: "With our staff",
+        position: 4,
+        status: "PENDING",
+        actionable: false,
+        restart: RESTART_CLOSED,
+        workerAction: "VIEW",
+        derivedStatus: fixtureStatus({
+          state: "WORKER_PHASE_COMPLETE_AWAITING_ADMINISTRATIVE_ACTION",
+          label: "With our team",
+          workerActionable: false,
+          awaitingAdministrativeAction: true,
+        }),
+      }),
+    ]);
+
+    expect(action("FIXTURE_ALPHA")?.textContent).toBe("Enter Info");
+    expect(action("FIXTURE_BETA")?.textContent).toBe("Continue");
+    expect(action("FIXTURE_GAMMA")?.textContent).toBe("Edit Info");
+    expect(action("FIXTURE_DELTA")?.textContent).toBe("View Info");
+  });
+
+  it("shows the status as a statement, and never as the thing he presses", async () => {
+    await openPacketWith([
+      fixtureModule({
+        moduleKey: "FIXTURE_ALPHA",
+        title: "Fixture Alpha",
+        status: "COMPLETE",
+        actionable: false,
+        restart: RESTART_RE_ENTERABLE,
+        workerAction: "EDIT",
+        derivedStatus: fixtureStatus({
+          state: "COMPLETE",
+          label: "Complete",
+          outstanding: false,
+          workerActionable: false,
+        }),
+      }),
+    ]);
+
+    const alpha = card("FIXTURE_ALPHA");
+    // THE NAME, THE STATUS AND THE ACTION ARE THREE THINGS. The status says where the section
+    // stands; it is not a link, not a button, and not inside the one control on the card.
+    expect(alpha.querySelector(".ob-module-card-title")?.textContent).toBe("Fixture Alpha");
+    const status = alpha.querySelector('[data-state="COMPLETE"]') as HTMLElement;
+    expect(status.textContent).toBe("Complete");
+    expect(status.closest("a")).toBeNull();
+    expect(status.closest("button")).toBeNull();
+    expect(status.querySelector("[data-module-action]")).toBeNull();
+
+    // And the one control says what pressing it does, rather than repeating the status.
+    const control = action("FIXTURE_ALPHA") as HTMLAnchorElement;
+    expect(control.textContent).toBe("Edit Info");
+    expect(alpha.querySelectorAll("[data-module-action]")).toHaveLength(1);
+  });
+
+  it("offers no way in where the server closed the module, however complete it is", async () => {
+    await openPacketWith([
+      fixtureModule({
+        moduleKey: "FIXTURE_ALPHA",
+        title: "Fixture Alpha",
+        status: "COMPLETE",
+        actionable: false,
+        // A packet that has left the worker's hands. The record stands; changing it does not.
+        restart: RESTART_CLOSED,
+        workerAction: "NONE",
+        derivedStatus: fixtureStatus({
+          state: "COMPLETE",
+          label: "Complete",
+          outstanding: false,
+          workerActionable: false,
+        }),
+      }),
+    ]);
+
+    // He is still told where it stands. He is simply not offered an edit the server would
+    // refuse, and the card does not infer one from the module being complete.
+    expect(card("FIXTURE_ALPHA").querySelector('[data-state="COMPLETE"]')).toBeTruthy();
+    expect(action("FIXTURE_ALPHA")).toBeNull();
+    expect(card("FIXTURE_ALPHA").querySelector("a")).toBeNull();
+  });
+
+  it("names no module anywhere in deciding any of it", async () => {
+    // THE SAME SERVER ANSWER, ON A MODULE KEY THIS FILE INVENTED. If any of the vocabulary
+    // above were reached by recognising a section, an unknown one could not be offered it.
+    await openPacketWith([
+      fixtureModule({
+        moduleKey: "FIXTURE_NEVER_SEEN_BEFORE",
+        title: "Something new",
+        status: "COMPLETE",
+        actionable: false,
+        restart: RESTART_RE_ENTERABLE,
+        workerAction: "EDIT",
+        derivedStatus: fixtureStatus({
+          state: "COMPLETE",
+          label: "Complete",
+          outstanding: false,
+          workerActionable: false,
+        }),
+      }),
+    ]);
+
+    expect(action("FIXTURE_NEVER_SEEN_BEFORE")?.textContent).toBe("Edit Info");
+  });
+
+  it("lets the worker onto a completed section the server left open to him", async () => {
+    await openPacketWith([
+      fixtureModule({
+        moduleKey: "FIXTURE_ALPHA",
+        title: "Fixture Alpha",
+        moduleSlug: "fixture-alpha",
+        status: "COMPLETE",
+        actionable: false,
+        restart: RESTART_RE_ENTERABLE,
+        steps: [step("one", "Alpha question one", true)],
+        resumeStepSlug: "one",
+        workerAction: "EDIT",
+        derivedStatus: fixtureStatus({
+          state: "COMPLETE",
+          label: "Complete",
+          outstanding: false,
+          workerActionable: false,
+        }),
+      }),
+    ]);
+
+    // The rail agrees with the card, because both read the same server answer.
+    expect(action("FIXTURE_ALPHA")?.getAttribute("href")).toBe(
+      `/workforce/onboarding/${INVOCATION_ID}/fixture-alpha/one`,
+    );
+  });
+});
+
+// ==========================================================================
 // Server-derived visualization
 // ==========================================================================
 
 describe("progress, packet, and module visualization", () => {
+  /**
+   * GLOBAL INCOMPLETENESS IS NOT WORK THE WORKER STILL OWES.
+   *
+   * The card used to show "Outstanding" as required minus complete. A section finished by the
+   * worker and waiting on MW4H is incomplete and is not his, so that arithmetic told a worker
+   * who had done everything asked of him that he had tasks left. The count is the server's,
+   * derived from the same status authority that words the section rows.
+   */
+  it("counts only what the server says is the worker's, not what is globally incomplete", async () => {
+    const packet = fixturePacket({
+      completion: { complete: false, requiredCount: 4, completeCount: 2 },
+      workerOutstandingCount: 0,
+      awaitingAdministrativeActionCount: 1,
+    });
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(fixtureRuntime({ packets: [packet] }));
+
+    renderWithRuntime(<OnboardingDashboard />);
+
+    const card = await waitFor(() => {
+      const found = document.querySelector(".ob-packet-card");
+      expect(found).toBeTruthy();
+      return found as Element;
+    });
+    const facts = card.querySelector(".ob-packet-card-facts")?.textContent ?? "";
+
+    // Two sections are incomplete. Neither is his, and he is told so rather than being
+    // handed the number 2.
+    expect(facts).toContain("Still to do");
+    expect(facts).toContain("Nothing");
+    expect(facts).toContain("Waiting on us");
+    expect(facts).not.toContain("Outstanding");
+  });
+
+  it("shows no internal reason for the packet on any worker surface", async () => {
+    const packet = fixturePacket();
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(fixtureRuntime({ packets: [packet] }));
+
+    // The reason a packet exists is a statement by the calling workflow to Jarvis, and reads
+    // like one - "QA_WORKER_EXPERIENCE_LAUNCH" is not something to put in front of a worker.
+    // It is no longer on the runtime contract at all, so there is nothing here to leak.
+    expect(packet).not.toHaveProperty("invocationReason");
+
+    renderWithRuntime(<OnboardingPacketView invocationId={INVOCATION_ID} />);
+
+    await screen.findByText("Your sections");
+    expect(document.querySelector(".ob-packet-card-purpose")).toBeNull();
+  });
+
   it("renders the server's numerator and denominator without recomputing them", async () => {
     const packet = fixturePacket({
       modules: [
@@ -886,7 +1422,7 @@ describe("accessibility", () => {
       expect(found).toBeTruthy();
       return found as Element;
     });
-    expect(section.querySelector("#ob-outstanding")?.textContent).toBe("Outstanding");
+    expect(section.querySelector("#ob-outstanding")?.textContent).toBe("In progress");
   });
 });
 

@@ -4,8 +4,10 @@
  * What these prove is the seam:
  *
  *  - The two QA-L2 routes are the ones called, at the paths QA-L2 mounts.
- *  - A launch sends the CANDIDATE IDENTIFIER AND NOTHING ELSE. No module, no scope, no packet, no
- *    invocation, no step: a request shape that cannot name a module cannot ask for one.
+ *  - A launch sends the CANDIDATE IDENTIFIER AND THE GOVERNED SCOPE, AND NOTHING ELSE. No module,
+ *    no module array, no packet, no invocation, no step: a request shape that cannot name a module
+ *    cannot ask for one, and the scope it CAN name is closed at the two the server authorizes.
+ *  - The field is `scope`, spelled as the backend spells it, so the two contracts agree.
  *  - The STAFF credential is what a QA request carries, and nothing is attempted without one.
  *  - The identifier never reaches a URL on the launch: a launch is not bookmarkable, and a browser
  *    history, a proxy log and a referrer header are none of them places for the target of one.
@@ -24,6 +26,7 @@ import {
 } from "./onboardingAdminApi";
 import {
   QA_WORKER_EXPERIENCE_LAUNCH_PERMISSION,
+  QA_WORKER_EXPERIENCE_SCOPES,
   launchQaWorkerExperience,
   listQaTestWorkers,
 } from "./qaWorkerExperienceApi";
@@ -106,43 +109,72 @@ describe("the TEST worker directory", () => {
 /* --------------------------------------------------------------------- launch */
 
 describe("the launch request", () => {
-  it("sends the candidate identifier and nothing else", async () => {
-    const fetchMock = ok({
+  function launched(scope: string) {
+    return ok({
       candidateId: CANDIDATE,
       invocationId: "inv_qa_1",
-      moduleScope: "PAYROLL_PAYMENT",
+      scope,
       workerEntryToken: "entry-token-value",
       expiresAt: "2026-08-28T18:00:00.000Z",
     });
+  }
+
+  it("sends the candidate identifier and the chosen scope, and nothing else", async () => {
+    const fetchMock = launched("PAYROLL_PAYMENT");
     vi.stubGlobal("fetch", fetchMock);
 
-    await launchQaWorkerExperience(CANDIDATE);
+    await launchQaWorkerExperience(CANDIDATE, "PAYROLL_PAYMENT");
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain("/workforce/qa/worker-experience/launch");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(String(init.body))).toEqual({ candidateId: CANDIDATE });
+    // `scope`, spelled exactly as the backend contract spells it (owner judgment call JC-2), and
+    // NOT `moduleScope`: a client that sent the old name would be stripped and refused.
+    expect(JSON.parse(String(init.body))).toEqual({
+      candidateId: CANDIDATE,
+      scope: "PAYROLL_PAYMENT",
+    });
+  });
+
+  it("sends the complete-packet scope when that is what was chosen", async () => {
+    const fetchMock = launched("COMPLETE_PACKET");
+    vi.stubGlobal("fetch", fetchMock);
+
+    await launchQaWorkerExperience(CANDIDATE, "COMPLETE_PACKET");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      candidateId: CANDIDATE,
+      scope: "COMPLETE_PACKET",
+    });
+    // No module array, no module key, no kind and no workflow travels with it: the packet's
+    // composition is the server's registry-derived answer (owner ruling QA-L5-R2).
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["candidateId", "scope"]);
+  });
+
+  it("offers exactly the two authorized scopes, and no third", () => {
+    expect([...QA_WORKER_EXPERIENCE_SCOPES]).toEqual([
+      "PAYROLL_PAYMENT",
+      "COMPLETE_PACKET",
+    ]);
+    expect(QA_WORKER_EXPERIENCE_SCOPES).toHaveLength(2);
   });
 
   it("keeps the target out of the URL", async () => {
-    const fetchMock = ok({
-      candidateId: CANDIDATE,
-      invocationId: "inv_qa_1",
-      moduleScope: "PAYROLL_PAYMENT",
-      workerEntryToken: "entry-token-value",
-      expiresAt: "2026-08-28T18:00:00.000Z",
-    });
+    const fetchMock = launched("PAYROLL_PAYMENT");
     vi.stubGlobal("fetch", fetchMock);
 
-    await launchQaWorkerExperience(CANDIDATE);
+    await launchQaWorkerExperience(CANDIDATE, "PAYROLL_PAYMENT");
 
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).not.toContain(CANDIDATE);
+    expect(url).not.toContain("PAYROLL_PAYMENT");
     expect(url).not.toContain("?");
   });
 
-  it("takes the candidate identifier as its only argument", () => {
-    expect(launchQaWorkerExperience.length).toBe(1);
+  it("takes the candidate identifier and the scope, and no third argument", () => {
+    expect(launchQaWorkerExperience.length).toBe(2);
   });
 
   it("preserves a refusal with its status and code", async () => {
@@ -153,9 +185,10 @@ describe("the launch request", () => {
       }),
     );
 
-    const failure = await launchQaWorkerExperience(CANDIDATE).catch(
-      (error: unknown) => error,
-    );
+    const failure = await launchQaWorkerExperience(
+      CANDIDATE,
+      "COMPLETE_PACKET",
+    ).catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(OnboardingAdminApiError);
     expect((failure as OnboardingAdminApiError).status).toBe(403);
@@ -206,8 +239,35 @@ describe("the boundaries this client keeps", () => {
     }
   });
 
-  it("offers no module, scope, packet or invocation parameter", () => {
-    for (const forbidden of ["moduleKey", "COMPLETE_PACKET", "packetId", "stepSlug"]) {
+  it("offers no module, packet or invocation parameter, and keeps no module list", () => {
+    // The governed scope is a legitimate parameter now (owner ruling QA-L5-R1). A MODULE is not:
+    // the complete packet's composition is the production registry's answer, so a module key,
+    // module array or packet identifier here would be a second inventory (owner ruling QA-L5-R2).
+    for (const forbidden of [
+      "moduleKey",
+      "modules",
+      "moduleScope",
+      "packetId",
+      "stepSlug",
+      "workflowKey",
+      "NAMED_MODULES",
+      "NAMED_WORKFLOW",
+      "EMPLOYMENT_ELIGIBILITY",
+      "FEDERAL_TAX",
+      "EMERGENCY_CONTACT",
+      "STATE_TAX",
+      "BENEFITS",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
+  });
+
+  it("mirrors the server's closed scope set and composes nothing from it", () => {
+    // The two authorized scopes are NAMED here, because a request must carry one of them. What is
+    // absent is any code that turns a scope into a set of modules: that is the server's.
+    expect(source).toContain("PAYROLL_PAYMENT");
+    expect(source).toContain("COMPLETE_PACKET");
+    for (const forbidden of [".filter(", ".map(", ".sort(", ".concat("]) {
       expect(source).not.toContain(forbidden);
     }
   });

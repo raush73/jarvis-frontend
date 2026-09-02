@@ -28,8 +28,18 @@ import OnboardingDocumentCapture from "../documents/OnboardingDocumentCapture";
 import OnboardingExecutionCapture from "../execution/OnboardingExecutionCapture";
 
 export function OnboardingPacketView({ invocationId }: { invocationId: string }) {
-  const { runtime, loading, error, reload, findPacket } = useOnboardingRuntime();
+  const { runtime, loading, error, reload, refreshPacketIfStale, findPacket } =
+    useOnboardingRuntime();
   const packet = findPacket(invocationId);
+
+  /*
+    The worker arrives here after finishing something, so this screen is the one that must
+    never be showing him yesterday's answer. It re-reads THIS packet when a write has made the
+    cache stale, and asks for nothing when none has.
+  */
+  useEffect(() => {
+    void refreshPacketIfStale(invocationId);
+  }, [invocationId, refreshPacketIfStale]);
 
   /*
     A packet identifier that is not in this worker's projection is put to the SERVER rather
@@ -83,7 +93,6 @@ export function OnboardingPacketView({ invocationId }: { invocationId: string })
       <header className="wf-head">
         <p className="wf-eyebrow">Onboarding</p>
         <h1 className="wf-title">Your sections</h1>
-        <p className="wf-intro">{packet.invocationReason}</p>
         <OnboardingProgress completion={packet.completion} />
         {lastActivity ? (
           <p className="wf-section-note">Last activity {lastActivity}</p>

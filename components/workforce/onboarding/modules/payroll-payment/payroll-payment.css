@@ -331,6 +331,71 @@
   font-size: 0.95rem;
 }
 
+/* ------------------------------------------- Gate 10C: the authorization */
+
+/*
+ * The last step, set apart from the review above it.
+ *
+ * A RULE AND SOME SPACE, and deliberately nothing more. What the worker signs is rendered by the
+ * DELIVERED shared execution card, which brings its own presentation; this block only says where
+ * that card begins, so the moment the screen stops asking him to check and starts asking him to
+ * sign is visible rather than implied. Nothing here restyles the card, the wording inside it, or
+ * the capture surface behind it.
+ */
+.pp-authorize {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+  border-top: 1px solid var(--color-border, #d7dbe2);
+  padding-top: 18px;
+}
+
+.pp-authorize-guidance,
+.pp-authorize-done,
+.pp-authorize-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pp-authorize-guidance p,
+.pp-authorize-done p,
+.pp-authorize-accounts p {
+  margin: 0;
+}
+
+/*
+ * Jarvis's own heading, above the governed statement and outside the card.
+ *
+ * Smaller and quieter than a section title on purpose: what the worker signs is the governed
+ * wording, and our explanation of it must not read as though it were part of the thing.
+ */
+.pp-guidance-heading {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.pp-guidance-text {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+/* The recorded outcome. The one sentence on the screen that says his part is finished. */
+.pp-authorize-done p:first-child {
+  font-weight: 600;
+}
+
+.pp-authorize-blockers {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.95rem;
+}
+
 /* --------------------------------------------------- removing an account */
 
 /*

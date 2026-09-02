@@ -12,6 +12,11 @@
  * for all four to drift. That it is spelled `onboardingAdmin*` is a name, not a scope - the
  * delivered module clients reach for the same function for their staff reads.
  *
+ * THE ONLY THING A CALLER MAY CHOOSE IS THE GOVERNED SCOPE, and the set of scopes is CLOSED at the
+ * two the server authorizes (owner ruling QA-L5-R1). There is no module parameter, no module array
+ * and no module list in this file: the complete packet's composition is the production registry's
+ * answer, so a list here would be a second inventory that could disagree with it (QA-L5-R2).
+ *
  * THE ENTRY TOKEN IS ON THE LAUNCH RESPONSE BECAUSE THE SERVER PUTS IT THERE, and this file is the
  * only place in the browser whose types name it. It is not handled here: `qaWorkerHandoff.ts`
  * performs the immediate handoff and returns a shape with nowhere to put a token, so no component
@@ -50,6 +55,24 @@ export type QaTestWorker = {
 };
 
 /**
+ * The launch scopes the server authorizes, mirrored from its closed set.
+ *
+ * A CLOSED UNION AND NOT A STRING, so a surface cannot offer a scope the server will refuse and a
+ * caller cannot compose one. The server's `IsIn` check is the authorization; this type is what stops
+ * a mistake reaching it. Exactly two members, per owner ruling QA-L5-R1:
+ *
+ *  - `PAYROLL_PAYMENT` - the isolated/surgical single-module path.
+ *  - `COMPLETE_PACKET` - the whole onboarding packet, whose modules are the production registry's
+ *    answer. There is deliberately no module list anywhere in this browser code that composes it.
+ */
+export const QA_WORKER_EXPERIENCE_SCOPES = [
+  "PAYROLL_PAYMENT",
+  "COMPLETE_PACKET",
+] as const;
+
+export type QaWorkerExperienceScope = (typeof QA_WORKER_EXPERIENCE_SCOPES)[number];
+
+/**
  * What a successful QA-L2 launch returns.
  *
  * `workerEntryToken` IS A SINGLE-USE SECRET FOR IMMEDIATE CONSUMPTION ONLY. It exists on this type
@@ -59,8 +82,13 @@ export type QaWorkerExperienceLaunch = {
   candidateId: string;
   /** The NEW real onboarding invocation this launch created. */
   invocationId: string;
-  /** The governed module scope the server composed the invocation for. */
-  moduleScope: string;
+  /**
+   * The authorized scope the server composed the invocation for.
+   *
+   * `scope` AND NOT `moduleScope` (owner judgment call JC-2): one of the two scopes names no module
+   * at all. It arrives back as a FACT the server states, and the client keeps no second name for it.
+   */
+  scope: QaWorkerExperienceScope;
   workerEntryToken: string;
   expiresAt: string;
 };
@@ -81,18 +109,20 @@ export async function listQaTestWorkers(): Promise<QaTestWorker[]> {
 }
 
 /**
- * Open a NEW QA worker experience for one TEST-classified worker.
+ * Open a NEW QA worker experience for one TEST-classified worker, in one authorized scope.
  *
- * THE CANDIDATE IDENTIFIER IS THE ONLY THING SENT. There is no module, scope, packet, invocation,
- * step, qualifier or reason parameter, so a caller cannot name a module the QA scope does not
- * cover, cannot reach an earlier invocation, and cannot ask for anything but a new run. The scope
- * is the server's constant and arrives back on the response as a fact, not as an echo of a request.
+ * TWO ARGUMENTS, AND THE SECOND IS A CLOSED UNION. There is no module, packet, invocation, step,
+ * qualifier or reason parameter, so a caller cannot curate a module set, cannot reach an earlier
+ * invocation, and cannot ask for anything but a new run. `scope` IS REQUIRED AND HAS NO DEFAULT
+ * HERE EITHER (owner judgment call JC-1): a default in this client would make every request
+ * semantically defaulted no matter how carefully the screen above it asked.
  */
 export async function launchQaWorkerExperience(
   candidateId: string,
+  scope: QaWorkerExperienceScope,
 ): Promise<QaWorkerExperienceLaunch> {
   return onboardingAdminFetch<QaWorkerExperienceLaunch>(`${BASE}/launch`, {
     method: "POST",
-    body: { candidateId },
+    body: { candidateId, scope },
   });
 }

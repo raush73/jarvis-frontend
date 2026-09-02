@@ -12,10 +12,18 @@
  * The shape of one editable contact is defined here, beside the fields that edit it, and the
  * module composes a SET of them.
  *
- * WHY THERE IS NO DELETE. A contact that has been recorded is deactivated rather than removed
- * (architecture 4.7.6): the record is preserved, auditable, and excluded from notification
- * while inactive. A contact the worker has only just added, and never saved, has no record to
- * preserve - so that one, and only that one, can be taken off the form again.
+ * WHAT LISTING SOMEONE MEANS, and why there is no call/no-call control. A person the worker
+ * lists here IS an emergency contact and may be called in an emergency. Asking him separately
+ * whether we may call someone he has just listed is a question with no defensible answer: it
+ * invites a listed contact nobody is allowed to telephone. The worker's control over WHO we
+ * call is the set itself - he adds a person, or he removes one.
+ *
+ * WHAT REMOVAL MEANS. Removing takes the person out of the worker's CURRENT effective set and
+ * destroys nothing. The set is committed as one immutable version, so the version that listed
+ * that person remains in history exactly as it was recorded, superseded rather than deleted.
+ * The stored ACTIVE / INACTIVE status is untouched by this and remains what it always was -
+ * an internal, historical and administrative mechanic, no longer a question the worker is
+ * asked to operate.
  */
 
 import type { ReactNode } from "react";
@@ -29,7 +37,8 @@ import type {
 } from "@/lib/workforce/emergencyContactsApi";
 import { EMERGENCY_CONTACT_RELATIONSHIP_OTHER } from "@/lib/workforce/emergencyContactsApi";
 import DesignationSelect from "./DesignationSelect";
-import PriorityControl from "./PriorityControl";
+import LanguageSelect from "./LanguageSelect";
+import PriorityControl, { contactOrdinalLabel } from "./PriorityControl";
 import RelationshipSelect from "./RelationshipSelect";
 
 /**
@@ -44,7 +53,6 @@ export type ContactDraft = {
   /** True for a contact the worker added that has never been recorded. */
   isNew: boolean;
   priority: string;
-  status: string;
   designation: string;
   fullName: string;
   relationship: string;
@@ -68,7 +76,6 @@ export function contactFromRecord(record: EmergencyContact): ContactDraft {
     key: record.id,
     isNew: false,
     priority: record.priority,
-    status: record.status,
     designation: record.designation,
     fullName: record.fullName,
     relationship: record.relationship,
@@ -91,7 +98,6 @@ export function emptyContact(priority: string, key: string): ContactDraft {
     key,
     isNew: true,
     priority,
-    status: "ACTIVE",
     designation: "",
     fullName: "",
     relationship: "",
@@ -108,7 +114,16 @@ export function emptyContact(priority: string, key: string): ContactDraft {
   };
 }
 
-/** What this contact states, as the API client takes it. Trimmed; never reinterpreted. */
+/**
+ * What this contact states, as the API client takes it. Trimmed; never reinterpreted.
+ *
+ * `status` is stated as ACTIVE for every contact the worker is listing, and it is stated
+ * rather than omitted because the field is part of the governed record and remains so. It is
+ * no longer a worker DECISION: being in the set the worker submits is what makes a person an
+ * emergency contact, so a contact that reaches here is by definition one we may call. Taking
+ * someone out of the set is how the worker says otherwise, and the server records that as a
+ * new effective version without disturbing the one before it.
+ */
 export function toContactInput(draft: ContactDraft): EmergencyContactInput {
   const text = (value: string): string | null => {
     const trimmed = value.trim();
@@ -116,7 +131,7 @@ export function toContactInput(draft: ContactDraft): EmergencyContactInput {
   };
   return {
     priority: draft.priority as EmergencyContactPriority,
-    status: draft.status as EmergencyContactStatus,
+    status: "ACTIVE" as EmergencyContactStatus,
     designation: draft.designation as EmergencyContactDesignation,
     fullName: draft.fullName.trim(),
     relationship: draft.relationship as EmergencyContactRelationship,
@@ -141,8 +156,8 @@ type Props = {
   fieldErrors: Partial<Record<ContactField, string>>;
   disabled: boolean;
   onChange: (field: ContactField, value: string) => void;
-  /** Absent for a recorded contact: those are deactivated, never removed. */
-  onRemove?: () => void;
+  /** Take this person out of the set the worker is proposing. */
+  onRemove: () => void;
 };
 
 export function ContactEditor({
@@ -157,14 +172,21 @@ export function ContactEditor({
   const errorId = (field: ContactField): string | undefined =>
     fieldErrors[field] ? `${id(field)}-error` : undefined;
 
-  const inactive = contact.status === "INACTIVE";
-
   return (
     <li
-      className={`wf-card ec-contact${inactive ? " is-inactive" : ""}`}
+      className="wf-card ec-contact"
       data-contact-priority={contact.priority}
-      data-contact-status={contact.status}
     >
+      {/*
+        WHO THIS CARD IS, in three words. The number is the governed order of contact attempt,
+        which is also the only thing about a contact that is not already obvious from the fields
+        under it - so it is the identification, and nothing here explains what an emergency
+        contact is.
+      */}
+      <h3 className="ec-contact-title" data-contact-ordinal={contact.priority}>
+        {contactOrdinalLabel(contact.priority)}
+      </h3>
+
       <div className="ec-contact-head">
         <div className="ec-field ec-field-priority">
           <label className="wf-label" htmlFor={id("priority")}>
@@ -181,29 +203,6 @@ export function ContactEditor({
           />
           <FieldError id={errorId("priority")}>{fieldErrors.priority}</FieldError>
         </div>
-
-        {/*
-          Deactivation, in the worker's own words. It is a checkbox rather than a delete
-          control because that is precisely what it does: the contact stays on the record and
-          stops being someone we would call.
-        */}
-        <label className="ec-choice ec-status" htmlFor={id("status")}>
-          <input
-            type="checkbox"
-            id={id("status")}
-            checked={contact.status === "ACTIVE"}
-            disabled={disabled}
-            onChange={(event) =>
-              onChange("status", event.target.checked ? "ACTIVE" : "INACTIVE")
-            }
-          />
-          <span>
-            <span className="ec-choice-label">Call this person in an emergency</span>
-            <span className="ec-choice-detail">
-              Clear this to keep the contact on your record without us calling them.
-            </span>
-          </span>
-        </label>
       </div>
 
       <div className="ec-grid">
@@ -312,13 +311,11 @@ export function ContactEditor({
           <label className="wf-label" htmlFor={id("preferredLanguage")}>
             Language they prefer <span className="ec-optional">(optional)</span>
           </label>
-          <input
+          <LanguageSelect
             id={id("preferredLanguage")}
-            className="wf-input ec-control"
-            type="text"
             value={contact.preferredLanguage}
             disabled={disabled}
-            onChange={(event) => onChange("preferredLanguage", event.target.value)}
+            onChange={(value) => onChange("preferredLanguage", value)}
           />
         </div>
 
@@ -401,18 +398,23 @@ export function ContactEditor({
         <FieldError id={errorId("designation")}>{fieldErrors.designation}</FieldError>
       </div>
 
-      {onRemove ? (
-        <div className="ec-contact-foot">
-          <button
-            type="button"
-            className="wf-btn wf-btn-ghost wf-btn-sm"
-            disabled={disabled}
-            onClick={onRemove}
-          >
-            Remove this contact
-          </button>
-        </div>
-      ) : null}
+      {/*
+        Offered for EVERY contact, recorded or not. What it does is the same in both cases -
+        it takes the person out of the set the worker is proposing - and what the worker
+        means by it is the same too. Nothing is deleted: the set is saved as a whole new
+        version, so the version that listed this person survives it untouched.
+      */}
+      <div className="ec-contact-foot">
+        <button
+          type="button"
+          className="wf-btn wf-btn-ghost wf-btn-sm"
+          data-ec-remove={contact.priority}
+          disabled={disabled}
+          onClick={onRemove}
+        >
+          Remove this contact
+        </button>
+      </div>
     </li>
   );
 }

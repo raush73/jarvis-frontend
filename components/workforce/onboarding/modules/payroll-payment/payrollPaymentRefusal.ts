@@ -79,6 +79,19 @@ const REFUSAL_MESSAGES: Record<PayrollPaymentWorkerRefusalCode, string> = {
     "We could not store your details safely just now, so we did not store them at all. Nothing was saved. Please try saving again.",
   DRAFT_PROTECTION_INVALID:
     "We could not open the details we had saved for you. Nothing has been changed. Tell your MW4H contact.",
+  /*
+    [ADDED BY GATE 10C. The three a worker can now cause by performing the act, and none of them is
+    something he can do by working through the screens in order - each is the browser having got
+    ahead of the server. So each says what the true state is and what to do about it, and none
+    blames him for it. All three are refusals BEFORE anything was put in force, and they say so:
+    an act that failed left his proposal exactly as it was.]
+  */
+  PROPOSAL_NOT_REVIEW_READY:
+    "There is still something to finish in your payment details, so we have not put anything in force. Go back, check what is highlighted, and read it through again.",
+  ALREADY_AUTHORIZED:
+    "Your payroll payment instructions are already in force, so nothing was changed. If they need to change, tell your MW4H contact and we will record new ones.",
+  INSTRUCTION_BINDING_UNAVAILABLE:
+    "Something went wrong at our end and nothing was put in force. Please try again.",
 };
 
 /** The worker's sentence for one governed refusal code. */

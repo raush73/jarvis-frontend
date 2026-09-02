@@ -3,17 +3,30 @@
 /**
  * QA-L3 - the staff QA persona launcher.
  *
- * ONE SCREEN WITH ONE ACT: choose a formally TEST-classified worker, and open a NEW real Payroll
- * Payment onboarding run as that worker in a separate tab. It is a QA facility and says so; it is
- * not a production worker tool and contains none of one.
+ * ONE SCREEN WITH ONE ACT: choose a formally TEST-classified worker, choose which of the two
+ * AUTHORIZED experiences to open, and open a NEW real onboarding run as that worker in a separate
+ * tab. It is a QA facility and says so; it is not a production worker tool and contains none of one.
+ *
+ * THE SCOPE IS A CHOICE BETWEEN EXACTLY TWO GOVERNED VALUES, AND IT HAS NO DEFAULT. Owner ruling
+ * QA-L5-R1 authorized the surgical Payroll Payment path and the complete onboarding packet, and
+ * nothing else; owner judgment call JC-1 requires the staff member to say which he means, so neither
+ * is preselected and the launch stays disabled until he chooses. A defaulted scope would mean an
+ * operator could open a full multi-module worker journey while believing he opened one module.
+ *
+ * THE COMPLETE PACKET'S CONTENTS ARE NOT KNOWN TO THIS SCREEN AND MUST NEVER BE. Its modules are
+ * whatever the production onboarding registry holds (owner ruling QA-L5-R2), which the worker
+ * runtime renders from the server's own packet; there is no module list, module map or module count
+ * in this file, and a module that is not implemented simply does not appear - which is correct.
  *
  * WHAT IS DELIBERATELY ABSENT, and none of it may be added here:
  *
  *  - No production-worker search, lookup, or free-text identifier field. The only workers this
- *    screen can name are the ones QA-L2's TEST directory returned, and the only input on it is a
- *    radio over that list. There is nothing to type an arbitrary candidate into.
- *  - No module chooser, no `COMPLETE_PACKET`, no scope parameter. The scope is QA-L2's constant;
- *    this screen DISPLAYS it and never sends one.
+ *    screen can name are the ones QA-L2's TEST directory returned, and the only inputs on it are
+ *    radios over that list and over the two authorized scopes. There is nothing to type an
+ *    arbitrary candidate into.
+ *  - No module chooser and no arbitrary scope. A staff member selects one of the two GOVERNED
+ *    scopes; he cannot name a module, a module set, a workflow or an invocation kind, and the
+ *    internal invocation vocabulary is not shown to him at all.
  *  - No invocation field, no packet field, no resume, reopen or rebind control. Every launch is a
  *    NEW run, which is the only thing the backend offers.
  *  - No reset, delete, clear, wipe, force-complete or force-uncomplete control, and no cleanup on
@@ -43,7 +56,9 @@ import Link from "next/link";
 import { useSession } from "@/lib/auth/useSession";
 import {
   QA_WORKER_EXPERIENCE_LAUNCH_PERMISSION,
+  QA_WORKER_EXPERIENCE_SCOPES,
   listQaTestWorkers,
+  type QaWorkerExperienceScope,
 } from "@/lib/workforce/qaWorkerExperienceApi";
 import {
   launchQaWorkerHandoff,
@@ -60,13 +75,29 @@ import { classifyQaLauncherError } from "./qaLauncherErrors";
 import { openQaWorkerTab } from "./qaWorkerTab";
 
 /**
- * What V1 launches, in an operator's words.
+ * The two authorized experiences, in an operator's words.
  *
- * DISPLAY TEXT AND NOT A REQUEST FIELD. The authoritative scope is the `moduleScope` QA-L2 returns,
- * which this screen shows back once a run exists; this label exists so the operator knows what he
- * is about to open before he opens it.
+ * COPY ONLY. The set itself is the server's closed one, imported rather than restated, so this
+ * screen cannot offer a scope the server would refuse and cannot quietly acquire a third. The
+ * wording is what makes the choice understandable before it is made - the difference between
+ * exercising one module and walking a worker's whole onboarding journey is not obvious from a key -
+ * and it deliberately exposes no internal invocation vocabulary.
  */
-const QA_LAUNCH_SCOPE_LABEL = "Payroll Payment";
+const QA_SCOPE_COPY: Record<
+  QaWorkerExperienceScope,
+  { label: string; description: string }
+> = {
+  PAYROLL_PAYMENT: {
+    label: "Payroll Payment only",
+    description:
+      "Isolated, surgical QA of the Payroll Payment module by itself. The worker lands directly in that module and is required to record it again on this run.",
+  },
+  COMPLETE_PACKET: {
+    label: "Complete onboarding packet",
+    description:
+      "End-to-end QA of the worker's whole onboarding packet. The worker lands on his packet overview and works through every onboarding module the platform currently requires of him. Which modules those are is decided by the platform, not by this screen: anything not yet built simply is not there, and a module the worker cannot finish on his own stays truthfully unfinished.",
+  },
+};
 
 function QaNotice({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const notice = classifyQaLauncherError(error);
@@ -101,6 +132,9 @@ export default function QaWorkerExperienceLauncher() {
   );
 
   const [selected, setSelected] = useState<string | null>(null);
+  // NULL, and it stays null until the operator says which experience he wants (JC-1). There is no
+  // initial value here, and neither scope may become one.
+  const [scope, setScope] = useState<QaWorkerExperienceScope | null>(null);
   const [launching, setLaunching] = useState(false);
   const [launched, setLaunched] = useState<QaWorkerHandoff | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
@@ -120,7 +154,9 @@ export default function QaWorkerExperienceLauncher() {
   const launch = () => {
     if (inFlight.current) return;
     const candidateId = selected;
-    if (!candidateId) return;
+    // Both choices are required, and neither is supplied here on the operator's behalf.
+    const chosenScope = scope;
+    if (!candidateId || !chosenScope) return;
 
     inFlight.current = true;
     setLaunching(true);
@@ -134,7 +170,7 @@ export default function QaWorkerExperienceLauncher() {
 
     void (async () => {
       try {
-        const handoff = await launchQaWorkerHandoff(candidateId);
+        const handoff = await launchQaWorkerHandoff(candidateId, chosenScope);
         setLaunched(handoff);
         if (tab) {
           tab.navigate(handoff.workerPath);
@@ -204,13 +240,34 @@ export default function QaWorkerExperienceLauncher() {
         <div className="oba-body">
           <OnboardingAdminPanel
             title="Launch scope"
-            description="Fixed by the server. It is not chosen here."
+            description="Choose which experience to open. There is no default."
           >
             <p className="oba-notice-detail">
-              Version 1 launches <strong>{QA_LAUNCH_SCOPE_LABEL}</strong> only, and always as a
-              NEW run. No other module, no full packet, and no earlier run can be requested from
-              this screen.
+              Both are real onboarding runs and both are always a NEW run. No earlier run can be
+              reopened from this screen, and no other experience can be requested: the server
+              accepts these two and refuses everything else.
             </p>
+
+            <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+              <legend className="oba-label">Choose a launch scope</legend>
+              {QA_WORKER_EXPERIENCE_SCOPES.map((option) => (
+                <p key={option} className="oba-notice-detail">
+                  <input
+                    type="radio"
+                    name="qa-scope"
+                    id={`qa-scope-${option}`}
+                    value={option}
+                    checked={scope === option}
+                    disabled={launching}
+                    onChange={() => setScope(option)}
+                  />{" "}
+                  <label htmlFor={`qa-scope-${option}`}>
+                    <strong>{QA_SCOPE_COPY[option].label}</strong> —{" "}
+                    {QA_SCOPE_COPY[option].description}
+                  </label>
+                </p>
+              ))}
+            </fieldset>
           </OnboardingAdminPanel>
 
           <OnboardingAdminPanel
@@ -286,19 +343,21 @@ export default function QaWorkerExperienceLauncher() {
 
           <OnboardingAdminPanel title="Launch">
             <p className="oba-notice-detail">
-              {chosen
-                ? `Opens a new ${QA_LAUNCH_SCOPE_LABEL} run for ${chosen.displayName} in a separate tab. Your staff session in this tab is not affected.`
-                : "Choose a test worker above to enable the launch."}
+              {chosen && scope
+                ? `Opens a new ${QA_SCOPE_COPY[scope].label} run for ${chosen.displayName} in a separate tab. Your staff session in this tab is not affected.`
+                : "Choose a test worker and a launch scope above to enable the launch."}
             </p>
             <button
               type="button"
               className="oba-btn oba-btn-primary"
-              disabled={!selected || launching}
+              disabled={!selected || !scope || launching}
               onClick={launch}
             >
               {launching
                 ? "Launching…"
-                : `Launch ${QA_LAUNCH_SCOPE_LABEL} as this test worker`}
+                : scope
+                  ? `Launch ${QA_SCOPE_COPY[scope].label} as this test worker`
+                  : "Launch as this test worker"}
             </button>
           </OnboardingAdminPanel>
 
@@ -324,7 +383,11 @@ export default function QaWorkerExperienceLauncher() {
                   value={chosen?.displayName ?? launched.candidateId}
                 />
                 <OnboardingAdminField label="Invocation" value={launched.invocationId} />
-                <OnboardingAdminField label="Module scope" value={launched.moduleScope} />
+                <OnboardingAdminField
+                  label="Launch scope"
+                  value={QA_SCOPE_COPY[launched.scope].label}
+                  hint="Reported by the server for the run it actually composed."
+                />
                 <OnboardingAdminField
                   label="Entry link validity"
                   value={<OnboardingAdminTimestamp value={launched.expiresAt} />}

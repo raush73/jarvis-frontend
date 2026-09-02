@@ -114,8 +114,13 @@ vi.mock("@/lib/workforce/onboardingDocumentApi", async (importOriginal) => {
   return { ...actual, getOnboardingDocumentDownload: vi.fn() };
 });
 
-const { getOnboardingRuntime, getRuntimeModuleDraft, saveRuntimeModuleDraft, modulePath } =
-  await import("@/lib/workforce/onboardingRuntimeApi");
+const {
+  getOnboardingRuntime,
+  getRuntimeModuleDraft,
+  saveRuntimeModuleDraft,
+  modulePath,
+  packetPath,
+} = await import("@/lib/workforce/onboardingRuntimeApi");
 const { completeOnboardingModule, OnboardingApiError } = await import(
   "@/lib/workforce/onboardingApi"
 );
@@ -274,6 +279,21 @@ const STEP_TITLES: Record<string, string> = {
   review: "Review what you have chosen",
 };
 
+/**
+ * The SERVER's word for each step once it is done, copied here as a fixture value.
+ *
+ * Each step gets its own, because the three steps are three different acts. A fixture that
+ * chose one word for all of them would be re-deciding what the module already states, and the
+ * assertions below would then prove the fixture rather than the contract.
+ */
+const STEP_RECORDED_WORDS: Record<string, string> = {
+  identity: "Confirmed",
+  withholding: "Answered",
+  review: "Confirmed",
+};
+
+const STEP_OUTSTANDING_WORD = "Still to do";
+
 function emptyAnswers(): AnswerMap {
   const answers: AnswerMap = {};
   for (const spec of SPECS) {
@@ -390,6 +410,9 @@ function projectInterview(
       slug,
       title: STEP_TITLES[slug],
       recorded: recorded.includes(slug),
+      stateWord: recorded.includes(slug)
+        ? STEP_RECORDED_WORDS[slug]
+        : STEP_OUTSTANDING_WORD,
     })),
     recordedStepSlugs: recorded as FederalTaxInterview["recordedStepSlugs"],
     resumeStep: ((["identity", "withholding", "review"] as const).find(
@@ -1384,6 +1407,58 @@ describe("Module 4.2 the worker federal tax interview", () => {
         ),
       ).toBe("true");
     });
+
+    /**
+     * QA-L5-UX-5. Each step is described in the word for THAT step.
+     *
+     * The three steps are three different acts, and one word could not describe them all:
+     * he confirms who he is, he answers questions, and he confirms what he read back.
+     * "Answered" beside the step that asked him nothing was untrue about his own interview.
+     */
+    it("says what each step is in the word the SERVER gave for that step", async () => {
+      stored = normalize({ ...emptyAnswers(), identityConfirmed: true });
+      openStep(IDENTITY);
+      await screen.findByText(WORKER_NAME);
+
+      const wordFor = (slug: string) =>
+        document
+          .querySelector(`[data-ft-step="${slug}"]`)
+          ?.querySelector("[data-ft-step-state]")?.textContent;
+
+      expect(wordFor(IDENTITY)).toBe("Confirmed");
+      expect(wordFor(WITHHOLDING)).toBe("Still to do");
+      expect(wordFor(REVIEW)).toBe("Still to do");
+    });
+
+    it("takes those words from the server rather than choosing between two of its own", async () => {
+      stored = normalize({ ...emptyAnswers(), identityConfirmed: true });
+      openStep(IDENTITY);
+      await screen.findByText(WORKER_NAME);
+
+      // The interview the SERVER supplied, and the words on screen, are the same words.
+      const supplied = projectInterview(stored).steps;
+      const rendered = Array.from(document.querySelectorAll("[data-ft-step]")).map(
+        (element) => ({
+          slug: element.getAttribute("data-ft-step"),
+          word: element.querySelector("[data-ft-step-state]")?.textContent,
+        }),
+      );
+      expect(rendered).toEqual(
+        supplied.map((declared) => ({ slug: declared.slug, word: declared.stateWord })),
+      );
+    });
+
+    it("adds no fourth step for signing", async () => {
+      stored = normalize({ ...emptyAnswers(), identityConfirmed: true });
+      openStep(IDENTITY);
+      await screen.findByText(WORKER_NAME);
+
+      // The certification is the module's execution, not a question in its interview.
+      const slugs = Array.from(document.querySelectorAll("[data-ft-step]")).map(
+        (element) => element.getAttribute("data-ft-step"),
+      );
+      expect(slugs).toEqual([IDENTITY, WITHHOLDING, REVIEW]);
+    });
   });
 
   // ------------------------------------------------------------------------
@@ -1633,7 +1708,7 @@ describe("Module 4.2 the worker federal tax interview", () => {
       );
     }
 
-    async function openExecuted() {
+    async function openExecutedElection() {
       await openCertification();
       await draw(line(6));
       fireEvent.click(signButton());
@@ -1787,7 +1862,7 @@ describe("Module 4.2 the worker federal tax interview", () => {
     });
 
     it("shows the completed state from the SERVER's answer, never from an optimistic guess", async () => {
-      await openExecuted();
+      await openExecutedElection();
 
       expect(document.querySelector("[data-ft-executed]")).not.toBeNull();
       expect(screen.getByText(/Your choices are in force/i)).toBeTruthy();
@@ -1797,7 +1872,7 @@ describe("Module 4.2 the worker federal tax interview", () => {
     });
 
     it("never claims completion itself, however it ends", async () => {
-      await openExecuted();
+      await openExecutedElection();
 
       // Completion is DERIVED server-side from this module's own validator once the election, the
       // execution record and the retained artifact all exist. A browser claiming it would be a
@@ -1808,7 +1883,7 @@ describe("Module 4.2 the worker federal tax interview", () => {
     /* --------------------------------------------- the generated artifact */
 
     it("offers his own copy through the DELIVERED document surface, by identity", async () => {
-      await openExecuted();
+      await openExecutedElection();
 
       expect(document.querySelector("[data-ft-artifact]")).not.toBeNull();
       fireEvent.click(
@@ -2000,25 +2075,65 @@ describe("Module 4.2 the worker federal tax interview", () => {
     });
 
     it("says the choices are in force, and closes the path that put them there", async () => {
-      await openExecuted();
+      await openExecutedElection();
 
       expect(
         document.querySelector('[data-ft-certify-state="EXECUTED"]'),
       ).not.toBeNull();
       // THE FIRST ELECTION IS OVER. The signing control that recorded it is gone, and the later
-      // path below is a DIFFERENT act reached deliberately rather than the same one left open.
+      // path is a DIFFERENT act reached deliberately rather than the same one left open.
       expect(
         screen.getByRole("heading", { name: /your choices are in force/i }),
       ).toBeTruthy();
-      expect(document.querySelector('[data-ft-again-option="CORRECTION"]')).not.toBeNull();
+      expect(document.querySelector("[data-ft-change-request]")).not.toBeNull();
       expect(document.querySelector("[data-capture-pad]")).toBeNull();
       expect(document.querySelector("[data-execution-submit]")).toBeNull();
+    });
+
+    it("does not put the amendment path in front of a worker who has just signed", async () => {
+      await openExecutedElection();
+
+      // WHAT HE NEEDS FIRST, AND ONLY THAT: he is told it is done, he is told when it applies
+      // from, and his own retained copy is offered to him.
+      expect(document.querySelector("[data-ft-executed]")).not.toBeNull();
+      expect(document.querySelector("[data-ft-artifact-view]")).not.toBeNull();
+
+      // AND THEN WHERE TO GO, which is his own packet. Signing was the last thing this module
+      // asked of him, and his sections are where he sees what is still outstanding.
+      const home = document.querySelector("[data-ft-return-to-packet]");
+      expect(home?.getAttribute("href")).toBe(packetPath(INVOCATION_ID));
+
+      // NOT the machinery for signing again. It is not removed - the control that opens it is
+      // right there - but electing again is not what a worker who has just elected is doing.
+      expect(document.querySelector("[data-ft-again]")).toBeNull();
+      expect(document.querySelector("[data-ft-again-option]")).toBeNull();
+      expect(document.querySelector("[data-ft-history]")).toBeNull();
+    });
+
+    it("presents the whole governed amendment experience the moment he asks for it", async () => {
+      await openExecutedElection();
+
+      fireEvent.click(
+        document.querySelector("[data-ft-change-request]") as HTMLElement,
+      );
+
+      // UNCHANGED IN EVERY RESPECT: the two governed reasons in the server's words, his record,
+      // and the same governed act behind them. Nothing about the capability was conditioned.
+      await waitFor(() =>
+        expect(
+          document.querySelector('[data-ft-again-option="CORRECTION"]'),
+        ).not.toBeNull(),
+      );
+      expect(
+        document.querySelector('[data-ft-again-option="SUBSEQUENT_ELECTION"]'),
+      ).not.toBeNull();
+      expect(document.querySelector('[data-ft-again-state="OPEN"]')).not.toBeNull();
     });
 
     /* --------------------------------------------------- security boundary */
 
     it("shows and sends no full identification number at any point", async () => {
-      await openExecuted();
+      await openExecutedElection();
       fireEvent.click(
         document.querySelector("[data-ft-artifact-view]") as HTMLElement,
       );
@@ -2104,6 +2219,34 @@ describe("Module 4.2 the worker federal tax interview", () => {
     /* ---------------------------------------------- electing again (Gate 8D) */
 
     describe("electing again", () => {
+      /**
+       * Reach the executed state and ASK to change what is in force.
+       *
+       * The asking is the only new thing in this whole describe. A worker who has just signed is
+       * shown that he has signed; the governed later-election path is one deliberate control
+       * away, and every claim below about that path is a claim about what he finds when he
+       * takes it. Shadows the parent helper so no test here can accidentally assert on the
+       * amendment machinery without a worker having asked for it.
+       */
+      async function requestChange() {
+        const control = await waitFor(() => {
+          const found = document.querySelector<HTMLElement>(
+            "[data-ft-change-request]",
+          );
+          if (!found) throw new Error("nothing to ask with yet");
+          return found;
+        });
+        fireEvent.click(control);
+        await waitFor(() =>
+          expect(document.querySelector("[data-ft-again]")).not.toBeNull(),
+        );
+      }
+
+      async function openExecuted() {
+        await openExecutedElection();
+        await requestChange();
+      }
+
       /** Choose one of the two governed reasons, by the origin the server named. */
       function chooseOrigin(origin: string) {
         fireEvent.click(
@@ -2371,7 +2514,7 @@ describe("Module 4.2 the worker federal tax interview", () => {
         // AN ELECTION IN FORCE AND AN INTERVIEW THAT NO LONGER MATCHES THE GOVERNED QUESTIONS. The
         // certification stage is doctored directly because that combination is the server's answer
         // to read, and the point being proven is what the screen does with it.
-        await openExecuted();
+        await openExecutedElection();
         const stage = projectCertification();
         vi.mocked(getOwnFederalTaxCertification).mockResolvedValue({
           ...stage,
@@ -2384,6 +2527,7 @@ describe("Module 4.2 the worker federal tax interview", () => {
         });
         cleanup();
         openStep(REVIEW);
+        await requestChange();
 
         await waitFor(() =>
           expect(
@@ -2460,16 +2604,21 @@ describe("Module 4.2 the worker federal tax interview", () => {
         ]) {
           expect(deferred.test(rendered)).toBe(false);
         }
-        // And every link out of the capsule is still the DELIVERED runtime's own module URL, built
-        // by the delivered helper rather than assembled here.
+        // And every link out of the capsule is still somewhere inside the DELIVERED runtime, at a
+        // URL the delivered helpers built: one of this module's own steps, or his own packet. Both
+        // are behind the same bound session he is already in, and neither is assembled here.
+        const inside = [
+          packetPath(INVOCATION_ID),
+          ...[IDENTITY, WITHHOLDING, REVIEW].map((step) =>
+            modulePath(INVOCATION_ID, MODULE_SLUG, step),
+          ),
+        ];
         const links = Array.from(capsule().querySelectorAll("a")).map((anchor) =>
           anchor.getAttribute("href"),
         );
         expect(links.length).toBeGreaterThan(0);
         for (const href of links) {
-          expect(href).toBe(
-            modulePath(INVOCATION_ID, MODULE_SLUG, href?.split("/").pop() ?? ""),
-          );
+          expect(inside).toContain(href);
         }
       });
     });

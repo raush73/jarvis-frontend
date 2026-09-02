@@ -426,8 +426,13 @@ export function FederalTaxModule({
           data-ft-step-recorded={declared.recorded ? "true" : "false"}
         >
           <span className="ft-progress-title">{declared.title}</span>
-          <span className="ft-progress-state">
-            {declared.recorded ? "Answered" : "Still to do"}
+          {/*
+            THE MODULE'S OWN WORD FOR THIS STEP, not a choice made here. Confirming that a
+            record is his and answering questions about his circumstances are different acts,
+            and one word across both told him he had "answered" a step that asked him nothing.
+          */}
+          <span className="ft-progress-state" data-ft-step-state>
+            {declared.stateWord}
           </span>
         </li>
       ))}

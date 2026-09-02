@@ -44,6 +44,24 @@ export type OnboardingRestartInfo = {
   reason: string;
 };
 
+/**
+ * The ONE action the worker may take on a module now, as the SERVER decided it.
+ *
+ * A module's status says where it stands; this says what he may do about it. They are
+ * different questions and the runtime renders them as different things, because a status
+ * pressed as a button tells a worker that "Complete" is something to do.
+ *
+ * The client neither derives this nor overrides it, and in particular never infers from a
+ * module KEY whether a completed module may be edited: whether re-entry is permitted is a
+ * governed property of the record and its packet, and the server is the only holder of it.
+ */
+export type OnboardingWorkerAction =
+  | "ENTER"
+  | "CONTINUE"
+  | "EDIT"
+  | "VIEW"
+  | "NONE";
+
 /** One declared interview step of a module, with its server-derived satisfaction. */
 export type OnboardingRuntimeStep = {
   slug: string;
@@ -57,6 +75,8 @@ export type OnboardingRuntimeModule = OnboardingModule & {
   steps: OnboardingRuntimeStep[];
   resumeStepSlug: string | null;
   actionable: boolean;
+  /** What the worker may do about this module now. Server-decided; never inferred here. */
+  workerAction: OnboardingWorkerAction;
   lastActivityAt: string | null;
   restart: OnboardingRestartInfo;
   /**
@@ -84,9 +104,22 @@ export type OnboardingRuntimePacket = {
   kind: OnboardingInvocationKind;
   workflowKey: string | null;
   callerWorkflow: string;
-  invocationReason: string;
   modules: OnboardingRuntimeModule[];
   completion: OnboardingCompletion;
+  /**
+   * How many sections this worker still has something to do about.
+   *
+   * NOT the same number as `requiredCount - completeCount`, and the difference is the whole
+   * reason the server sends it. A section can be incomplete because MW4H has not reviewed it
+   * yet - real, tracked, and not his work. Subtracting completions counts that against him and
+   * tells a worker who has finished everything asked of him that he has tasks left.
+   *
+   * Server-derived from the same status authority the section rows are derived from, so this
+   * count and the words on those rows cannot disagree.
+   */
+  workerOutstandingCount: number;
+  /** How many sections are finished by him and waiting on our team. */
+  awaitingAdministrativeActionCount: number;
   nextModuleKey: string | null;
   active: boolean;
   /** The one packet the session is bound to. Only this packet carries actions. */

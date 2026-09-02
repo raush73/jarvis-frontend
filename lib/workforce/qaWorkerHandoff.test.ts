@@ -16,6 +16,11 @@
  *  - The STAFF session is exactly as it was, before and after.
  *  - The returned handoff has NO token field, and no spread could have put one there.
  *  - The worker route is built from the invocation and scope the SERVER returned.
+ *  - THE SCOPE DECIDES THE DESTINATION AND NOTHING ELSE: a surgical run lands on the module root,
+ *    and a complete-packet run lands on the delivered PACKET ROOT rather than inside a module, so
+ *    the packet experience is entered where a real worker enters it (owner ruling QA-L5-R1).
+ *  - THE REAL CHAIN RUNS FIRST FOR BOTH SCOPES. The magic link is consumed and the worker session
+ *    is established BEFORE any path is produced, and a failure at either point yields no path.
  *  - A refused entry, and a session that failed to establish, both raise a safe failure - and
  *    neither one deletes, resets or rolls anything back.
  */
@@ -48,7 +53,7 @@ function launchResponse(overrides: Record<string, unknown> = {}) {
   return {
     candidateId: CANDIDATE,
     invocationId: INVOCATION,
-    moduleScope: "PAYROLL_PAYMENT",
+    scope: "PAYROLL_PAYMENT" as const,
     workerEntryToken: ENTRY_TOKEN,
     expiresAt: "2026-08-28T18:00:00.000Z",
     ...overrides,
@@ -108,9 +113,12 @@ describe("the handoff chain", () => {
   it("presents the entry token to the delivered consume route, in the body", async () => {
     const fetchMock = stubFetch(consumeAccepted());
 
-    await launchQaWorkerHandoff(CANDIDATE);
+    await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT");
 
-    expect(vi.mocked(launchQaWorkerExperience)).toHaveBeenCalledWith(CANDIDATE);
+    expect(vi.mocked(launchQaWorkerExperience)).toHaveBeenCalledWith(
+      CANDIDATE,
+      "PAYROLL_PAYMENT",
+    );
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain("/workforce/auth/magic-link/consume");
     expect(init.method).toBe("POST");
@@ -123,7 +131,7 @@ describe("the handoff chain", () => {
   it("puts the entry token in no URL", async () => {
     const fetchMock = stubFetch(consumeAccepted());
 
-    const handoff = await launchQaWorkerHandoff(CANDIDATE);
+    const handoff = await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT");
 
     for (const call of fetchMock.mock.calls) {
       expect(String(call[0])).not.toContain(ENTRY_TOKEN);
@@ -134,7 +142,7 @@ describe("the handoff chain", () => {
   it("establishes the delivered worker session, under the delivered keys", async () => {
     stubFetch(consumeAccepted());
 
-    await launchQaWorkerHandoff(CANDIDATE);
+    await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT");
 
     expect(localStorage.getItem(WORKER_TOKEN_KEY)).toBe("worker-session-jwt");
     const session = getWorkerSession();
@@ -145,7 +153,7 @@ describe("the handoff chain", () => {
   it("persists the entry token nowhere", async () => {
     stubFetch(consumeAccepted());
 
-    await launchQaWorkerHandoff(CANDIDATE);
+    await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT");
 
     expect(JSON.stringify(window.localStorage)).not.toContain(ENTRY_TOKEN);
     expect(JSON.stringify(window.sessionStorage)).not.toContain(ENTRY_TOKEN);
@@ -155,7 +163,7 @@ describe("the handoff chain", () => {
   it("leaves the staff session exactly as it was", async () => {
     stubFetch(consumeAccepted());
 
-    await launchQaWorkerHandoff(CANDIDATE);
+    await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT");
 
     expect(localStorage.getItem(STAFF_TOKEN_KEY)).toBe("staff-token");
   });
@@ -163,12 +171,12 @@ describe("the handoff chain", () => {
   it("returns the server's facts and no token", async () => {
     stubFetch(consumeAccepted());
 
-    const handoff = await launchQaWorkerHandoff(CANDIDATE);
+    const handoff = await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT");
 
     expect(handoff).toEqual({
       candidateId: CANDIDATE,
       invocationId: INVOCATION,
-      moduleScope: "PAYROLL_PAYMENT",
+      scope: "PAYROLL_PAYMENT",
       expiresAt: "2026-08-28T18:00:00.000Z",
       workerPath: `/workforce/onboarding/${INVOCATION}/payroll-payment`,
     });
@@ -182,7 +190,7 @@ describe("the handoff chain", () => {
     );
     stubFetch(consumeAccepted());
 
-    const handoff = await launchQaWorkerHandoff(CANDIDATE);
+    const handoff = await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT");
 
     expect(handoff.workerPath).toBe(
       "/workforce/onboarding/inv_qa_second/payroll-payment",
@@ -191,10 +199,131 @@ describe("the handoff chain", () => {
     expect(handoff.workerPath.endsWith("/payroll-payment")).toBe(true);
   });
 
-  it("derives the module segment from the scope the server returned", () => {
+  it("derives the module segment from the module scope the server returned", () => {
     expect(qaWorkerModuleSlug("PAYROLL_PAYMENT")).toBe("payroll-payment");
     expect(qaWorkerModuleSlug(" EMPLOYMENT_ELIGIBILITY ")).toBe(
       "employment-eligibility",
+    );
+  });
+});
+
+/* --------------------------------------------------- the complete packet scope */
+
+describe("a COMPLETE_PACKET handoff", () => {
+  beforeEach(() => {
+    vi.mocked(launchQaWorkerExperience).mockResolvedValue(
+      launchResponse({ scope: "COMPLETE_PACKET" }),
+    );
+  });
+
+  it("asks the server for the complete-packet scope", async () => {
+    stubFetch(consumeAccepted());
+
+    await launchQaWorkerHandoff(CANDIDATE, "COMPLETE_PACKET");
+
+    expect(vi.mocked(launchQaWorkerExperience)).toHaveBeenCalledWith(
+      CANDIDATE,
+      "COMPLETE_PACKET",
+    );
+  });
+
+  it("lands on the delivered PACKET ROOT and never inside a module", async () => {
+    stubFetch(consumeAccepted());
+
+    const handoff = await launchQaWorkerHandoff(CANDIDATE, "COMPLETE_PACKET");
+
+    // The packet overview: where a real worker with a multi-module packet starts. The whole point
+    // of packet QA is to exercise that surface rather than to skip past it into one module.
+    expect(handoff.workerPath).toBe(`/workforce/onboarding/${INVOCATION}`);
+    expect(handoff.scope).toBe("COMPLETE_PACKET");
+    // No module segment of any kind, and no slug derived from the scope.
+    expect(handoff.workerPath).not.toContain("complete-packet");
+    expect(handoff.workerPath).not.toContain("payroll-payment");
+    expect(handoff.workerPath.split("/").filter(Boolean)).toHaveLength(3);
+  });
+
+  it("names no module and composes no module list to get there", async () => {
+    stubFetch(consumeAccepted());
+
+    const handoff = await launchQaWorkerHandoff(CANDIDATE, "COMPLETE_PACKET");
+
+    // Which modules the packet holds is the server's answer, rendered by the delivered runtime.
+    // Nothing on the handoff carries a module, an order or a count (owner ruling QA-L5-R2).
+    expect(Object.keys(handoff).sort()).toEqual([
+      "candidateId",
+      "expiresAt",
+      "invocationId",
+      "scope",
+      "workerPath",
+    ]);
+    const serialised = JSON.stringify(handoff);
+    for (const forbidden of [
+      "EMPLOYMENT_ELIGIBILITY",
+      "FEDERAL_TAX",
+      "EMERGENCY_CONTACT",
+      "modules",
+    ]) {
+      expect(serialised).not.toContain(forbidden);
+    }
+  });
+
+  it("consumes the real magic link and establishes the real session first", async () => {
+    const fetchMock = stubFetch(consumeAccepted());
+
+    await launchQaWorkerHandoff(CANDIDATE, "COMPLETE_PACKET");
+
+    // The SAME delivered chain as the surgical scope. The complete packet gets no shortcut, no
+    // second authentication path and no manufactured session (owner ruling QA-L5-R4).
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/workforce/auth/magic-link/consume");
+    expect(JSON.parse(String(init.body))).toEqual({
+      token: ENTRY_TOKEN,
+      requestedIntent: QA_WORKER_ENTRY_INTENT,
+    });
+    expect(localStorage.getItem(WORKER_TOKEN_KEY)).toBe("worker-session-jwt");
+    expect(getWorkerSession()?.candidateId).toBe(CANDIDATE);
+    expect(localStorage.getItem(STAFF_TOKEN_KEY)).toBe("staff-token");
+  });
+
+  it("produces no packet path at all when the entry link is refused", async () => {
+    stubFetch(consumeRefused("INVALID_LINK"));
+
+    const failure = await launchQaWorkerHandoff(CANDIDATE, "COMPLETE_PACKET").catch(
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(QaWorkerHandoffError);
+    expect((failure as { stage: string }).stage).toBe("ENTRY_NOT_ACCEPTED");
+    expect(JSON.stringify(failure, Object.getOwnPropertyNames(failure))).not.toContain(
+      "/workforce/onboarding",
+    );
+    expect(localStorage.getItem(WORKER_TOKEN_KEY)).toBeNull();
+  });
+
+  it("lands on the packet root of whichever invocation the SERVER returned", async () => {
+    vi.mocked(launchQaWorkerExperience).mockResolvedValue(
+      launchResponse({ scope: "COMPLETE_PACKET", invocationId: "inv_qa_packet_2" }),
+    );
+    stubFetch(consumeAccepted());
+
+    const handoff = await launchQaWorkerHandoff(CANDIDATE, "COMPLETE_PACKET");
+
+    expect(handoff.workerPath).toBe("/workforce/onboarding/inv_qa_packet_2");
+  });
+
+  it("follows the SERVER'S scope rather than the requested one, if they ever differ", async () => {
+    // The destination is decided by what was actually composed, not by what was asked for. A
+    // request that widened and a server that refused to would otherwise disagree silently.
+    vi.mocked(launchQaWorkerExperience).mockResolvedValue(
+      launchResponse({ scope: "PAYROLL_PAYMENT" }),
+    );
+    stubFetch(consumeAccepted());
+
+    const handoff = await launchQaWorkerHandoff(CANDIDATE, "COMPLETE_PACKET");
+
+    expect(handoff.scope).toBe("PAYROLL_PAYMENT");
+    expect(handoff.workerPath).toBe(
+      `/workforce/onboarding/${INVOCATION}/payroll-payment`,
     );
   });
 });
@@ -205,7 +334,7 @@ describe("a handoff that stops after the run exists", () => {
   it("reports a refused entry with the delivered reason code", async () => {
     stubFetch(consumeRefused("INVALID_LINK"));
 
-    const failure = await launchQaWorkerHandoff(CANDIDATE).catch(
+    const failure = await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT").catch(
       (error: unknown) => error,
     );
 
@@ -217,7 +346,7 @@ describe("a handoff that stops after the run exists", () => {
   it("puts the entry token in no failure it raises", async () => {
     stubFetch(consumeRefused("INVALID_LINK"));
 
-    const failure = (await launchQaWorkerHandoff(CANDIDATE).catch(
+    const failure = (await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT").catch(
       (error: unknown) => error,
     )) as Error;
 
@@ -242,7 +371,7 @@ describe("a handoff that stops after the run exists", () => {
       },
     });
 
-    const failure = await launchQaWorkerHandoff(CANDIDATE).catch(
+    const failure = await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT").catch(
       (error: unknown) => error,
     );
 
@@ -255,7 +384,7 @@ describe("a handoff that stops after the run exists", () => {
   it("leaves the staff session intact when the handoff fails", async () => {
     stubFetch(consumeRefused("IDENTITY_NOT_FOUND"));
 
-    await launchQaWorkerHandoff(CANDIDATE).catch(() => undefined);
+    await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT").catch(() => undefined);
 
     expect(localStorage.getItem(STAFF_TOKEN_KEY)).toBe("staff-token");
   });
@@ -263,7 +392,7 @@ describe("a handoff that stops after the run exists", () => {
   it("makes no further request after a refused entry", async () => {
     const fetchMock = stubFetch(consumeRefused("INVALID_LINK"));
 
-    await launchQaWorkerHandoff(CANDIDATE).catch(() => undefined);
+    await launchQaWorkerHandoff(CANDIDATE, "PAYROLL_PAYMENT").catch(() => undefined);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -321,5 +450,35 @@ describe("the boundaries this handoff keeps", () => {
   it("never spreads the launch response into what it returns", () => {
     expect(source).not.toContain("...launch");
     expect(source).not.toContain("workerEntryToken:");
+  });
+
+  it("keeps no module inventory to compose the packet from (QA-L5-R2)", () => {
+    // WHAT THE PACKET CONTAINS IS THE SERVER'S ANSWER. A list here - even a correct one today -
+    // would be a second registry in the browser, and a module registered in production later would
+    // have to be added here too before packet QA could reach it.
+    for (const forbidden of [
+      "EMPLOYMENT_ELIGIBILITY",
+      "FEDERAL_TAX",
+      "EMERGENCY_CONTACT",
+      "STATE_TAX",
+      "BENEFITS",
+      "FINAL_REVIEW",
+      "modules",
+      "moduleKeys",
+      "MODULE_ORDER",
+      "filter(",
+      "sort(",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
+  });
+
+  it("builds both destinations from the delivered route helpers only", () => {
+    // No route literal of its own for either scope: the packet root and the module root are the
+    // runtime's published helpers, so QA-L5 adds no page and no second packet surface.
+    expect(source).toContain("packetPath(");
+    expect(source).toContain("modulePath(");
+    expect(source).not.toContain('"/workforce/onboarding');
+    expect(source).not.toContain("`/workforce/onboarding");
   });
 });

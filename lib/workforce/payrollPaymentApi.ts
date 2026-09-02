@@ -2,10 +2,10 @@
  * Module 4.4 Payroll Payment - browser API client and wire contract.
  *
  * The client half of the capsule and nothing more. It adds no endpoint, no transport and no session
- * handling of its own: the three governed worker routes go through the delivered
- * `onboardingWorkerFetch`, exactly as the Phase 4 document, Phase 5 execution and the first three
- * module clients do. A second copy of that transport would be a second place for expiry, renewal
- * and refusal classification to drift.
+ * handling of its own: the governed worker routes go through the delivered `onboardingWorkerFetch`,
+ * exactly as the Phase 4 document, Phase 5 execution and the first three module clients do. A
+ * second copy of that transport would be a second place for expiry, renewal and refusal
+ * classification to drift.
  *
  * The types mirror `modules/payroll-payment/payroll-payment.interview.ts` and that module's own DTO
  * exactly.
@@ -31,9 +31,13 @@
  *    would let a browser assert the outcome of a control it did not run.
  *  - There is no candidate, worker or actor parameter on any call. Which worker is asking is the
  *    authenticated session's answer, so no argument here can widen it.
- *  - There is no authorize, execute, sign, activate or complete call. Gate 10B ends at review:
- *    authorization and module completion are Gate 10C's, and administrative payroll-card fulfilment
- *    is Gate 10D's. A client function for either would be that gate arriving early.
+ *  - [AMENDED BY GATE 10C. There is an AUTHORIZE call, and it is the only one that arrived: the
+ *    worker's governed electronic signature, performed through the DELIVERED execution surface.
+ *    There is still no execute call of this module's own, no sign call, no activate call and NO
+ *    COMPLETE CALL - completion is derived server-side from the module's validator and no response
+ *    type here has a field a browser could assert it through. Administrative payroll-card
+ *    fulfilment is still Gate 10D's, and PRE_DISPATCH confirm-or-update is still deferred Slice E;
+ *    a client function for either would be work arriving early.]
  *  - There is no effective-date parameter. The authoritative effective date is not the worker's to
  *    choose and there is no shape here that could carry his opinion about it.
  *  - There is no card activation, assignment or status call, and no external transmission of any
@@ -50,6 +54,12 @@
  */
 
 import { onboardingWorkerFetch } from "./onboardingApi";
+import type {
+  OnboardingExecutionCapture,
+  OnboardingExecutionForm,
+  OnboardingExecutionSubject,
+  PresentedOnboardingExecutionContent,
+} from "./onboardingExecutionApi";
 
 /* -------------------------------------------------------------------------- */
 /*  Governed vocabulary (mirror of payroll-payment.constants.ts)               */
@@ -220,6 +230,123 @@ export type PayrollPaymentReview = {
 };
 
 /* -------------------------------------------------------------------------- */
+/*  Gate 10C - the authorization stage                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Why the worker may not authorize yet.
+ *
+ * A CLASSIFICATION AND NEVER A DESCRIPTION OF HIS DATA. Neither code says anything about what he
+ * entered; the rules he has broken so far are the interview's `violations`, in his own words, and
+ * they are a separate thing from whether the proposal as a whole is at the point of being put in
+ * force.
+ */
+export const PAYROLL_PAYMENT_AUTHORIZATION_BLOCKERS = [
+  "PROPOSAL_NOT_REVIEW_READY",
+  "ALREADY_AUTHORIZED",
+] as const;
+export type PayrollPaymentAuthorizationBlocker =
+  (typeof PAYROLL_PAYMENT_AUTHORIZATION_BLOCKERS)[number];
+
+/**
+ * One account as it appears on a RECORDED instruction, which is not the same thing as one the
+ * worker is still editing.
+ *
+ * IT CARRIES NO `accountId`, AND THAT IS THE CONTRACT RATHER THAN AN OVERSIGHT. The stable
+ * identifier is draft-editing machinery: the browser holds it and echoes it back on save so the
+ * server can recognise the account it was already holding and carry that account's protected
+ * values forward (owner ruling QA-L4-R1). An authorized instruction is an immutable version -
+ * there is no save to echo anything back on, nothing to carry forward, and no account to
+ * re-recognise - so the recorded projection has no reason to expose one, and does not.
+ *
+ * WRITTEN DOWN HERE BECAUSE ASSUMING OTHERWISE ALREADY COST US ONE DEFECT. This shape was
+ * previously declared as the interview's own account view, which promises an `accountId`; a screen
+ * read that promise, reached for the field on a real recorded outcome and got `undefined`. Stating
+ * the absence in the type means the next reader is told, and the compiler stops the same reach.
+ */
+export type PayrollPaymentRecordedAccountView = Omit<
+  PayrollPaymentAccountView,
+  "accountId"
+>;
+
+/**
+ * WHAT IS ON RECORD once he has authorized: facts, and not a sentence.
+ *
+ * READ THE ABSENCES, because they are most of the contract. There is no transmitted flag, no bank
+ * acceptance, no provider acknowledgement, no payroll run, no paycheck identifier, no card, no card
+ * status and no administrative fulfilment - so a screen cannot report one of those from this shape,
+ * because there is nowhere on it to read one from. Gate 10C records an authorized instruction; it
+ * runs no payroll and it sets up no card.
+ *
+ * `accounts` IS MASKED LIKE EVERY OTHER PROJECTION HERE (10-R7), and is empty for the payroll card,
+ * which carries no accounts at all.
+ */
+export type PayrollPaymentRecordedOutcome = {
+  paymentMethod: PayrollPaymentMethod;
+  setVersion: number;
+  /** When he performed the governed act. The server's clock, never the browser's. */
+  authorizedAt: string;
+  /** When the instruction started governing payroll. Not his to choose (10-R2). */
+  effectiveFrom: string;
+  accounts: PayrollPaymentRecordedAccountView[];
+};
+
+/**
+ * The authorization stage: what he is about to put in force, or what he already did.
+ *
+ * ONE SHAPE FOR BOTH SIDES OF THE ACT. A screen reads `executed` and shows one or the other, which
+ * is what keeps "has he finished" a SERVER answer rather than a browser guess. There is no
+ * `moduleComplete` field on this type and there must never be one: completion is derived
+ * server-side from the module's own validator, and a browser that could assert it would be a
+ * second completion authority disagreeing with the first.
+ *
+ * THE TWO KINDS OF WORDS ARE SEPARATE FIELDS BECAUSE THEY ARE SEPARATE THINGS. `authorization` is
+ * the AUTHORITATIVE governed statement, resolved, hashed and projected by the delivered execution
+ * surface; `guidance` is Jarvis explaining it. A screen that rendered them as one block would be
+ * putting Jarvis wording inside what the worker signs, so nothing in this client merges them.
+ */
+export type PayrollPaymentAuthorization = {
+  /** What he is authorizing, masked. Null while the proposal is not admissible as a whole. */
+  review: PayrollPaymentReview | null;
+  /** Whether he may authorize now. ADVISORY: the server decides again when the act arrives. */
+  available: boolean;
+  blockers: PayrollPaymentAuthorizationBlocker[];
+  /** Jarvis explanation. Explains the statement; is not part of it and is not hashed with it. */
+  guidance: string[];
+  /**
+   * The governed authorization, as the DELIVERED execution subject projection.
+   *
+   * Carried whole and passed through untouched. Its `content.revision`, `content.contentHash` and
+   * `content.ruleRevision` are the exact three values that travel back with the act; nothing here
+   * recomputes or refreshes any of them, because each would turn a claim about what was displayed
+   * into a claim the display never made.
+   */
+  authorization: OnboardingExecutionSubject;
+  /** What is on record, or null while nothing is. */
+  executed: PayrollPaymentRecordedOutcome | null;
+};
+
+/**
+ * ONE ACT OF PAYROLL PAYMENT AUTHORIZATION.
+ *
+ * NOTE WHAT IS NOT ON IT, because that is the governance. No payment method, no account, no routing
+ * number, no account number, no allocation and no instruction content of any kind: what he
+ * authorizes is the proposal the SERVER already holds. A client that could restate the instruction
+ * here could authorize one thing while having shown him another.
+ *
+ * NOR IS THERE AN EFFECTIVE DATE, A VERSION, AN EXECUTION IDENTIFIER OR A COMPLETION FLAG. Each
+ * would be a caller asserting the OUTCOME of the act rather than performing it.
+ */
+export type AuthorizePayrollPaymentInput = {
+  /** The exact governed content the client claims it displayed. Forwarded unchanged. */
+  presented: PresentedOnboardingExecutionContent;
+  /** Copied from the subject's own `requiredForm`, never derived from what the worker did. */
+  performedForm: OnboardingExecutionForm;
+  /** The worker's mark, as the DELIVERED shared capture carries it. Geometry and a duration. */
+  capture?: OnboardingExecutionCapture | null;
+};
+
+/* -------------------------------------------------------------------------- */
 /*  What a save states                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -330,6 +457,16 @@ export const PAYROLL_PAYMENT_WORKER_REFUSAL_CODES = [
   /** The protected draft could not be sealed or opened. Nothing was stored either way (10-R17). */
   "DRAFT_PROTECTION_UNAVAILABLE",
   "DRAFT_PROTECTION_INVALID",
+  /**
+   * [ADDED BY GATE 10C. The three refusals a worker can now actually cause, because he can now
+   * perform an act. Each is reachable only by a client that got ahead of the server - authorizing
+   * a proposal that is not review-ready, or authorizing twice - so their sentences read as our
+   * fault rather than his.]
+   */
+  "PROPOSAL_NOT_REVIEW_READY",
+  "ALREADY_AUTHORIZED",
+  /** The act could not be bound to the instruction it was performed against (10-R8). */
+  "INSTRUCTION_BINDING_UNAVAILABLE",
 ] as const;
 export type PayrollPaymentWorkerRefusalCode =
   (typeof PAYROLL_PAYMENT_WORKER_REFUSAL_CODES)[number];
@@ -347,7 +484,7 @@ export function payrollPaymentRefusalCode(
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Worker surface - exactly three calls                                       */
+/*  Worker surface - five calls, and the fifth is the only act                 */
 /* -------------------------------------------------------------------------- */
 
 function workerBase(invocationId: string): string {
@@ -400,5 +537,48 @@ export async function getOwnPayrollPaymentReview(
 ): Promise<PayrollPaymentReview> {
   return onboardingWorkerFetch<PayrollPaymentReview>(
     `${workerBase(invocationId)}/review`,
+  );
+}
+
+/**
+ * GATE 10C - the authorization stage: what he is about to put in force, or what he already did.
+ *
+ * READING WHAT ONE WOULD BE ASKED TO AUTHORIZE IS NOT AUTHORIZING IT. This performs nothing,
+ * records nothing and completes nothing, which is why it is a GET.
+ */
+export async function getOwnPayrollPaymentAuthorization(
+  invocationId: string,
+): Promise<PayrollPaymentAuthorization> {
+  return onboardingWorkerFetch<PayrollPaymentAuthorization>(
+    `${workerBase(invocationId)}/authorization`,
+  );
+}
+
+/**
+ * GATE 10C - PUT THE WORKER'S PAYROLL PAYMENT INSTRUCTIONS IN FORCE.
+ *
+ * THE ONE ACT THIS CLIENT CAN PERFORM, and the terminal worker action for this module. Everything
+ * before it saved a proposal he could change.
+ *
+ * IT IS NOT A COMPLETION CALL. Nothing here asserts that the module is finished and there is no
+ * field on the payload through which it could: what comes back is the SERVER's answer about what is
+ * now on record, and whether the module completed is the server's own derivation from it.
+ */
+export async function authorizeOwnPayrollPayment(
+  invocationId: string,
+  input: AuthorizePayrollPaymentInput,
+): Promise<PayrollPaymentAuthorization> {
+  return onboardingWorkerFetch<PayrollPaymentAuthorization>(
+    `${workerBase(invocationId)}/authorization`,
+    {
+      method: "POST",
+      body: {
+        // Field by field, so a caller cannot widen the payload by handing in extra properties -
+        // the same posture the delivered execution client takes with its own submission.
+        presented: input.presented,
+        performedForm: input.performedForm,
+        capture: input.capture ?? null,
+      },
+    },
   );
 }

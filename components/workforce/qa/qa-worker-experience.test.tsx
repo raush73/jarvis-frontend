@@ -7,17 +7,19 @@
  *
  *  - The directory is the SERVER'S. Every persona on screen came from the response, no persona is
  *    named in this frontend, and the launch is offered for whatever the server returned.
- *  - The launch sends a candidate identifier and nothing else. The Payroll Payment scope is shown
- *    to the operator and is not a field he can set.
+ *  - EXACTLY TWO SCOPES ARE OFFERED, AND NEITHER IS PRESELECTED. The launch cannot be submitted
+ *    until the operator has said which experience he means (owner judgment call JC-1), and what
+ *    travels to the server is a candidate and that chosen scope - nothing else, and no module.
  *  - A launch cannot be submitted twice while one is in flight.
  *  - The entry token reaches no URL, no storage, no rendered text and no error message.
  *  - The delivered consume and the delivered worker session are what establish worker identity.
  *  - The staff session survives the handoff, and survives a failed one.
- *  - The worker tab is opened on the invocation the server returned, at the module root.
+ *  - The worker tab is opened on the invocation the server returned: at the MODULE ROOT for the
+ *    surgical scope, and at the PACKET ROOT for the complete packet.
  *  - Every refusal - a disabled facility, a missing grant, a worker who is not test-classified, a
  *    refused entry link, a session that did not establish - produces a safe notice and no cleanup.
- *  - There is no production-worker search, no COMPLETE_PACKET, no arbitrary module, no arbitrary
- *    invocation, and no destructive control anywhere on the surface.
+ *  - There is no production-worker search, no arbitrary module, no arbitrary invocation kind, no
+ *    module list composing the packet, and no destructive control anywhere on the surface.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -89,7 +91,7 @@ function launchResponse(overrides: Record<string, unknown> = {}) {
   return {
     candidateId: CANDIDATE,
     invocationId: INVOCATION,
-    moduleScope: "PAYROLL_PAYMENT",
+    scope: "PAYROLL_PAYMENT" as const,
     workerEntryToken: ENTRY_TOKEN,
     expiresAt: "2026-08-28T18:00:00.000Z",
     ...overrides,
@@ -127,13 +129,51 @@ function tabStub() {
 let openedTab: ReturnType<typeof tabStub>;
 let openWindow: ReturnType<typeof vi.fn>;
 
+/** The persona radios only: the scope radios share the page and must not be caught by accident. */
+function personaRadios() {
+  return Array.from(
+    document.querySelectorAll<HTMLInputElement>('input[name="qa-persona"]'),
+  );
+}
+
+function scopeRadios() {
+  return Array.from(
+    document.querySelectorAll<HTMLInputElement>('input[name="qa-scope"]'),
+  );
+}
+
 async function chooseFirstPersona() {
-  const radios = await screen.findAllByRole("radio");
-  fireEvent.click(radios[0]);
+  // The scope radios are on the page before the directory answers, so waiting for "a radio" would
+  // race the persona list. This waits for the SERVER'S list specifically.
+  await waitFor(() => expect(personaRadios().length).toBeGreaterThan(0));
+  fireEvent.click(personaRadios()[0]);
+}
+
+/** Chooses a scope the way an operator does: by clicking its radio on the page. */
+function chooseScope(scope: string) {
+  const radio = document.getElementById(`qa-scope-${scope}`);
+  if (!radio) throw new Error(`No scope choice is offered for ${scope}`);
+  fireEvent.click(radio);
+}
+
+/** Both choices, in the order an operator makes them. */
+async function choose(scope: string) {
+  await chooseFirstPersona();
+  chooseScope(scope);
 }
 
 function launchButton() {
-  return screen.getByRole("button", { name: /^Launch Payroll Payment/ });
+  return screen.getByRole("button", { name: /as this test worker$/ });
+}
+
+/** The scope the LAUNCHED panel reports, read off the outcome and not off the chooser. */
+function reportedScope() {
+  const label = Array.from(document.querySelectorAll("dt.oba-field-label")).find(
+    (node) => node.textContent === "Launch scope",
+  );
+  return (
+    label?.parentElement?.querySelector(".oba-field-value")?.firstChild?.textContent ?? ""
+  );
 }
 
 beforeEach(() => {
@@ -180,12 +220,13 @@ describe("the QA persona directory", () => {
     ]);
 
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     await waitFor(() =>
       expect(vi.mocked(launchQaWorkerExperience)).toHaveBeenCalledWith(
         "cand_qa_unexpected",
+        "PAYROLL_PAYMENT",
       ),
     );
   });
@@ -196,7 +237,7 @@ describe("the QA persona directory", () => {
     render(<QaWorkerExperienceLauncher />);
 
     expect(await screen.findByText("No test workers are classified.")).toBeTruthy();
-    expect(screen.queryByRole("radio")).toBeNull();
+    expect(personaRadios().length).toBe(0);
   });
 
   it("reports a refused directory read safely", async () => {
@@ -213,7 +254,7 @@ describe("the QA persona directory", () => {
     expect(
       screen.getByText("The QA worker experience launcher is disabled"),
     ).toBeTruthy();
-    expect(screen.queryByRole("radio")).toBeNull();
+    expect(personaRadios().length).toBe(0);
   });
 });
 
@@ -257,31 +298,121 @@ describe("authorization, as this surface reflects it", () => {
 
 /* ------------------------------------------------------------------ the launch */
 
-describe("the launch", () => {
-  it("shows the fixed scope and sends no scope of its own", async () => {
+describe("the launch scope, which the operator must choose", () => {
+  it("offers exactly two scopes and preselects neither (JC-1)", async () => {
     render(<QaWorkerExperienceLauncher />);
+    await screen.findByText("Fixture, Alpha");
 
-    expect(await screen.findByText(/Version 1 launches/)).toBeTruthy();
-    expect(screen.getAllByText("Payroll Payment").length).toBeGreaterThan(0);
+    const scopes = scopeRadios();
+    expect(scopes.length).toBe(2);
+    expect(scopes.map((radio) => radio.value).sort()).toEqual([
+      "COMPLETE_PACKET",
+      "PAYROLL_PAYMENT",
+    ]);
+    // NOTHING IS CHOSEN FOR HIM. A preselected scope would be a defaulted request wearing the
+    // appearance of a decision, which is the one thing JC-1 forbids.
+    expect(scopes.some((radio) => radio.checked)).toBe(false);
+  });
 
-    await chooseFirstPersona();
-    fireEvent.click(launchButton());
+  it("describes each scope in words, and names no internal invocation vocabulary", async () => {
+    const { container } = render(<QaWorkerExperienceLauncher />);
+    await screen.findByText("Fixture, Alpha");
 
-    await waitFor(() =>
-      expect(vi.mocked(launchQaWorkerExperience)).toHaveBeenCalledWith(CANDIDATE),
-    );
-    // One argument, and it is the candidate: nothing here could name a module or a scope.
-    expect(vi.mocked(launchQaWorkerExperience).mock.calls[0]).toEqual([CANDIDATE]);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Payroll Payment only");
+    expect(text).toContain("Complete onboarding packet");
+    expect(text).toContain("There is no default.");
+    for (const internal of ["NAMED_MODULES", "NAMED_WORKFLOW", "invocation kind", "moduleKey"]) {
+      expect(text).not.toContain(internal);
+    }
   });
 
   it("cannot be launched before a worker is chosen", async () => {
     render(<QaWorkerExperienceLauncher />);
     await screen.findByText("Fixture, Alpha");
+    chooseScope("PAYROLL_PAYMENT");
 
     expect(launchButton().hasAttribute("disabled")).toBe(true);
     fireEvent.click(launchButton());
 
     expect(vi.mocked(launchQaWorkerExperience)).not.toHaveBeenCalled();
+  });
+
+  it("cannot be launched before a scope is chosen, and sends no scope on its own", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await chooseFirstPersona();
+
+    expect(launchButton().hasAttribute("disabled")).toBe(true);
+    fireEvent.click(launchButton());
+
+    // A chosen worker is not enough. There is no scope to fall back on, so nothing is requested.
+    expect(vi.mocked(launchQaWorkerExperience)).not.toHaveBeenCalled();
+  });
+
+  it("sends the surgical scope, and only what the operator chose", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await choose("PAYROLL_PAYMENT");
+    fireEvent.click(launchButton());
+
+    await waitFor(() =>
+      expect(vi.mocked(launchQaWorkerExperience)).toHaveBeenCalledWith(
+        CANDIDATE,
+        "PAYROLL_PAYMENT",
+      ),
+    );
+    // Two arguments, and neither of them is a module, a module list or an invocation kind.
+    expect(vi.mocked(launchQaWorkerExperience).mock.calls[0]).toEqual([
+      CANDIDATE,
+      "PAYROLL_PAYMENT",
+    ]);
+  });
+
+  it("sends the complete-packet scope, with no module list of its own (QA-L5-R2)", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await choose("COMPLETE_PACKET");
+    fireEvent.click(launchButton());
+
+    await waitFor(() =>
+      expect(vi.mocked(launchQaWorkerExperience)).toHaveBeenCalledWith(
+        CANDIDATE,
+        "COMPLETE_PACKET",
+      ),
+    );
+    // WHAT THE PACKET CONTAINS IS NEVER ASKED FOR HERE. The request is a worker and a scope; the
+    // production registry decides the modules, their order and their number.
+    expect(vi.mocked(launchQaWorkerExperience).mock.calls[0]).toEqual([
+      CANDIDATE,
+      "COMPLETE_PACKET",
+    ]);
+    expect(vi.mocked(launchQaWorkerExperience).mock.calls[0].length).toBe(2);
+  });
+
+  it("sends the last scope the operator chose, and never both", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await chooseFirstPersona();
+    chooseScope("COMPLETE_PACKET");
+    chooseScope("PAYROLL_PAYMENT");
+    fireEvent.click(launchButton());
+
+    await waitFor(() =>
+      expect(vi.mocked(launchQaWorkerExperience)).toHaveBeenCalledTimes(1),
+    );
+    expect(vi.mocked(launchQaWorkerExperience).mock.calls[0][1]).toBe("PAYROLL_PAYMENT");
+  });
+
+  it("names the chosen scope on the act itself", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await screen.findByText("Fixture, Alpha");
+
+    expect(launchButton().textContent).toBe("Launch as this test worker");
+    chooseScope("COMPLETE_PACKET");
+    expect(launchButton().textContent).toBe(
+      "Launch Complete onboarding packet as this test worker",
+    );
+    chooseScope("PAYROLL_PAYMENT");
+    expect(launchButton().textContent).toBe(
+      "Launch Payroll Payment only as this test worker",
+    );
   });
 
   it("cannot be submitted twice while one launch is in flight", async () => {
@@ -293,7 +424,7 @@ describe("the launch", () => {
     );
 
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
 
     fireEvent.click(launchButton());
     fireEvent.click(screen.getByRole("button", { name: "Launching…" }));
@@ -314,7 +445,7 @@ describe("the launch", () => {
 describe("the real worker handoff", () => {
   it("consumes the entry token through the delivered magic-link flow", async () => {
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     await waitFor(() =>
@@ -327,7 +458,7 @@ describe("the real worker handoff", () => {
 
   it("establishes the delivered worker session and keeps the staff session", async () => {
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     await waitFor(() =>
@@ -338,7 +469,7 @@ describe("the real worker handoff", () => {
 
   it("opens the worker tab on the invocation the server returned, at the module root", async () => {
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     await waitFor(() =>
@@ -352,7 +483,7 @@ describe("the real worker handoff", () => {
 
   it("puts the entry token in no URL, no storage and nothing rendered", async () => {
     const { container } = render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     await screen.findByText(INVOCATION);
@@ -367,11 +498,12 @@ describe("the real worker handoff", () => {
 
   it("reports what was launched without offering a token or a second run of it", async () => {
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     expect(await screen.findByText(INVOCATION)).toBeTruthy();
-    expect(screen.getByText("PAYROLL_PAYMENT")).toBeTruthy();
+    // The scope the SERVER reported for the run it composed, in the operator's words.
+    expect(reportedScope()).toBe("Payroll Payment only");
     const manual = screen.getByRole("link", { name: "Open the worker experience" });
     expect(manual.getAttribute("href")).toBe(
       `/workforce/onboarding/${INVOCATION}/payroll-payment`,
@@ -383,13 +515,123 @@ describe("the real worker handoff", () => {
     openWindow.mockReturnValue(null);
 
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     expect(await screen.findByText(/This browser blocked the new tab/)).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Open the worker experience" }).getAttribute("href"),
     ).toBe(`/workforce/onboarding/${INVOCATION}/payroll-payment`);
+  });
+});
+
+/* -------------------------------------------------- the complete packet handoff */
+
+describe("a complete-packet handoff", () => {
+  beforeEach(() => {
+    vi.mocked(launchQaWorkerExperience).mockResolvedValue(
+      launchResponse({ scope: "COMPLETE_PACKET" }),
+    );
+  });
+
+  it("runs the SAME real chain: link consumed and worker session established", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await choose("COMPLETE_PACKET");
+    fireEvent.click(launchButton());
+
+    await waitFor(() =>
+      expect(vi.mocked(consumeWorkforceLink)).toHaveBeenCalledWith(
+        ENTRY_TOKEN,
+        "COMPLETE_ONBOARDING",
+      ),
+    );
+    await waitFor(() =>
+      expect(localStorage.getItem(WORKER_TOKEN_KEY)).toBe("worker-session-jwt"),
+    );
+    expect(localStorage.getItem(STAFF_TOKEN_KEY)).toBe("staff-token");
+  });
+
+  it("opens the worker tab on the PACKET ROOT and not inside a module", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await choose("COMPLETE_PACKET");
+    fireEvent.click(launchButton());
+
+    await waitFor(() =>
+      expect(openedTab.location.href.endsWith(`/workforce/onboarding/${INVOCATION}`)).toBe(
+        true,
+      ),
+    );
+    // The packet overview, where a real worker with a packet starts. Landing him inside one module
+    // would skip the surface packet QA exists to exercise.
+    expect(openedTab.location.href).not.toContain("payroll-payment");
+    expect(openWindow).toHaveBeenCalledWith("about:blank", "_blank");
+  });
+
+  it("names the packet scope in the outcome, and no module inside it", async () => {
+    const { container } = render(<QaWorkerExperienceLauncher />);
+    await choose("COMPLETE_PACKET");
+    fireEvent.click(launchButton());
+
+    expect(await screen.findByText(INVOCATION)).toBeTruthy();
+    expect(reportedScope()).toBe("Complete onboarding packet");
+    expect(
+      screen
+        .getByRole("link", { name: "Open the worker experience" })
+        .getAttribute("href"),
+    ).toBe(`/workforce/onboarding/${INVOCATION}`);
+
+    // NO MODULE IS NAMED, COUNTED OR LISTED ANYWHERE ON THE SURFACE. Which modules the packet
+    // holds is answered by the server and rendered by the worker runtime (owner ruling QA-L5-R2).
+    const text = container.textContent ?? "";
+    for (const absent of [
+      "EMPLOYMENT_ELIGIBILITY",
+      "FEDERAL_TAX",
+      "EMERGENCY_CONTACT",
+      "Federal Tax",
+      "Emergency Contact",
+      "State Tax",
+      "Benefits",
+      "Final Review",
+      "4 modules",
+    ]) {
+      expect(text).not.toContain(absent);
+    }
+  });
+
+  it("opens no tab at all when the entry link is refused", async () => {
+    vi.mocked(consumeWorkforceLink).mockResolvedValue({
+      authenticated: false,
+      reason: "INVALID_LINK",
+    });
+
+    render(<QaWorkerExperienceLauncher />);
+    await choose("COMPLETE_PACKET");
+    fireEvent.click(launchButton());
+
+    expect(await screen.findByText("The worker entry link was not accepted.")).toBeTruthy();
+    expect(openedTab.location.href).toBe("");
+    expect(openedTab.close).toHaveBeenCalled();
+    expect(localStorage.getItem(STAFF_TOKEN_KEY)).toBe("staff-token");
+  });
+
+  it("follows the SERVER'S scope for the destination, not the operator's ask", async () => {
+    // If the server composed something narrower than was asked for, the browser goes where the
+    // server actually composed. The ask never decides the route.
+    vi.mocked(launchQaWorkerExperience).mockResolvedValue(
+      launchResponse({ scope: "PAYROLL_PAYMENT" }),
+    );
+
+    render(<QaWorkerExperienceLauncher />);
+    await choose("COMPLETE_PACKET");
+    fireEvent.click(launchButton());
+
+    await waitFor(() =>
+      expect(
+        openedTab.location.href.endsWith(
+          `/workforce/onboarding/${INVOCATION}/payroll-payment`,
+        ),
+      ).toBe(true),
+    );
   });
 });
 
@@ -405,7 +647,7 @@ describe("a refused or failed launch", () => {
     );
 
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -425,7 +667,7 @@ describe("a refused or failed launch", () => {
     );
 
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     expect(
@@ -443,7 +685,7 @@ describe("a refused or failed launch", () => {
     );
 
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     expect(await screen.findByText(/nothing was removed/)).toBeTruthy();
@@ -456,7 +698,7 @@ describe("a refused or failed launch", () => {
     });
 
     const { container } = render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     expect(await screen.findByText("The worker entry link was not accepted.")).toBeTruthy();
@@ -480,7 +722,7 @@ describe("a refused or failed launch", () => {
     });
 
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
 
     expect(
@@ -497,7 +739,7 @@ describe("a refused or failed launch", () => {
     });
 
     render(<QaWorkerExperienceLauncher />);
-    await chooseFirstPersona();
+    await choose("PAYROLL_PAYMENT");
     fireEvent.click(launchButton());
     await screen.findByText("The worker entry link was not accepted.");
 
@@ -506,10 +748,10 @@ describe("a refused or failed launch", () => {
     await waitFor(() =>
       expect(vi.mocked(launchQaWorkerExperience)).toHaveBeenCalledTimes(2),
     );
-    // Both calls are the same request: a candidate, and never an invocation to resume.
+    // Both calls are the same request: a candidate and a scope, and never an invocation to resume.
     expect(vi.mocked(launchQaWorkerExperience).mock.calls).toEqual([
-      [CANDIDATE],
-      [CANDIDATE],
+      [CANDIDATE, "PAYROLL_PAYMENT"],
+      [CANDIDATE, "PAYROLL_PAYMENT"],
     ]);
   });
 });
@@ -528,25 +770,30 @@ describe("what this surface deliberately does not offer", () => {
     expect(screen.queryByRole("searchbox")).toBeNull();
   });
 
-  it("offers no module choice, no full packet and no earlier run", async () => {
+  it("offers no module choice, no arbitrary scope and no earlier run", async () => {
     const { container } = render(<QaWorkerExperienceLauncher />);
     await screen.findByText("Fixture, Alpha");
 
     const text = container.textContent ?? "";
     for (const absent of [
-      "COMPLETE_PACKET",
-      "Complete packet",
       "Resume",
       "resume",
       "Reopen",
       "Reset",
       "Delete",
+      "Employment Eligibility",
+      "Federal Tax",
+      "Emergency Contact",
     ]) {
       expect(text).not.toContain(absent);
     }
-    // The only choice on the page is which test worker.
+    // TWO CHOICES ON THE PAGE AND NO OTHERS: which test worker, and which of the two authorized
+    // experiences. Every radio belongs to one of those two groups.
     const radios = screen.getAllByRole("radio");
-    expect(radios.every((radio) => radio.getAttribute("name") === "qa-persona")).toBe(true);
+    const groups = new Set(radios.map((radio) => radio.getAttribute("name")));
+    expect([...groups].sort()).toEqual(["qa-persona", "qa-scope"]);
+    expect(scopeRadios().length).toBe(2);
+    expect(personaRadios().length).toBe(DIRECTORY.length);
   });
 
   it("offers exactly one act, and it is the launch", async () => {
@@ -612,17 +859,46 @@ describe("the boundaries this surface keeps", () => {
     }
   });
 
-  it("names no module scope it could send, and no other module at all", () => {
+  it("names no module, no module list and no invocation vocabulary (QA-L5-R2)", () => {
+    // The two authorized SCOPES are named here, because the operator has to be told in words what
+    // he is choosing between. Nothing else about the packet may be: a module key, a module list, a
+    // count or an order in this file would be a second registry in the browser.
     for (const forbidden of [
-      "COMPLETE_PACKET",
-      "PAYROLL_PAYMENT",
       "EMPLOYMENT_ELIGIBILITY",
       "FEDERAL_TAX",
       "EMERGENCY_CONTACT",
+      "STATE_TAX",
+      "BENEFITS",
+      "FINAL_REVIEW",
       "moduleKey",
       "moduleSlug",
+      "modulePath",
+      "packetPath",
+      "NAMED_MODULES",
+      "NAMED_WORKFLOW",
+      "workflowKey",
+      "requirementReason",
     ]) {
       expect(source).not.toContain(forbidden);
     }
+  });
+
+  it("takes the authorized scope set from the server's contract, and defines none (QA-L5-R1)", () => {
+    // The set is IMPORTED and iterated. A local array of scopes here could drift from the closed
+    // set the server enforces, and could quietly grow a third.
+    expect(source).toContain("QA_WORKER_EXPERIENCE_SCOPES");
+    expect(source).toContain("QA_WORKER_EXPERIENCE_SCOPES.map");
+    expect(source).not.toMatch(/QA_WORKER_EXPERIENCE_SCOPES\s*=/);
+    expect(source).not.toMatch(/\[\s*"PAYROLL_PAYMENT"/);
+    expect(source).not.toMatch(/\[\s*"COMPLETE_PACKET"/);
+  });
+
+  it("supplies no scope on the operator's behalf (JC-1)", () => {
+    // The state starts null and no default is written anywhere: not in `useState`, not as a
+    // fallback on the way out.
+    expect(source).toContain("useState<QaWorkerExperienceScope | null>(null)");
+    expect(source).not.toMatch(/useState[^\n]*"PAYROLL_PAYMENT"/);
+    expect(source).not.toMatch(/useState[^\n]*"COMPLETE_PACKET"/);
+    expect(source).not.toMatch(/scope\s*(\?\?|\|\|)\s*"/);
   });
 });

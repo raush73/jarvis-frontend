@@ -13,18 +13,26 @@
  * splits his pay between up to three accounts if he wants to, and reads back what he has told us
  * with the numbers masked. He can stop part-way and come back to it. That is the whole of it.
  *
+ * [AMENDED BY GATE 10C. He can now finish: after reading his proposal through he signs it, and the
+ * signature is the terminal act of this module. The act itself is not built here - it is composed
+ * beneath the review by `PayrollPaymentAuthorization` on the DELIVERED shared execution card, and
+ * this file supplies neither wording, nor a canvas, nor a completion.]
+ *
  * WHAT HE CANNOT DO HERE, AND NONE OF IT IS A MISSING BUTTON - NONE OF IT EXISTS:
  *
- *  1. HE CANNOT PUT THE INSTRUCTION IN FORCE, AND THIS FILE COMPLETES NOTHING. There is no signature
- *     control in this capsule, no authorize call, no execute call and no activation. `complete` -
- *     the runtime's completion call - is never called anywhere in this capsule, and reaching the end
- *     of the review does not finish this module. Putting a payroll instruction in force is a
- *     separate governed act that does not exist yet (10-R15).
- *  2. HE CANNOT CHOOSE WHEN IT STARTS. There is no effective-date control, because the authoritative
- *     effective date is not his to choose. The review says he will be told which paycheck it
- *     starts with, which is the truth.
- *  3. HE CANNOT GET A CARD HERE. Choosing the payroll card records a CHOICE. Nothing in this capsule
- *     creates, orders, assigns or activates a card, and nothing is sent outside Jarvis (10-R14).
+ *  1. HE CANNOT COMPLETE THE MODULE FROM THE BROWSER, AND THIS FILE COMPLETES NOTHING. `complete` -
+ *     the runtime's completion call - is never called anywhere in this capsule. What finishes this
+ *     module is the governed act, and whether it finished it is DERIVED server-side from the
+ *     module's own validator; the browser reads that answer and never asserts it.
+ *  2. HE CANNOT CHOOSE WHEN IT STARTS. There is no effective-date control, because the
+ *     authoritative effective date is not his to choose (10-R2). [AMENDED BY GATE 10C: nor is he
+ *     told which paycheck it starts with. That sentence was removed from the review, because which
+ *     paycheck an instruction first affects is a downstream payroll question this gate does not own
+ *     and cannot answer.]
+ *  3. HE CANNOT GET A CARD HERE. Choosing the payroll card records a CHOICE, and authorizing it
+ *     records an authorized SELECTION. Nothing in this capsule creates, orders, assigns or
+ *     activates a card, and nothing is sent outside Jarvis (10-R14); the card setup itself is
+ *     MW4H's to do afterwards, which is exactly what the recorded outcome says.
  *  4. HE CANNOT SEE A BANKING VALUE HE HAS ALREADY GIVEN US. Every projection is masked and there is
  *     no call here that could obtain anything wider (10-R7).
  *  5. HE CANNOT SATISFY THE SECOND ENTRY WITH A COPY OF THE FIRST. See `AccountNumberField` for what
@@ -79,6 +87,7 @@ import {
 import AllocationEditor from "./AllocationEditor";
 import DepositAccountEditor from "./DepositAccountEditor";
 import PaymentMethodChoice from "./PaymentMethodChoice";
+import PayrollPaymentAuthorization from "./PayrollPaymentAuthorization";
 import PayrollPaymentReviewPanel from "./PayrollPaymentReviewPanel";
 import RemoveAccountPrompt from "./RemoveAccountPrompt";
 import {
@@ -119,6 +128,17 @@ export function PayrollPaymentModule({
   const [saved, setSaved] = useState(false);
   const [review, setReview] = useState<PayrollPaymentReview | null>(null);
   const [reviewError, setReviewError] = useState<unknown>(null);
+
+  /**
+   * HOW MANY TIMES THE SAVED PROPOSAL HAS CHANGED, handed to the Gate 10C stage below.
+   *
+   * Whether he may authorize depends on a proposal this component owns and that one does not, so
+   * it RE-READS on every change rather than remembering: a worker who corrects an account and
+   * saves must be offered the signature without reloading the page, and one whose proposal stops
+   * being admissible must stop being offered it. A counter rather than the proposal itself,
+   * because what the stage needs to know is that something moved, not what moved.
+   */
+  const [savedRevisions, setSavedRevisions] = useState(0);
 
   /**
    * WHETHER HE HAS ASKED TO GO ON. The broken rules are shown when he has, and not before.
@@ -363,6 +383,7 @@ export function PayrollPaymentModule({
         );
         setSaveError(null);
         setSaved(true);
+        setSavedRevisions((count) => count + 1);
         return value;
       } catch (failure: unknown) {
         setSaveError(failure);
@@ -485,7 +506,12 @@ export function PayrollPaymentModule({
       */}
       <h2 className="pp-title">Payroll Distribution</h2>
 
-      {interview.savedAt && stage !== "REVIEW" ? (
+      {/*
+        [AMENDED BY GATE 10C to add the third condition. "Carry on where you left off" is an
+        invitation to finish something, and a worker who has already signed has nothing left to
+        carry on with - telling him otherwise would suggest his part was still outstanding.]
+      */}
+      {interview.savedAt && stage !== "REVIEW" && !sectionClosed ? (
         <p className="pp-note" role="status" data-pp-resumed>
           We saved what you told us last time, so you can carry on where you left off.
         </p>
@@ -508,9 +534,34 @@ export function PayrollPaymentModule({
         </div>
       ) : null}
 
-      {stage === "REVIEW" && review ? (
+      {sectionClosed ? (
+        /*
+          HIS PART IS DONE, so what he is shown is what is ON RECORD rather than the form he filled
+          in. The stage below reads the server's own answer, which is the only authority for
+          whether this module is finished - this component neither derives nor asserts it.
+        */
+        <PayrollPaymentAuthorization
+          invocationId={invocationId}
+          proposalToken={`closed:${savedRevisions}`}
+          changeable={false}
+        />
+      ) : stage === "REVIEW" && review ? (
         <>
           <PayrollPaymentReviewPanel review={review} />
+
+          {/*
+            GATE 10C - THE TERMINAL WORKER ACT, beneath what he is checking and never folded into
+            it. `Save and finish later` is deliberately NOT offered here: it is an abandonment and
+            resume action, truthful for a worker who leaves before he has finished, and presenting
+            it as the last thing to do after he has read everything through would tell him he had
+            completed something he had not. What finishes this module is the signature below.
+          */}
+          <PayrollPaymentAuthorization
+            invocationId={invocationId}
+            proposalToken={`review:${savedRevisions}`}
+            changeable={!disabled}
+          />
+
           <div className="pp-actions wf-btn-row">
             <button
               type="button"

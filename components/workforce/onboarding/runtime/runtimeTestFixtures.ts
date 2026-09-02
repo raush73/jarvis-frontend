@@ -104,6 +104,10 @@ export function fixtureModule(
     steps: [step("one", "First question")],
     resumeStepSlug: "one",
     actionable: true,
+    // The SERVER's answer, stated as a fixture value. A fixture that derived this from the
+    // fields around it would be a second copy of the rule the server owns, and the suites
+    // below would then prove the copy rather than the contract.
+    workerAction: "ENTER",
     lastActivityAt: null,
     restart: RESTART_OUTSTANDING,
     derivedStatus: fixtureStatus(),
@@ -128,13 +132,18 @@ export function fixturePacket(
     kind: "NAMED_MODULES",
     workflowKey: null,
     callerWorkflow: "TEST_WORKFLOW",
-    invocationReason: "Fixture onboarding for testing",
     modules,
     completion: {
       complete: completeCount === modules.length,
       requiredCount: modules.length,
       completeCount,
     },
+    workerOutstandingCount: modules.filter(
+      (module) => module.derivedStatus.outstanding && module.derivedStatus.workerActionable,
+    ).length,
+    awaitingAdministrativeActionCount: modules.filter(
+      (module) => module.derivedStatus.awaitingAdministrativeAction,
+    ).length,
     nextModuleKey: modules.find((module) => module.actionable)?.moduleKey ?? null,
     active: true,
     bound: true,

@@ -38,8 +38,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { completeOnboardingModule } from "@/lib/workforce/onboardingApi";
 import {
+  completeOnboardingModule,
+  onOnboardingWrite,
+} from "@/lib/workforce/onboardingApi";
+import {
+  getOnboardingPacket,
   getOnboardingRuntime,
   getRuntimeModuleDraft,
   saveRuntimeModuleDraft,
@@ -86,6 +90,18 @@ export type OnboardingLeaveGuard = (request: {
   proceed: () => void;
 }) => OnboardingLeaveDecision;
 
+/**
+ * What a module states about its own completion.
+ *
+ * There is no longer an option asking to be kept on the module afterwards. Staying is what
+ * completion now does for every module, so an option selecting between two behaviours would
+ * select between one.
+ */
+export type OnboardingCompleteOptions = {
+  /** Records that a re-presented record needed no change. It writes nothing. */
+  confirmNoChange?: boolean;
+};
+
 type RuntimeContextValue = {
   runtime: OnboardingRuntime | null;
   loading: boolean;
@@ -93,12 +109,25 @@ type RuntimeContextValue = {
   error: unknown;
   reload: () => Promise<void>;
 
+  /**
+   * True when a worker write has succeeded since the projection was last read from the
+   * server, so what is cached may no longer be what onboarding says.
+   *
+   * It is a statement about the CACHE and never about completion. Nothing acts on it except
+   * by re-reading, which is what keeps the server the only authority for status and progress.
+   */
+  stale: boolean;
+  /** Re-read ONE packet from the server and put its answer in place of the cached one. */
+  refreshPacket: (invocationId: string) => Promise<void>;
+  /** Re-read one packet only if a write has made the cache stale. Safe to call on render. */
+  refreshPacketIfStale: (invocationId: string) => Promise<void>;
+
   draft: DraftState | null;
   /** Load a module's captured input. Safe to call repeatedly for the same module. */
   openModule: (invocationId: string, moduleSlug: string) => Promise<void>;
   setValue: (key: string, value: unknown) => void;
   saveDraft: () => Promise<void>;
-  completeModule: (options?: { confirmNoChange?: boolean }) => Promise<void>;
+  completeModule: (options?: OnboardingCompleteOptions) => Promise<void>;
 
   /**
    * Register the open module's leave guard. Returns the disposer, for effect cleanup.
@@ -129,6 +158,34 @@ type RuntimeContextValue = {
 };
 
 const RuntimeContext = createContext<RuntimeContextValue | null>(null);
+
+/**
+ * The projection with ONE packet replaced by the server's fresher answer.
+ *
+ * A packet not already in the projection is not added: the worker's packet SET is the
+ * server's answer to a different question, and quietly growing it here would let a single
+ * packet read change what onboarding says he holds. The cross-packet resume target is
+ * re-stated only when it pointed into the packet that was re-read, for the same reason -
+ * it is the refreshed packet's own answer, not a new one computed here.
+ */
+function withPacket(
+  runtime: OnboardingRuntime,
+  packet: OnboardingRuntimePacket,
+): OnboardingRuntime {
+  if (!runtime.packets.some((held) => held.invocationId === packet.invocationId)) {
+    return runtime;
+  }
+  return {
+    ...runtime,
+    packets: runtime.packets.map((held) =>
+      held.invocationId === packet.invocationId ? packet : held,
+    ),
+    resume:
+      runtime.resume?.invocationId === packet.invocationId
+        ? packet.resume
+        : runtime.resume,
+  };
+}
 
 export function OnboardingRuntimeProvider({ children }: { children: ReactNode }) {
   const [runtime, setRuntime] = useState<OnboardingRuntime | null>(null);
@@ -170,6 +227,79 @@ export function OnboardingRuntimeProvider({ children }: { children: ReactNode })
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  /* ------------------------------------------------- staleness and refresh */
+
+  /**
+   * WHY THE CACHE IS INVALIDATED BY A COUNTER AND NOT A BOOLEAN.
+   *
+   * A refresh that finished would clear a flag a write raised WHILE it was in flight, and the
+   * projection would then be quietly one write behind with nothing left to say so. Counting
+   * instead means a refresh only ever declares itself current as of the write it observed
+   * when it started, and a later write leaves the cache stale until something re-reads it.
+   */
+  const writeSeq = useRef(0);
+  const [written, setWritten] = useState(0);
+  const [synced, setSynced] = useState(0);
+  const stale = written > synced;
+
+  useEffect(
+    () =>
+      onOnboardingWrite(() => {
+        writeSeq.current += 1;
+        setWritten(writeSeq.current);
+      }),
+    [],
+  );
+
+  /** Packet reads already running, so a refresh is not requested twice over one write. */
+  const refreshing = useRef(new Map<string, Promise<void>>());
+
+  /**
+   * Re-read ONE packet and put the server's answer in place of the cached one.
+   *
+   * PACKET-SCOPED ON PURPOSE. Completing a module changes that module's status, its packet's
+   * progress, its next module and its resume target - all of which live inside one packet. A
+   * whole-runtime read would re-derive every packet the worker has ever held to learn the
+   * same thing, which on a worker with a long onboarding history is the cost QA-L5-UX-8
+   * measured.
+   *
+   * The SERVER still decides all of it. This replaces a cached answer with a fresher one
+   * from the same authority; it patches nothing locally and computes no status or progress.
+   */
+  const refreshPacket = useCallback(async (invocationId: string) => {
+    const already = refreshing.current.get(invocationId);
+    if (already) return already;
+
+    const observed = writeSeq.current;
+    const run = (async () => {
+      try {
+        const packet = await getOnboardingPacket(invocationId);
+        if (!packet) return;
+        setRuntime((current) => (current ? withPacket(current, packet) : current));
+        // Current as of the write this read observed, and no further. Anything written since
+        // leaves the projection stale, which is exactly what the counter is for.
+        setSynced((previous) => Math.max(previous, observed));
+      } catch {
+        // The previous projection is kept and the cache stays stale, so the next thing that
+        // asks re-reads. A transient read failure must not blank a worker's onboarding, and
+        // it must not be reported as a completion that did not happen either.
+      } finally {
+        refreshing.current.delete(invocationId);
+      }
+    })();
+
+    refreshing.current.set(invocationId, run);
+    return run;
+  }, []);
+
+  const refreshPacketIfStale = useCallback(
+    async (invocationId: string) => {
+      if (!stale) return;
+      await refreshPacket(invocationId);
+    },
+    [refreshPacket, stale],
+  );
 
   /**
    * One save attempt, run only from the queue.
@@ -313,9 +443,10 @@ export function OnboardingRuntimeProvider({ children }: { children: ReactNode })
   }, [persist]);
 
   const completeModule = useCallback(
-    async (options: { confirmNoChange?: boolean } = {}) => {
+    async (options: OnboardingCompleteOptions = {}) => {
       const current = draftRef.current;
       if (!current) return;
+      const invocationId = current.invocationId;
       // Unsaved answers go first: completion is validated against what the SERVER holds,
       // so submitting without flushing would ask the validator about stale input.
       //
@@ -338,23 +469,42 @@ export function OnboardingRuntimeProvider({ children }: { children: ReactNode })
         // session has since bound a different one, this is refused rather than recorded
         // against a packet these answers were never saved into.
         await completeOnboardingModule((draftRef.current as DraftState).moduleKey, {
-          ...options,
-          invocationId: (draftRef.current as DraftState).invocationId,
+          // Stated only when the MODULE stated it.
+          ...(options.confirmNoChange === undefined
+            ? {}
+            : { confirmNoChange: options.confirmNoChange }),
+          invocationId,
         });
+        // The packet is now stale in every respect - status, progress, next module, resume
+        // target - so it is re-read rather than patched locally. ONE packet, because one
+        // packet is what a completion recorded inside it can have changed.
+        //
+        // THE MODULE STAYS BUSY ACROSS IT. Releasing the controls when the completion request
+        // returned would tell the worker the section was finished while the projection behind
+        // the screen still said it was not, which is the window he spent pressing a button
+        // that had nothing left to do.
+        await refreshPacket(invocationId);
         applyDraft({
           ...(draftRef.current as DraftState),
           saving: false,
           saveError: null,
         });
-        // The projection is now stale in every respect - status, progress, next module,
-        // resume target - so it is re-read rather than patched locally.
-        await reload();
+        // AND HE STAYS WHERE HE IS. Completing a section is not leaving it: the refreshed
+        // packet re-renders this module in its completed state, which is both the
+        // confirmation that the act landed and - for a module whose completion leaves
+        // required post-act content in front of him - the only place that content is. A
+        // container that navigated away here could carry him past it, and could do so
+        // without ever knowing it had, because whether such content exists is the module's
+        // fact and not this container's.
+        //
+        // The workspace rail is how he moves on, and "Back to my sections" is how he
+        // returns to the packet overview if that is what he wants. Both are his choice.
       } catch (err) {
         applyDraft({ ...(draftRef.current as DraftState), saving: false });
         throw err;
       }
     },
-    [applyDraft, reload, saveDraft],
+    [applyDraft, refreshPacket, saveDraft],
   );
 
   /**
@@ -410,6 +560,9 @@ export function OnboardingRuntimeProvider({ children }: { children: ReactNode })
       loading,
       error,
       reload,
+      stale,
+      refreshPacket,
+      refreshPacketIfStale,
       draft,
       openModule,
       setValue,
@@ -430,12 +583,15 @@ export function OnboardingRuntimeProvider({ children }: { children: ReactNode })
       leaveGuardActive,
       loading,
       openModule,
+      refreshPacket,
+      refreshPacketIfStale,
       registerLeaveGuard,
       reload,
       requestLeave,
       runtime,
       saveDraft,
       setValue,
+      stale,
     ],
   );
 

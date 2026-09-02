@@ -58,10 +58,10 @@ export function PacketModuleRail({
           const complete =
             module.status === "COMPLETE" || module.status === "ALREADY_COMPLETE";
           const current = module.moduleKey === currentModuleKey;
-          // Jump-to-module is offered only where the server permits working on it. A
-          // module the server would refuse is shown as context, not as a link.
-          const reachable =
-            module.actionable || module.restart.posture === "RE_ENTERABLE";
+          // Jump-to-module is offered wherever the SERVER named an action on the module -
+          // the same answer the packet's own cards offer, so the rail and the cards cannot
+          // disagree about what is reachable. A module with no action is shown as context.
+          const reachable = module.workerAction !== "NONE";
           const href = modulePath(
             invocationId,
             module.moduleSlug,

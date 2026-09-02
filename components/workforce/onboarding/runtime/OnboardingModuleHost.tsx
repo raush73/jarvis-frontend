@@ -46,6 +46,7 @@ export function OnboardingModuleHost({ invocationId, moduleSlug, stepSlug }: Pro
     setValue,
     saveDraft,
     completeModule,
+    refreshPacketIfStale,
     findPacket,
     findModule,
   } = useOnboardingRuntime();
@@ -53,6 +54,23 @@ export function OnboardingModuleHost({ invocationId, moduleSlug, stepSlug }: Pro
   useEffect(() => {
     void openModule(invocationId, moduleSlug);
   }, [invocationId, moduleSlug, openModule]);
+
+  /*
+    THE CACHED PACKET, BROUGHT BACK UP TO DATE.
+
+    A module completes in whatever way its own governance requires - the generic completion
+    call for one, a certification for another - and moving between modules loads the
+    destination and its draft without re-reading the packet. The projection would then keep
+    showing a section as outstanding that the server has already recorded complete, until the
+    worker reloaded the browser.
+
+    This asks for a fresh read whenever a worker write has actually happened, and does nothing
+    at all when none has. It names no module and knows of none: what changed is the SERVER's
+    to say, and this only makes sure it is asked.
+  */
+  useEffect(() => {
+    void refreshPacketIfStale(invocationId);
+  }, [invocationId, moduleSlug, stepSlug, refreshPacketIfStale]);
 
   if (loading && !runtime) {
     return <p className="wf-loading">Loading your onboarding.</p>;
@@ -188,7 +206,14 @@ export function OnboardingModuleHost({ invocationId, moduleSlug, stepSlug }: Pro
         />
       ) : (
         <div className="wf-btn-row">
-          <Link className="wf-btn wf-btn-primary" href={ONBOARDING_HOME}>
+          <Link
+            className="wf-btn wf-btn-primary"
+            data-ob-return-to-packet
+            href={packetPath(invocationId)}
+          >
+            Back to my sections
+          </Link>
+          <Link className="wf-btn wf-btn-ghost wf-btn-sm" href={ONBOARDING_HOME}>
             Go to my onboarding
           </Link>
         </div>

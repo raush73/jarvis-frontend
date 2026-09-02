@@ -356,6 +356,15 @@ export function EmploymentEligibilityModule({
   const outstanding = useMemo(() => unansweredSteps(draft), [draft]);
   const shown = attempted ? violations : NO_VIOLATIONS;
   const shownOutstanding = attempted ? outstanding : [];
+  /*
+    Reported the same way as every other save-time refusal: only once a save has been tried.
+
+    What is gated is the TELLING and never the rule - `recaptureBlocked` still guards the save
+    itself, and the interview still says so in its own words while the worker is changing a
+    document. Ungated here, a finished record read back by a session that did not capture it
+    puts "before saving" in front of a worker whose part is done and who has nothing to save.
+  */
+  const shownRecapture = attempted && recaptureBlocked;
 
   /** Everything the worker has stated is admissible, so a capture can be saved at once. */
   const versionStatable = violations.length === 0 && outstanding.length === 0;
@@ -599,7 +608,7 @@ export function EmploymentEligibilityModule({
       {saveError ? (
         <RefusalNotice error={saveError} heading="We could not save your answers." />
       ) : null}
-      {shown.length > 0 || shownOutstanding.length > 0 || recaptureBlocked ? (
+      {shown.length > 0 || shownOutstanding.length > 0 || shownRecapture ? (
         <div
           className="wf-error ee-summary"
           role="alert"
@@ -615,7 +624,7 @@ export function EmploymentEligibilityModule({
             {[...new Set(shown.map((violation) => violation.code))].map((code) => (
               <li key={code}>{REFUSAL_MESSAGES[code]}</li>
             ))}
-            {recaptureBlocked ? (
+            {shownRecapture ? (
               <li data-ee-recapture-blocked>
                 We need a new picture of each document you are showing us before we can save
                 this.

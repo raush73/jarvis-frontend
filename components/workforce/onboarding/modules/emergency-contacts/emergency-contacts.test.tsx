@@ -58,8 +58,14 @@ vi.mock("@/lib/workforce/emergencyContactsApi", async (importOriginal) => {
   };
 });
 
-const { getOnboardingRuntime, getRuntimeModuleDraft, saveRuntimeModuleDraft, modulePath } =
-  await import("@/lib/workforce/onboardingRuntimeApi");
+const {
+  getOnboardingRuntime,
+  getOnboardingPacket,
+  getRuntimeModuleDraft,
+  saveRuntimeModuleDraft,
+  modulePath,
+  packetPath,
+} = await import("@/lib/workforce/onboardingRuntimeApi");
 const { completeOnboardingModule, OnboardingApiError } = await import(
   "@/lib/workforce/onboardingApi"
 );
@@ -448,21 +454,21 @@ describe("the governed rules, before the round trip", () => {
     );
   });
 
-  it("refuses a set in which nobody would be called", async () => {
+  /**
+   * A LISTED EMERGENCY CONTACT IS AN EMERGENCY CONTACT.
+   *
+   * The module used to ask, per person, whether we may call them - which invited a worker to
+   * list someone and then tell us not to call them, and made the obvious reading of his own
+   * list wrong. There is no such question now: the decision he makes is who is on the list.
+   */
+  it("does not ask whether a listed contact may be called", async () => {
     vi.mocked(getOwnEmergencyContacts).mockResolvedValue(profile([contact()]));
 
     openModule();
     await screen.findByLabelText("Full name");
-    fireEvent.click(screen.getByLabelText(/Call this person in an emergency/));
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() =>
-      expect(
-        screen.getByText("At least one of your contacts has to be someone we can call."),
-      ).toBeTruthy(),
-    );
-    expect(vi.mocked(saveOwnEmergencyContacts)).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText(/Call this person in an emergency/i)).toBeNull();
+    expect(screen.queryByText(/without us calling them/i)).toBeNull();
   });
 
   it("never offers more slots than the three the architecture supports", async () => {
@@ -476,16 +482,48 @@ describe("the governed rules, before the round trip", () => {
     expect(screen.queryByRole("button", { name: "Add another contact" })).toBeNull();
   });
 
-  it("keeps a recorded contact on the record: deactivation, not deletion", async () => {
-    vi.mocked(getOwnEmergencyContacts).mockResolvedValue(profile([contact()]));
+  /**
+   * REMOVAL IS FROM THE CURRENT SET, NOT FROM THE RECORD.
+   *
+   * What the worker is deciding is who we should call today. What he submits is the whole
+   * current set, and the set he is replacing is retained as its own version by the record
+   * authority - so a contact he takes off his list stops being called and does not stop
+   * having existed. Nothing here deletes anything, and there is no route through which it
+   * could: the only write this module performs is a save of the set.
+   */
+  it("removes a contact from the current set and submits the set without him", async () => {
+    vi.mocked(getOwnEmergencyContacts).mockResolvedValue(
+      profile([
+        contact(),
+        contact({
+          id: "ec-2",
+          priority: "SECONDARY",
+          fullName: "Ray Rivers",
+          relationship: "PARENT",
+          primaryPhone: "918-555-0199",
+        }),
+      ]),
+    );
 
     openModule();
-    await screen.findByLabelText("Full name");
+    await screen.findAllByLabelText("Full name");
 
-    // The recorded contact offers no removal at all. The only way to stop being called is
-    // the deactivation control beside it.
-    expect(screen.queryByRole("button", { name: "Remove this contact" })).toBeNull();
-    expect(screen.getByLabelText(/Call this person in an emergency/)).toBeTruthy();
+    // A recorded contact offers removal, in the worker's own terms.
+    const remove = screen.getAllByRole("button", { name: "Remove this contact" });
+    expect(remove).toHaveLength(2);
+
+    fireEvent.click(remove[1]);
+    expect(document.querySelectorAll(".ec-contact")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(vi.mocked(saveOwnEmergencyContacts)).toHaveBeenCalledTimes(1),
+    );
+
+    const [, submitted] = vi.mocked(saveOwnEmergencyContacts).mock.calls[0];
+    expect(submitted.map((entry) => entry.fullName)).toEqual(["Dana Rivers"]);
+    // He was removed from the set, not marked uncallable within it.
+    expect(submitted.every((entry) => entry.status === "ACTIVE")).toBe(true);
   });
 });
 
@@ -870,5 +908,365 @@ describe("once the module is complete", () => {
     );
 
     expect(screen.getByLabelText("Full name")).toBeTruthy();
+  });
+
+  it("leads him back to his own packet rather than to every packet he has held", async () => {
+    openModule();
+
+    const home = await waitFor(() => {
+      const found = document.querySelector("[data-ec-return-to-packet]");
+      if (!found) throw new Error("no way out rendered");
+      return found;
+    });
+    expect(home.getAttribute("href")).toBe(packetPath(INVOCATION_ID));
+    expect(home.textContent).toBe("Back to my sections");
+  });
+});
+
+/* -------------------------------------------------------- preferred language */
+
+/**
+ * QA-L5-UX-6. The language a contact prefers is CHOSEN rather than typed.
+ *
+ * A free-text box collected "spanish", "Spanish ", "Espanol" and "esp" for one language, which
+ * is unusable by the person who has to make the call. The offered list settles the common
+ * answers; Other keeps the uncommon ones sayable. Persistence is unchanged - the attribute is
+ * the same nullable string it always was, and nothing here is a closed set in the database.
+ */
+describe("the language a contact prefers", () => {
+  /** The chooser, by the label the worker reads. */
+  function languageSelect(): HTMLSelectElement {
+    return screen.getByLabelText(/Language they prefer/) as HTMLSelectElement;
+  }
+
+  /** The free-text box, which exists only once Other has been chosen. */
+  function ownLanguage(): HTMLInputElement | null {
+    return screen.queryByLabelText("The language they prefer") as HTMLInputElement | null;
+  }
+
+  /** Save the set and hand back the one contact that went to the server. */
+  async function savedContact() {
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(vi.mocked(saveOwnEmergencyContacts)).toHaveBeenCalled());
+    const [, sent] = vi.mocked(saveOwnEmergencyContacts).mock.calls[0];
+    return sent[0];
+  }
+
+  it("offers the ratified languages, and nothing typed in their place", async () => {
+    openModule();
+    await screen.findByLabelText("Full name");
+
+    const offered = Array.from(languageSelect().options).map(
+      (option) => option.textContent,
+    );
+    expect(offered).toEqual([
+      "Select a language",
+      "English",
+      "Spanish",
+      "French",
+      "Haitian Creole",
+      "Portuguese",
+      "Chinese",
+      "Vietnamese",
+      "Arabic",
+      "Korean",
+      "Russian",
+      "Other",
+    ]);
+    // Nothing is preselected: a language nobody stated is not a language.
+    expect(languageSelect().value).toBe("");
+    expect(ownLanguage()).toBeNull();
+  });
+
+  it("sends a chosen language exactly as the list says it", async () => {
+    openModule();
+    await screen.findByLabelText("Full name");
+    fillFirstContact();
+    fireEvent.change(languageSelect(), { target: { value: "Haitian Creole" } });
+
+    expect((await savedContact()).preferredLanguage).toBe("Haitian Creole");
+  });
+
+  it("lets him say a language the list does not offer", async () => {
+    openModule();
+    await screen.findByLabelText("Full name");
+    fillFirstContact();
+
+    fireEvent.change(languageSelect(), { target: { value: "OTHER" } });
+    const own = ownLanguage();
+    expect(own).toBeTruthy();
+    fireEvent.change(own as HTMLInputElement, { target: { value: "Twi" } });
+
+    // WHAT HE TYPED, AND NOT THE WORD "OTHER". The choice is how he was asked; the language
+    // is what gets recorded, through the same string attribute as every other answer.
+    expect((await savedContact()).preferredLanguage).toBe("Twi");
+  });
+
+  it("reads back a stored language the list does not offer, and keeps it on a re-save", async () => {
+    vi.mocked(getOwnEmergencyContacts).mockResolvedValue(
+      profile([contact({ preferredLanguage: "Twi" })]),
+    );
+
+    openModule();
+    await screen.findByLabelText("Full name");
+
+    // A value from before the chooser existed is neither lost nor silently changed: it is
+    // shown as what it is, under Other, and it is still his answer until he says otherwise.
+    expect(languageSelect().value).toBe("OTHER");
+    expect(ownLanguage()?.value).toBe("Twi");
+
+    fireEvent.change(screen.getByLabelText("Phone number"), {
+      target: { value: "918-555-0199" },
+    });
+    expect((await savedContact()).preferredLanguage).toBe("Twi");
+  });
+
+  it("recognises a stored language the list does offer, however it was capitalised", async () => {
+    vi.mocked(getOwnEmergencyContacts).mockResolvedValue(
+      profile([contact({ preferredLanguage: "spanish" })]),
+    );
+
+    openModule();
+    await screen.findByLabelText("Full name");
+
+    // The same language, so the same option - not an "Other" holding a word that is on the
+    // list. Nothing is rewritten on his record by looking at it.
+    expect(languageSelect().value).toBe("Spanish");
+    expect(ownLanguage()).toBeNull();
+    expect(vi.mocked(saveOwnEmergencyContacts)).not.toHaveBeenCalled();
+  });
+
+  it("leaves a contact with no stated language unstated", async () => {
+    openModule();
+    await screen.findByLabelText("Full name");
+    fillFirstContact();
+
+    expect((await savedContact()).preferredLanguage).toBeNull();
+  });
+});
+
+/* --------------------------------------------------------------- worker copy */
+
+/**
+ * QA-L5-UX-7. What the worker reads, and what he is not made to read.
+ *
+ * The correction is to stop narrating what a worker already knows, not to remove guidance. The
+ * three facts kept below are each material: one of them is the governed meaning of an
+ * attribute, and one of them is this module's own unusual save behaviour.
+ */
+describe("what the worker is told", () => {
+  it("identifies each contact by the order we would call them", async () => {
+    openModule();
+    await screen.findByLabelText("Full name");
+
+    expect(screen.getByRole("heading", { name: "Emergency Contact 1" })).toBeTruthy();
+  });
+
+  it("numbers by the governed order and never by position on the screen", async () => {
+    // ONE CONTACT, AND HE IS THE THIRD WE WOULD CALL. Numbering by array position would call
+    // him "Emergency Contact 1", which would state something about his record that is false.
+    vi.mocked(getOwnEmergencyContacts).mockResolvedValue(
+      profile([contact({ priority: "TERTIARY" })]),
+    );
+
+    openModule();
+    await screen.findByLabelText("Full name");
+
+    expect(screen.getByRole("heading", { name: "Emergency Contact 3" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Emergency Contact 1" })).toBeNull();
+    expect(
+      document.querySelector('[data-contact-ordinal="TERTIARY"]')?.textContent,
+    ).toBe("Emergency Contact 3");
+  });
+
+  it("renumbers a contact the moment his place in the order changes", async () => {
+    vi.mocked(getOwnEmergencyContacts).mockResolvedValue(profile([contact()]));
+
+    openModule();
+    await screen.findByLabelText("Full name");
+    expect(screen.getByRole("heading", { name: "Emergency Contact 1" })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("When we should call this person"), {
+      target: { value: "SECONDARY" },
+    });
+
+    // The heading follows the attribute rather than the card, because the number IS the
+    // attribute said in the worker's words.
+    expect(screen.getByRole("heading", { name: "Emergency Contact 2" })).toBeTruthy();
+  });
+
+  it("numbers the record the same way it numbers the form", async () => {
+    vi.mocked(getOnboardingRuntime).mockResolvedValue(
+      runtimeWith({ status: "COMPLETE" }),
+    );
+    vi.mocked(getOwnEmergencyContacts).mockResolvedValue(
+      profile([contact({ priority: "SECONDARY" })]),
+    );
+
+    openModule();
+
+    expect(
+      await screen.findByRole("heading", { name: "Emergency Contact 2" }),
+    ).toBeTruthy();
+  });
+
+  it("keeps every sentence a worker would be worse off without", async () => {
+    openModule();
+    await screen.findByLabelText("Full name");
+
+    const intro = document.querySelector(".ec-intro")?.textContent ?? "";
+    // The governed meaning of priority, which no list of names can show.
+    expect(intro).toMatch(/order you set/i);
+    // The governed limit, so he plans around it rather than discovering it at contact four.
+    expect(intro).toMatch(/three/i);
+    // THIS MODULE'S OWN UNUSUAL BEHAVIOUR, and the only thing standing between him and lost
+    // work. It is the one piece of guidance that could not be dropped as self-evident.
+    expect(intro).toMatch(/nothing is saved until you press save/i);
+
+    // The information-sharing choice is a real decision with a consequence he cannot infer,
+    // so its guidance stays where the choice is made. It survived the removal of the
+    // call/no-call control because the two were never the same question.
+    expect(
+      screen.getByText(/will not be given details about you/i),
+    ).toBeTruthy();
+  });
+
+  it("stops explaining what an emergency contact is", async () => {
+    openModule();
+    await screen.findByLabelText("Full name");
+
+    const intro = document.querySelector(".ec-intro")?.textContent ?? "";
+    expect(intro).not.toMatch(/if something happens to you/i);
+    // One statement rather than a page of them.
+    expect(document.querySelectorAll(".ec-intro p")).toHaveLength(1);
+  });
+});
+
+/* -------------------------------------------------------- finishing the section */
+
+/**
+ * QA-L5-UX-8. Save & Continue is one operation, and it says so for as long as it runs.
+ *
+ * Three requests happen behind that one press - the save, the completion, and the re-read of
+ * the packet the completion changed. Previously the screen went quiet after the first of them,
+ * with both buttons live, which is what the browser run saw as several seconds of a section
+ * that looked idle and finished.
+ */
+describe("finishing the section", () => {
+  /**
+   * Hold the completion open, and hand back the release.
+   *
+   * The point of every test below is what the screen says WHILE the operation is running, so
+   * the operation has to be stoppable in the middle rather than raced against.
+   */
+  function heldCompletion(): () => void {
+    let release = (): void => undefined;
+    vi.mocked(completeOnboardingModule).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              moduleKey: MODULE_KEY,
+              completionId: "cmp-1",
+              effectiveFrom: new Date().toISOString(),
+              versionCreated: true,
+              alreadyComplete: false,
+              completion: { complete: true, requiredCount: 1, completeCount: 1 },
+              nextModuleKey: null,
+            });
+        }),
+    );
+    return () => release();
+  }
+
+  it("says it is finishing for the whole operation, not merely the save", async () => {
+    const finishCompletion = heldCompletion();
+
+    openModule();
+    await screen.findByLabelText("Full name");
+    fillFirstContact();
+    fireEvent.click(screen.getByRole("button", { name: "Save & Continue" }));
+
+    // The save has returned and the completion has not. THE WORKER IS STILL TOLD IT IS
+    // RUNNING, because from where he sits it is: he asked to finish the section, and the
+    // section is not finished.
+    await waitFor(() =>
+      expect(vi.mocked(completeOnboardingModule)).toHaveBeenCalled(),
+    );
+    expect(document.querySelector('[data-ec-finishing="true"]')).toBeTruthy();
+    expect(screen.queryByText("Your emergency contacts are saved.")).toBeNull();
+
+    finishCompletion();
+    await waitFor(() =>
+      expect(document.querySelector('[data-ec-finishing="true"]')).toBeNull(),
+    );
+  });
+
+  it("takes no second press while it is running, and records one completion", async () => {
+    const finishCompletion = heldCompletion();
+
+    openModule();
+    await screen.findByLabelText("Full name");
+    fillFirstContact();
+
+    const finish = screen.getByRole("button", { name: "Save & Continue" });
+    fireEvent.click(finish);
+    await waitFor(() =>
+      expect(vi.mocked(completeOnboardingModule)).toHaveBeenCalled(),
+    );
+
+    // The control says so as well as refusing, so a worker who presses again learns why
+    // rather than concluding that nothing happened.
+    const running = screen.getByRole("button", { name: "Finishing." });
+    expect((running as HTMLButtonElement).disabled).toBe(true);
+    expect(running.getAttribute("aria-busy")).toBe("true");
+    fireEvent.click(running);
+    fireEvent.click(running);
+
+    finishCompletion();
+    await waitFor(() =>
+      expect(document.querySelector('[data-ec-finishing="true"]')).toBeNull(),
+    );
+    expect(vi.mocked(completeOnboardingModule)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(saveOwnEmergencyContacts)).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads his packet and not his whole onboarding history", async () => {
+    openModule();
+    await screen.findByLabelText("Full name");
+    fillFirstContact();
+    const readsBefore = vi.mocked(getOnboardingRuntime).mock.calls.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Save & Continue" }));
+
+    // ONE PACKET, BY ITS OWN IDENTIFIER. A completion recorded inside a packet can only have
+    // changed that packet, and re-deriving every packet the worker ever held to learn it is
+    // the cost the browser run measured.
+    await waitFor(() =>
+      expect(vi.mocked(getOnboardingPacket)).toHaveBeenCalledWith(INVOCATION_ID),
+    );
+    expect(vi.mocked(getOnboardingRuntime).mock.calls.length).toBe(readsBefore);
+  });
+
+  it("holds the same state over the no-change confirmation", async () => {
+    vi.mocked(getOwnEmergencyContacts).mockResolvedValue(profile([contact()]));
+    const finishCompletion = heldCompletion();
+
+    openModule();
+    await screen.findByLabelText("Full name");
+    fireEvent.click(screen.getByRole("button", { name: "These are still correct" }));
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-ec-finishing="true"]')).toBeTruthy(),
+    );
+
+    finishCompletion();
+    await waitFor(() =>
+      expect(document.querySelector('[data-ec-finishing="true"]')).toBeNull(),
+    );
+    // Confirming still says what it always said, and it still writes no version.
+    const [, options] = vi.mocked(completeOnboardingModule).mock.calls[0];
+    expect(options).toMatchObject({ confirmNoChange: true });
+    expect(vi.mocked(saveOwnEmergencyContacts)).not.toHaveBeenCalled();
   });
 });

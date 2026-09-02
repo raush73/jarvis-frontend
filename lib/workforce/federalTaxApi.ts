@@ -130,6 +130,14 @@ export type FederalTaxStep = {
   slug: FederalTaxStepSlug;
   title: string;
   recorded: boolean;
+  /**
+   * The word for where THIS step stands, supplied by the module rather than chosen here.
+   *
+   * The three steps are three different acts - confirming a record is his, answering
+   * questions, confirming he has read them back - so one word cannot describe all three, and
+   * a screen picking between two of its own would be wording a governed interview.
+   */
+  stateWord: string;
 };
 
 /** One line of the plain-language review: the question as asked, and the answer as given. */

@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import {
   ONBOARDING_HOME,
   modulePath,
+  packetPath,
   type OnboardingRuntimeModule,
 } from "@/lib/workforce/onboardingRuntimeApi";
 import { useOnboardingRuntime } from "./OnboardingRuntimeContext";
@@ -92,6 +93,25 @@ export function OnboardingNavigation({
         }
       >
         Back
+      </button>
+
+      {/*
+        HOME BASE, from inside every module screen.
+
+        The packet is where the worker sees what is done, what remains and what is waiting on
+        our staff, so there is always one control that takes him back to it - including from a
+        module he finished through its own governed act rather than through the generic
+        completion call, which is the only way he would otherwise have to find his way back.
+        It saves and consults the leave guard exactly as every other transition here does.
+      */}
+      <button
+        type="button"
+        className="wf-btn wf-btn-secondary wf-btn-sm"
+        data-ob-return-to-packet
+        disabled={disabled}
+        onClick={() => go(packetPath(invocationId))}
+      >
+        My sections
       </button>
 
       <button
