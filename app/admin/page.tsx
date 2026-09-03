@@ -249,18 +249,20 @@ export default function AdminPage() {
           </div>
         </Link>
 
-        <div className="admin-card disabled">
+        {/* System Settings Card - Active */}
+        <Link href="/admin/settings" className="admin-card active">
           <div className="card-header">
             <div className="card-title">System Settings</div>
-            <span className="badge future">FUTURE</span>
+            <span className="badge active">ACTIVE</span>
           </div>
           <div className="card-desc">
-            Global configuration options and system preferences.
+            Runtime configuration options and system preferences, including
+            Workforce Onboarding settings.
           </div>
           <div className="card-footer">
-            <span className="disabled-hint">UI shell planned</span>
+            <span className="link-hint">Open System Settings →</span>
           </div>
-        </div>
+        </Link>
 
         <div className="admin-card disabled">
           <div className="card-header">
