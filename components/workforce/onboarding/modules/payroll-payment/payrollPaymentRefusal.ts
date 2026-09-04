@@ -92,6 +92,31 @@ const REFUSAL_MESSAGES: Record<PayrollPaymentWorkerRefusalCode, string> = {
     "Your payroll payment instructions are already in force, so nothing was changed. If they need to change, tell your MW4H contact and we will record new ones.",
   INSTRUCTION_BINDING_UNAVAILABLE:
     "Something went wrong at our end and nothing was put in force. Please try again.",
+  /*
+    [ADDED BY GATE 10C-E3 SLICE 4. Five refusals from the surface that asks a worker whether the
+    record already governing his pay is still right, and FOUR OF THEM ARE THE SAME EVENT seen from
+    four places: what he was looking at is not what we hold now. He caused none of them. Something
+    else legitimately changed his payment record - MW4H recording a correction, or himself in
+    another tab - between the screen being drawn and the button being pressed.
+
+    THE SENTENCES DIFFER BECAUSE WHAT HE HAS IN HAND DIFFERS, which is the whole reason the server
+    keeps the codes apart. A refused AFFIRMATION cost him nothing, so he is simply asked to look
+    again. A refused REPLACEMENT was carrying details he had just typed, so his sentence says what
+    became of them before it asks him to look again.
+
+    NONE OF THEM NAMES A RECORD, a version, a date or an identifier, because none of that would
+    help him and the last of it is not his to see.
+  */
+  VERIFICATION_NOT_APPLICABLE:
+    "We are not asking you to check your payment details right now, so nothing was changed.",
+  VERIFICATION_REFRESH_REQUIRED:
+    "Your payment details changed while this page was open, so we did not record your answer. Please look at what we have now and tell us again.",
+  VERIFICATION_INSTRUCTION_MISMATCH:
+    "Your payment details changed while this page was open, so we did not record your answer. Please look at what we have now and tell us again.",
+  NO_EFFECTIVE_INSTRUCTION:
+    "We do not have payment details on record for you at the moment, so there was nothing to change. Please tell us how you would like to be paid.",
+  REPLACEMENT_INSTRUCTION_MISMATCH:
+    "Your payment details changed while you were making this change, so we did not put anything in force. Nothing you entered has been lost from this page - please look at what we have now and go on from there.",
 };
 
 /** The worker's sentence for one governed refusal code. */

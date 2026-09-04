@@ -66,13 +66,19 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { OnboardingModuleRendererProps } from "@/components/workforce/onboarding/runtime/moduleRegistry";
 import OnboardingErrorNotice from "@/components/workforce/onboarding/runtime/OnboardingErrorNotice";
+import { packetPath } from "@/lib/workforce/onboardingRuntimeApi";
 import {
+  confirmOwnPayrollPaymentVerification,
   getOwnPayrollPayment,
   getOwnPayrollPaymentReview,
+  getOwnPayrollPaymentVerification,
   payrollPaymentRefusalCode,
   saveOwnPayrollPayment,
+  PAYROLL_PAYMENT_VERIFICATION_RECORD_CHANGED,
+  PAYROLL_PAYMENT_VERIFICATION_RECORD_STALE,
   PAYROLL_DEPOSIT_ALLOCATION_REMAINING_BALANCE,
   PAYROLL_PAYMENT_ALLOCATION_MODE_FIXED,
   PAYROLL_PAYMENT_ALLOCATION_MODE_PERCENTAGE,
@@ -83,12 +89,15 @@ import {
   type PayrollPaymentInterview,
   type PayrollPaymentMethod,
   type PayrollPaymentReview,
+  type PayrollPaymentVerification,
+  type PayrollPaymentWorkerRefusalCode,
 } from "@/lib/workforce/payrollPaymentApi";
 import AllocationEditor from "./AllocationEditor";
 import DepositAccountEditor from "./DepositAccountEditor";
 import PaymentMethodChoice from "./PaymentMethodChoice";
 import PayrollPaymentAuthorization from "./PayrollPaymentAuthorization";
 import PayrollPaymentReviewPanel from "./PayrollPaymentReviewPanel";
+import PayrollPaymentVerifyPanel from "./PayrollPaymentVerifyPanel";
 import RemoveAccountPrompt from "./RemoveAccountPrompt";
 import {
   entriesFromServer,
@@ -103,11 +112,58 @@ import {
 } from "./payrollPaymentRefusal";
 import "./payroll-payment.css";
 
-/** Where in his own interview the worker is. Not persisted, and not a position we remember. */
-type Stage = "METHOD" | "DETAILS" | "REVIEW";
+/**
+ * Where in his own interview the worker is. Not persisted, and not a position we remember.
+ *
+ * [AMENDED BY GATE 10C-E3 SLICE 4 to add `CONFIRM`, which is where a worker starts when the server
+ * says he is being asked about the record already governing his pay. It is a STAGE and not a step:
+ * the module still declares one step at one URL, registers one renderer, and this is the fourth
+ * thing that can be on that one screen rather than a second screen. It is also the only stage
+ * nothing local can reach - the server puts him here or he never sees it.]
+ */
+type Stage = "CONFIRM" | "METHOD" | "DETAILS" | "REVIEW";
 
 /** Nothing is outstanding until he has asked to go on. See `attempted` below. */
 const NOTHING_OUTSTANDING: PayrollPaymentInterview["violations"] = [];
+
+/**
+ * THE REFUSALS THAT MEAN "WHAT YOU WERE LOOKING AT IS NOT WHAT WE HOLD NOW" (Gate 10C-E3).
+ *
+ * Four codes, one situation, one recovery: drop what the screen was holding and read the authority
+ * again. They are listed rather than lumped in with every other failure because the recovery is
+ * different - a worker who meets one of these has done nothing wrong and needs a fresh look, not
+ * an apology and a retry button.
+ *
+ * A RETRY IS NEVER ONE OF THE ANSWERS. Nothing in this file resends an affirmation or a
+ * replacement after one of these; what arrives in place of what moved has to be looked at by the
+ * worker before he can answer about it.
+ */
+const MOVED_ON_CODES: readonly PayrollPaymentWorkerRefusalCode[] = [
+  "VERIFICATION_INSTRUCTION_MISMATCH",
+  "VERIFICATION_REFRESH_REQUIRED",
+  "VERIFICATION_NOT_APPLICABLE",
+  "NO_EFFECTIVE_INSTRUCTION",
+];
+
+/**
+ * The verification read, given ONE chance to settle.
+ *
+ * `RECORD_CHANGED` IS A READ RACE AND NOT A VERDICT. It is what the server says when the record
+ * behind its own currency judgment moved while it was answering - so the honest response to it is
+ * to ask again rather than to render anything, because there is nothing in that answer to render.
+ *
+ * ONCE, AND THEN THE TRUTH. A second race is possible and a third is possible after that, and a
+ * browser that kept asking would be spinning on the worker's screen with no way out. So one clean
+ * re-read is attempted, and if it lands on the same answer the state is returned as it is and the
+ * screen says plainly that his details changed while the page was open and asks him to look again.
+ */
+async function settledVerification(
+  invocationId: string,
+): Promise<PayrollPaymentVerification> {
+  const first = await getOwnPayrollPaymentVerification(invocationId);
+  if (first.state !== PAYROLL_PAYMENT_VERIFICATION_RECORD_CHANGED) return first;
+  return getOwnPayrollPaymentVerification(invocationId);
+}
 
 export function PayrollPaymentModule({
   invocationId,
@@ -128,6 +184,56 @@ export function PayrollPaymentModule({
   const [saved, setSaved] = useState(false);
   const [review, setReview] = useState<PayrollPaymentReview | null>(null);
   const [reviewError, setReviewError] = useState<unknown>(null);
+
+  /* ---------------------------------------------- Gate 10C-E3: what is in force */
+
+  /**
+   * THE SERVER'S ANSWER about the record already governing his pay, held whole.
+   *
+   * IT IS NEVER DERIVED HERE. Nothing in this file decides that a worker should be asked to verify
+   * his payroll record, and nothing here decides that he should not: not the presence of a saved
+   * draft, not an instruction existing, not a date compared against a window. This is read, and
+   * what it says is what happens.
+   */
+  const [verification, setVerification] =
+    useState<PayrollPaymentVerification | null>(null);
+
+  /**
+   * WHICH RECORD HE DELIBERATELY CHOSE TO REPLACE, from the moment he pressed "No" until the
+   * authorization is done with it. Null the rest of the time, which is nearly always.
+   *
+   * THE ONLY THING THAT SETS IT IS THE BUTTON. Not the verification being outstanding, not an
+   * instruction existing, not the draft differing from it - `beginChange` is the single writer,
+   * and it is called from one onClick. That is what makes the replacement DELIBERATE rather than
+   * merely permitted, and it is why an ordinary authorization on this screen still carries no
+   * replacement claim at all.
+   *
+   * IT LIVES HERE AND NOWHERE ELSE. Not in the URL, not in the runtime's shared draft, not in
+   * browser storage, not in a context. This component stays mounted across METHOD, DETAILS and
+   * REVIEW because they are stages of one screen, so component state carries it exactly as far as
+   * the change flow reaches and no further: a reload drops it, and a reload also re-reads the
+   * verification authority, so what he comes back to is the question again rather than a stale
+   * claim about a record that may have moved while the page was gone.
+   */
+  const [replacing, setReplacing] = useState<string | null>(null);
+
+  /** His YES is with the server. Both answers are held while it is. */
+  const [confirming, setConfirming] = useState(false);
+
+  /** True once the server has accepted his YES. Set from its answer, never ahead of it. */
+  const [confirmed, setConfirmed] = useState(false);
+
+  /** A YES that failed for a reason that is not the record having moved. */
+  const [confirmError, setConfirmError] = useState<unknown>(null);
+
+  /**
+   * THE RECORD MOVED WHILE HE WAS LOOKING AT IT, and he has to be told before he is asked again.
+   *
+   * Set when the server refuses an affirmation or a replacement because what is in force is no
+   * longer what the screen was showing. It drives a sentence, and nothing else: the recovery
+   * itself is a fresh read of the authority, never a retry against whatever arrived in its place.
+   */
+  const [moved, setMoved] = useState(false);
 
   /**
    * HOW MANY TIMES THE SAVED PROPOSAL HAS CHANGED, handed to the Gate 10C stage below.
@@ -177,21 +283,52 @@ export function PayrollPaymentModule({
     // `live` guards a response arriving after the worker moved on, which would otherwise show one
     // packet's proposal under another's screen.
     let live = true;
-    getOwnPayrollPayment(invocationId)
-      .then((value) => {
+
+    void (async () => {
+      try {
+        /*
+          BOTH AUTHORITIES, TOGETHER, BEFORE ANYTHING IS DRAWN.
+
+          [ADDED BY GATE 10C-E3 SLICE 4.] Which screen this worker should be on is not something
+          the interview can answer. A worker being asked whether the record already governing his
+          pay is still right, and a worker part-way through stating one for the first time, are
+          told apart by the SERVER and by nothing else - so the question is asked on the way in,
+          every time, and the two reads are awaited together so that no frame is ever drawn from
+          one of them alone. A screen that rendered the interview first and corrected itself a
+          moment later would show a worker the form before asking him whether he needed it.
+        */
+        const [held, checked] = await Promise.all([
+          getOwnPayrollPayment(invocationId),
+          settledVerification(invocationId),
+        ]);
         if (!live) return;
-        setInterview(value);
-        setMethod(value.paymentMethod);
-        setMode(value.allocationMode);
-        setEntries(entriesFromServer(value.accounts));
-        // RESUMING IS READING. Where he comes back to is derived from what the server actually
-        // holds, not from a position anything remembered for him.
-        setStage(value.paymentMethod === null ? "METHOD" : "DETAILS");
+
+        setInterview(held);
+        setMethod(held.paymentMethod);
+        setMode(held.allocationMode);
+        setEntries(entriesFromServer(held.accounts));
+        setVerification(checked);
+        /*
+          RESUMING IS READING, and this is still the whole of the rule - there is simply a second
+          authority to read now. The verification answer takes precedence when it has a record to
+          show, because being asked about instructions in force is a different situation from
+          having an unfinished proposal, not a later stage of one. Every other answer it can give
+          means there is nothing to ask, and the interview decides the stage exactly as before.
+        */
+        setStage(
+          checked.state === PAYROLL_PAYMENT_VERIFICATION_RECORD_STALE &&
+            checked.instruction !== null
+            ? "CONFIRM"
+            : held.paymentMethod === null
+              ? "METHOD"
+              : "DETAILS",
+        );
         setLoadError(null);
-      })
-      .catch((failure: unknown) => {
+      } catch (failure: unknown) {
         if (live) setLoadError(failure);
-      });
+      }
+    })();
+
     return () => {
       live = false;
     };
@@ -429,6 +566,100 @@ export function PayrollPaymentModule({
     [mode, persist],
   );
 
+  /* ------------------------------------------- Gate 10C-E3: yes, and no */
+
+  /**
+   * "YES - this is still correct."
+   *
+   * WHAT IT SENDS IS THE IDENTITY THAT CAME WITH THE RECORD ON SCREEN, and it is read from the
+   * verification response held in state rather than fetched again at the moment he presses the
+   * button. Re-fetching it would be the whole defect this screening exists to prevent: it would
+   * turn "he affirmed the record he was shown" into "he affirmed whatever is current now", which
+   * is an affirmation of a record he has never seen.
+   *
+   * NOTHING ELSE GOES WITH IT. No payment details, no candidate, no state, no date. There is no
+   * field on the call for any of them.
+   *
+   * WHAT COMES BACK DECIDES WHAT HAPPENS NEXT, including on the refusals. Nothing here marks the
+   * record current, marks the module done or advances a projection; a success is followed by a
+   * fresh read of both authorities, and a refusal that says the record moved is followed by the
+   * same fresh read plus a sentence explaining it - never by a second attempt.
+   */
+  const affirm = useCallback(async () => {
+    const reviewed = verification?.instructionId ?? null;
+    // Guarded twice over: the buttons are disabled while a request is in flight, and a second
+    // call that got past that does not become a second request.
+    if (reviewed === null || confirming) return;
+
+    setConfirming(true);
+    setConfirmError(null);
+    try {
+      await confirmOwnPayrollPaymentVerification(invocationId, {
+        instructionId: reviewed,
+      });
+      setMoved(false);
+      setConfirmed(true);
+      // The authoritative re-read. What he is shown afterwards rests on the server's own answer.
+      setReloads((count) => count + 1);
+    } catch (failure: unknown) {
+      const code = payrollPaymentRefusalCode(failure);
+      if (code !== null && MOVED_ON_CODES.includes(code)) {
+        // THE STALE SCREEN, ANSWERED BY READING RATHER THAN BY RETRYING. The anchor he held is
+        // dropped here, so there is nothing left to affirm with; what replaces it comes from the
+        // server, and he has to look at it before he can answer again.
+        setVerification(null);
+        setMoved(true);
+        setReloads((count) => count + 1);
+        return;
+      }
+      setConfirmError(failure);
+    } finally {
+      setConfirming(false);
+    }
+  }, [confirming, invocationId, verification]);
+
+  /**
+   * "NO - I need to make a change."
+   *
+   * IT AUTHORIZES NOTHING AND CHANGES NOTHING. His instructions go on governing his pay exactly as
+   * they did a moment ago; what this does is remember which record he is replacing and open the
+   * interview he filled in the first time. The replacement itself happens once, at the signature,
+   * through the delivered authorization.
+   *
+   * FROM THE TOP, at METHOD, because he may want to be paid a different way altogether and being
+   * dropped into account details would presume he does not. What he sees there is the existing
+   * protected-entry behaviour: the masks of what we hold, and empty boxes.
+   */
+  const beginChange = useCallback(() => {
+    const reviewed = verification?.instructionId ?? null;
+    if (reviewed === null) return;
+    setReplacing(reviewed);
+    setMoved(false);
+    setConfirmError(null);
+    // He has not asked to go on yet, so nothing is outstanding yet (QA-L4-UX-7).
+    setAttempted(false);
+    setSaved(false);
+    setStage("METHOD");
+  }, [verification]);
+
+  /**
+   * THE RECORD MOVED WHILE HE WAS CHANGING IT, and the server refused the replacement.
+   *
+   * THE ANCHOR IS DISCARDED HERE, WHICH IS THE POINT. A worker who reviewed X and finds Y in force
+   * must not have his authorization quietly re-aimed at Y - he has never seen Y, and superseding
+   * it would be replacing instructions he was never asked about. So the claim is dropped rather
+   * than updated, the authority is read again, and he is put back in front of whatever is actually
+   * in force to decide again.
+   *
+   * WHAT HE TYPED IS NOT DISCARDED. It is on his draft, saved and masked, exactly where it was.
+   */
+  const replacementRefused = useCallback(() => {
+    setReplacing(null);
+    setReview(null);
+    setMoved(true);
+    setReloads((count) => count + 1);
+  }, []);
+
   const openReview = useCallback(async () => {
     setAttempted(true);
     const value = await persist();
@@ -511,10 +742,47 @@ export function PayrollPaymentModule({
         invitation to finish something, and a worker who has already signed has nothing left to
         carry on with - telling him otherwise would suggest his part was still outstanding.]
       */}
-      {interview.savedAt && stage !== "REVIEW" && !sectionClosed ? (
+      {/*
+        [AMENDED AGAIN BY GATE 10C-E3 SLICE 4 to add the last two conditions, for the reason the
+        third was added: this sentence invites him to finish something. A worker being asked
+        whether the record already in force is still right has nothing unfinished, and one who has
+        just said it is right has nothing left at all.]
+      */}
+      {interview.savedAt &&
+      stage !== "REVIEW" &&
+      stage !== "CONFIRM" &&
+      !confirmed &&
+      !sectionClosed ? (
         <p className="pp-note" role="status" data-pp-resumed>
           We saved what you told us last time, so you can carry on where you left off.
         </p>
+      ) : null}
+
+      {/*
+        THE RECORD MOVED WHILE HE WAS LOOKING AT IT (Gate 10C-E3). Said once, above whatever he is
+        being shown instead, because it is the reason the screen changed under him and he is owed
+        that reason wherever he lands. It names no record and no version - what changed is not the
+        part he can act on, and what he can act on is below.
+      */}
+      {moved && !confirmed ? (
+        <div className="wf-error" role="alert" data-pp-verify-moved>
+          <p>
+            What we have on record changed while this page was open, so we did not
+            record your answer. Please look at what we have now and tell us again.
+          </p>
+        </div>
+      ) : null}
+
+      {confirmError ? (
+        <div className="wf-error" role="alert" data-pp-verify-error>
+          <p>
+            {payrollPaymentRefusalCode(confirmError)
+              ? payrollPaymentRefusalMessage(
+                  payrollPaymentRefusalCode(confirmError)!,
+                )
+              : "Something went wrong at our end and your answer was not recorded. Please try again."}
+          </p>
+        </div>
       ) : null}
 
       {saveError ? (
@@ -545,6 +813,86 @@ export function PayrollPaymentModule({
           proposalToken={`closed:${savedRevisions}`}
           changeable={false}
         />
+      ) : confirmed ? (
+        /*
+          HE SAID IT WAS STILL RIGHT, AND THE SERVER TOOK HIS ANSWER (Gate 10C-E3).
+
+          WHAT THIS PANEL CLAIMS IS EXACTLY WHAT HAPPENED AND NOT ONE WORD MORE. His review is on
+          record and his payment details are unchanged. It does not say he is cleared to work, does
+          not say he is ready to be sent anywhere, and does not say his packet is finished - none
+          of which this screen knows, all of which are the server's to decide, and any of which
+          would be a promise made to a worker about his own pay on no authority at all.
+
+          THE SAME WAY OUT AS THE SIGNATURE OFFERS, for the same reason: answering was the last
+          thing this module asked of him, and his sections are where he sees what is left.
+        */
+        <section className="pp-verify" data-pp-verify-done>
+          <h3 className="pp-review-title">Thanks - that is all we needed</h3>
+          <p data-pp-verify-done-note>
+            You have told us this is still how you want to be paid, so nothing about
+            your payment details has changed.
+          </p>
+          <div className="wf-btn-row">
+            <Link
+              className="wf-btn wf-btn-primary"
+              data-pp-verify-return
+              href={packetPath(invocationId)}
+            >
+              Back to my sections
+            </Link>
+          </div>
+        </section>
+      ) : verification?.state === PAYROLL_PAYMENT_VERIFICATION_RECORD_CHANGED ? (
+        /*
+          THE READ COULD NOT SETTLE (Gate 10C-E3). Two clean attempts both landed on "the record
+          moved while I was answering", so there is no record to put on screen and none may be
+          invented from the last one - showing him a projection the server has just disowned is
+          exactly the thing this state exists to prevent.
+
+          RECOVERABLE, AND SAID SO. This is not an error he caused or one that lost anything; it is
+          a moment of bad timing with a button that ends it.
+        */
+        <section
+          className="pp-verify"
+          data-pp-verify-unsettled
+          aria-labelledby="pp-verify-unsettled-heading"
+        >
+          <h3 className="pp-review-title" id="pp-verify-unsettled-heading">
+            Please check this again
+          </h3>
+          <p>
+            Your payment information changed while this page was open. Nothing has
+            been lost. Please look at it again.
+          </p>
+          <div className="wf-btn-row">
+            <button
+              type="button"
+              className="wf-btn wf-btn-primary"
+              data-pp-verify-action="recheck"
+              onClick={() => {
+                setMoved(false);
+                setReloads((count) => count + 1);
+              }}
+            >
+              Check again
+            </button>
+          </div>
+        </section>
+      ) : stage === "CONFIRM" && verification?.instruction ? (
+        /*
+          THE ONE QUESTION, ASKED ONLY WHERE THE SERVER ASKED IT. Both conditions are load-bearing:
+          the stage the server's answer put him in, and a record that answer actually carried. A
+          worker whose verification is satisfied, absent or not applicable never reaches this
+          branch, so there is no path by which he is asked to confirm something nobody asked him
+          about.
+        */
+        <PayrollPaymentVerifyPanel
+          instruction={verification.instruction}
+          submitting={confirming}
+          changeable={!busy && !sectionClosed}
+          onYes={() => void affirm()}
+          onChange={beginChange}
+        />
       ) : stage === "REVIEW" && review ? (
         <>
           <PayrollPaymentReviewPanel review={review} />
@@ -556,10 +904,18 @@ export function PayrollPaymentModule({
             it as the last thing to do after he has read everything through would tell him he had
             completed something he had not. What finishes this module is the signature below.
           */}
+          {/*
+            [AMENDED BY GATE 10C-E3 SLICE 4 with the two replacement props, and `replacing` is
+            null for every worker who did not press "No". The signature below is still the one
+            act and still the same act; what the claim changes is which record the server
+            understands it to be replacing, and it is only ever the one he was shown.]
+          */}
           <PayrollPaymentAuthorization
             invocationId={invocationId}
             proposalToken={`review:${savedRevisions}`}
             changeable={!disabled}
+            replaces={replacing}
+            onReplacementRefused={replacementRefused}
           />
 
           <div className="pp-actions wf-btn-row">

@@ -42,9 +42,20 @@ const ACCOUNT_TYPE_WORDS: Record<string, string> = {
   SAVINGS: "Savings",
 };
 
-/** How one account's share reads, in the worker's words. */
-function shareOf(
-  account: PayrollPaymentAccountView,
+/**
+ * How one account's share reads, in the worker's words.
+ *
+ * [EXPORTED BY GATE 10C-E3 SLICE 4, and widened to the three fields it actually reads. The screen
+ * that asks a worker whether the record already in force is still right has to describe the split
+ * too, and describing it in a second place is how the two screens start disagreeing about what
+ * "whatever is left" means. The parameter is structural rather than the draft view, because the
+ * projection of an instruction IN FORCE is a different shape carrying the same three answers.]
+ */
+export function shareOf(
+  account: Pick<
+    PayrollPaymentAccountView,
+    "allocationKind" | "allocationPercentage" | "allocationAmount"
+  >,
   percentageMode: boolean,
 ): string {
   if (account.allocationKind === PAYROLL_DEPOSIT_ALLOCATION_REMAINING_BALANCE) {

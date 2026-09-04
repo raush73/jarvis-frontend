@@ -326,6 +326,123 @@ export type PayrollPaymentAuthorization = {
   executed: PayrollPaymentRecordedOutcome | null;
 };
 
+/* -------------------------------------------------------------------------- */
+/*  Gate 10C-E3 - verifying instructions already in force                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * WHERE THE WORKER STANDS with respect to the record already governing his pay.
+ *
+ * A MIRROR OF THE SERVER'S OWN VOCABULARY (`payroll-payment.verification.service.ts`) AND NOT A
+ * BROWSER OPINION. The browser never derives one of these from anything it holds: not from a
+ * saved draft, not from whether an instruction exists, not from a date it compared. It asks, and
+ * what comes back decides which screen the worker sees.
+ *
+ * FIVE STATES, AND ONLY ONE OF THEM IS A QUESTION FOR HIM. `RECORD_STALE` is the one that carries
+ * a record to look at; the other four are answers about why there is nothing to ask.
+ */
+export const PAYROLL_PAYMENT_VERIFICATION_STATES = [
+  "NOT_APPLICABLE",
+  "SATISFIED",
+  "RECORD_STALE",
+  "RECORD_ABSENT",
+  "RECORD_CHANGED",
+] as const;
+export type PayrollPaymentVerificationState =
+  (typeof PAYROLL_PAYMENT_VERIFICATION_STATES)[number];
+
+export const PAYROLL_PAYMENT_VERIFICATION_RECORD_STALE: PayrollPaymentVerificationState =
+  "RECORD_STALE";
+export const PAYROLL_PAYMENT_VERIFICATION_RECORD_ABSENT: PayrollPaymentVerificationState =
+  "RECORD_ABSENT";
+export const PAYROLL_PAYMENT_VERIFICATION_RECORD_CHANGED: PayrollPaymentVerificationState =
+  "RECORD_CHANGED";
+
+/**
+ * One account of an instruction ALREADY IN FORCE, as the server's read-security boundary projects
+ * it.
+ *
+ * NOT THE SAME SHAPE AS `PayrollPaymentAccountView`, and the differences are the point rather than
+ * an inconsistency. That one describes a DRAFT the worker is still editing, so it carries his
+ * account's draft identity and says which boxes he has filled in. This one describes an immutable
+ * record, so it carries neither: there is no box to fill in and no identity to carry forward.
+ *
+ * BOTH MASKS ARE NON-NULL HERE, which the draft shape cannot promise. A record in force was
+ * complete when it was put in force, so there is no "not entered yet" for either value - and there
+ * is still no field on this type that a full routing or account number could occupy.
+ */
+export type PayrollPaymentInstructionAccountView = {
+  position: number;
+  accountType: PayrollDepositAccountType;
+  financialInstitutionName: string;
+  /** WORKER_SELF_REPORTED in V1. Never presented as externally verified (10-R3). */
+  institutionSource: string;
+  allocationKind: PayrollDepositAllocationKind;
+  allocationPercentage: string | null;
+  allocationAmount: string | null;
+  routingNumberMasked: string;
+  accountNumberMasked: string;
+};
+
+/**
+ * One payroll payment instruction as the worker may recognise it.
+ *
+ * `setVersion`, `effectiveFrom`, `supersededAt` and `superseded` ARE CARRIED BECAUSE THE SERVER
+ * SENDS THEM, AND ARE NOT SHOWN TO ANYBODY. They are record-keeping facts about a governed
+ * version, and a worker asked "is this still how you want to be paid?" is not helped by a version
+ * number. The panel that renders this reads the payment method and the accounts, and nothing else
+ * on this type reaches the screen.
+ */
+export type PayrollPaymentInstructionView = {
+  setVersion: number;
+  paymentMethod: PayrollPaymentMethod;
+  allocationMode: PayrollPaymentAllocationMode | null;
+  routingVerificationMethod: string | null;
+  accountConfirmationMethod: PayrollAccountConfirmationMethod | null;
+  effectiveFrom: string;
+  supersededAt: string | null;
+  superseded: boolean;
+  accounts: PayrollPaymentInstructionAccountView[];
+};
+
+/**
+ * The verification read, whole.
+ *
+ * `instructionId` IS AN IDENTITY TO HAND BACK, NEVER A VALUE TO SHOW. It is opaque: the browser
+ * does not parse it, order by it, store it, log it or render it. It exists so that the affirmation
+ * or the replacement the worker goes on to make can name the exact record he was looking at, and
+ * so the server can refuse it if that is no longer the record in force.
+ */
+export type PayrollPaymentVerification = {
+  state: PayrollPaymentVerificationState;
+  /** Non-null only for `RECORD_STALE`. */
+  instructionId: string | null;
+  /** Non-null only for `RECORD_STALE`. */
+  instruction: PayrollPaymentInstructionView | null;
+  evaluatedAt: string;
+};
+
+/** What the server made of an affirmation. */
+export type PayrollPaymentConfirmation = {
+  /** The record actually affirmed, as the SERVER resolved it. Opaque, and never displayed. */
+  instructionId: string;
+  /** False when the record was already current and this request wrote nothing new. */
+  confirmationRecorded: boolean;
+};
+
+/**
+ * WHICH RECORD THE WORKER IS DELIBERATELY REPLACING.
+ *
+ * PRESENT ONLY WHEN HE ASKED TO CHANGE HIS DETAILS, and absent from every other authorization -
+ * see `authorizeOwnPayrollPayment`, which omits the field entirely rather than sending it null.
+ * The server refuses an authorization carrying no such claim exactly as it always did, so the
+ * absence is not a formality: it is what keeps an ordinary submission from silently superseding
+ * instructions the worker never asked to change.
+ */
+export type PayrollPaymentReplacementClaim = {
+  reviewedInstructionId: string;
+};
+
 /**
  * ONE ACT OF PAYROLL PAYMENT AUTHORIZATION.
  *
@@ -344,6 +461,15 @@ export type AuthorizePayrollPaymentInput = {
   performedForm: OnboardingExecutionForm;
   /** The worker's mark, as the DELIVERED shared capture carries it. Geometry and a duration. */
   capture?: OnboardingExecutionCapture | null;
+  /**
+   * [ADDED BY GATE 10C-E3 SLICE 4.] The record he deliberately chose to replace, when he did.
+   *
+   * OPTIONAL, AND ITS ABSENCE IS THE DEFAULT RATHER THAN AN OMISSION. It is set from ONE thing:
+   * the worker pressing "No - I need to make a change" against a record he was shown. It is never
+   * set because an instruction exists, because a draft differs from it, or because a verification
+   * was outstanding.
+   */
+  replaces?: PayrollPaymentReplacementClaim | null;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -467,6 +593,23 @@ export const PAYROLL_PAYMENT_WORKER_REFUSAL_CODES = [
   "ALREADY_AUTHORIZED",
   /** The act could not be bound to the instruction it was performed against (10-R8). */
   "INSTRUCTION_BINDING_UNAVAILABLE",
+  /**
+   * [ADDED BY GATE 10C-E3. The five refusals the verification surface can answer with, and every
+   * one of them is RECOVERABLE - which is why the browser must be able to tell them apart rather
+   * than showing one sentence for all five. Four of them mean the same thing to the worker in
+   * different words ("what you were looking at is not what we hold now"), and the recovery for all
+   * four is to read the record again; but WHICH SCREEN he is sent back to differs, and so does
+   * whether he has details of his own still in hand.
+   *
+   * NONE OF THEM IS SHOWN TO HIM AS A CODE, and none is shown as a failure of his. Each is
+   * reachable only by a screen that got behind the server, which is our timing rather than his
+   * mistake.
+   */
+  "VERIFICATION_NOT_APPLICABLE",
+  "VERIFICATION_REFRESH_REQUIRED",
+  "VERIFICATION_INSTRUCTION_MISMATCH",
+  "NO_EFFECTIVE_INSTRUCTION",
+  "REPLACEMENT_INSTRUCTION_MISMATCH",
 ] as const;
 export type PayrollPaymentWorkerRefusalCode =
   (typeof PAYROLL_PAYMENT_WORKER_REFUSAL_CODES)[number];
@@ -578,7 +721,68 @@ export async function authorizeOwnPayrollPayment(
         presented: input.presented,
         performedForm: input.performedForm,
         capture: input.capture ?? null,
+        /*
+          [ADDED BY GATE 10C-E3 SLICE 4, AND SPREAD RATHER THAN SET, which is the difference
+          between an absent field and a null one. An ordinary authorization sends no `replaces`
+          key at all - not `replaces: null`, not `replaces: {}` - so the request the worker's
+          first authorization makes is byte-for-byte the request it always made, and a caller
+          that forgot to pass a claim cannot have one manufactured for it.
+
+          NARROWED TO THE ONE FIELD the server reads, for the reason every other field on this
+          body is copied out by name: a claim assembled elsewhere cannot smuggle a second
+          property through this call.
+        */
+        ...(input.replaces
+          ? {
+              replaces: {
+                reviewedInstructionId: input.replaces.reviewedInstructionId,
+              },
+            }
+          : {}),
       },
     },
+  );
+}
+
+/**
+ * GATE 10C-E3 - IS THE RECORD ALREADY GOVERNING HIS PAY STILL THE ONE HE WANTS?
+ *
+ * THE SERVER ANSWERS THIS, AND THE BROWSER MAY NOT. Whether a worker is being asked to verify his
+ * payroll record depends on his whole applicable composition, on how long a record is treated as
+ * current, and on whether the record behind an earlier verdict is still the one in force - none of
+ * which the browser holds any part of. So this is the FIRST thing the module asks on the way in,
+ * and the answer decides the screen.
+ *
+ * READING IS NOT AFFIRMING. This records nothing, refreshes nothing and confirms nothing, which is
+ * why it is a GET; the affirmation is the call below it.
+ */
+export async function getOwnPayrollPaymentVerification(
+  invocationId: string,
+): Promise<PayrollPaymentVerification> {
+  return onboardingWorkerFetch<PayrollPaymentVerification>(
+    `${workerBase(invocationId)}/verification`,
+  );
+}
+
+/**
+ * GATE 10C-E3 - "YES: THIS IS STILL HOW I WANT TO BE PAID."
+ *
+ * THE WORKER'S AFFIRMATION OF ONE EXACT RECORD, and the identity is the whole of what it carries.
+ * No payment details, no candidate, no verdict, no date and no state: those are the server's, and
+ * a body that offered them would be offering a client the chance to be its own authority.
+ *
+ * THE IDENTITY IS THE ONE HE WAS SHOWN, taken from the verification read that produced the screen
+ * and never re-fetched at the moment he presses the button. Re-fetching it is precisely how an
+ * affirmation of a record the worker never saw gets submitted, so the value handed here is the one
+ * that came back with the record on screen - and if the record has moved since, the server refuses
+ * it rather than the browser quietly agreeing to something else.
+ */
+export async function confirmOwnPayrollPaymentVerification(
+  invocationId: string,
+  input: { instructionId: string },
+): Promise<PayrollPaymentConfirmation> {
+  return onboardingWorkerFetch<PayrollPaymentConfirmation>(
+    `${workerBase(invocationId)}/verification`,
+    { method: "POST", body: { instructionId: input.instructionId } },
   );
 }

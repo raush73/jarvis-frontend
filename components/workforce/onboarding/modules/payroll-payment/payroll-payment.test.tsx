@@ -136,6 +136,20 @@ vi.mock("@/lib/workforce/payrollPaymentApi", async (importOriginal) => {
     getOwnPayrollPaymentReview: vi.fn(),
     getOwnPayrollPaymentAuthorization: vi.fn(),
     authorizeOwnPayrollPayment: vi.fn(),
+    /*
+      [ADDED BY GATE 10C-E3 SLICE 4, AND ANSWERED `NOT_APPLICABLE` THROUGHOUT THIS SUITE, which is
+      what the server actually says to every worker in it. Every scenario below is a worker
+      stating his payroll instructions for the FIRST time in a hire packet - he is not being asked
+      to verify a record already governing his pay, because there is none - so this suite goes on
+      exercising exactly the journey it always exercised, and the assertions in it keep exactly the
+      meanings they had. The verification journey is a different packet and a different situation,
+      and it is proved in `payroll-payment.verification.test.tsx`.
+
+      IT IS MOCKED RATHER THAN LEFT REAL because leaving it real would put a `fetch` in the middle
+      of this suite. The default is set in `beforeEach` beside the other five.
+    */
+    getOwnPayrollPaymentVerification: vi.fn(),
+    confirmOwnPayrollPaymentVerification: vi.fn(),
   };
 });
 
@@ -150,6 +164,7 @@ const {
   getOwnPayrollPaymentReview,
   getOwnPayrollPaymentAuthorization,
   authorizeOwnPayrollPayment,
+  getOwnPayrollPaymentVerification,
   PAYROLL_PAYMENT_MAX_DEPOSIT_ACCOUNTS,
 } = await import("@/lib/workforce/payrollPaymentApi");
 const { OnboardingRuntimeProvider } = await import(
@@ -819,6 +834,13 @@ beforeEach(() => {
     authorizationView(),
   );
   vi.mocked(authorizeOwnPayrollPayment).mockImplementation(async () => authorize());
+  // Nobody in this suite is being asked to verify a record already in force. See the mock above.
+  vi.mocked(getOwnPayrollPaymentVerification).mockImplementation(async () => ({
+    state: "NOT_APPLICABLE",
+    instructionId: null,
+    instruction: null,
+    evaluatedAt: new Date().toISOString(),
+  }));
 });
 
 afterEach(() => {
@@ -3687,15 +3709,30 @@ describe("Module 4.4 - how the worker gets paid", () => {
       expect(sent).not.toContain(ROUTING);
     });
 
-    it("offers NO way to change instructions already in force", async () => {
+    it("offers NO way to change instructions already in force, HERE", async () => {
       await reachBankAuthorization();
       await sign();
       const done = await stage("EXECUTED");
 
       /*
-        PRE_DISPATCH confirm-or-update is governed, deferred and UNBUILT. What he is told is that
-        he can tell us, which is true and needs no control; a button here would be a Slice E
-        surface arriving early.
+        [AMENDED BY GATE 10C-E3 SLICE 4, AND WHAT IT GUARDS IS NARROWER AND STRONGER THAN BEFORE.
+
+        WHAT IT USED TO SAY was that changing instructions in force was deferred and unbuilt, so no
+        control for it could exist anywhere in this capsule. That premise has been superseded: a
+        worker whose record the SERVER says needs checking is now shown it and can replace it, and
+        the last step of that replacement is this same signature.
+
+        WHAT IT SAYS NOW is that the change path is not reachable FROM HERE, and every worker in
+        this suite is exactly the worker it must not be reachable for: he has just signed his
+        FIRST instruction in a hire packet, and the verification authority answers `NOT_APPLICABLE`
+        for him throughout (see the mock at the head of this file). So this screen offers him no
+        confirm question, no change control and no PRE_DISPATCH wording - and the sentence about
+        telling us, which needs no control, is still the whole of what he is told.
+
+        THE OTHER HALF IS GUARDED WHERE IT BELONGS. That a worker the server IS asking gets the
+        question, both answers, and a replacement anchored to the record he was shown is proved in
+        `payroll-payment.verification.test.tsx`. Between the two files the property is complete: the
+        change path exists only where the server asks for it, and nowhere else.]
       */
       expect(done.querySelector("[data-pp-executed-change]")?.textContent).toMatch(
         /tell us and we will record new instructions/i,
@@ -3705,6 +3742,26 @@ describe("Module 4.4 - how the worker gets paid", () => {
         /change|update|confirm|replace/i,
       );
       expect(capsule().textContent).not.toMatch(/before (your pay|dispatch)|confirm these are still/i);
+      // Nothing on this journey asked the verification surface for anything but its answer, and
+      // nothing affirmed or replaced a record on the strength of it.
+      expect(capsule().querySelector("[data-pp-verify]")).toBeNull();
+      expect(capsule().querySelector('[data-pp-verify-action="yes"]')).toBeNull();
+    });
+
+    it("carries NO replacement claim on a first authorization (Gate 10C-E3 slice 4)", async () => {
+      /*
+        THE DEFAULT, PROVED WHERE THE ORDINARY JOURNEY IS. Slice 4 gave this request an optional
+        replacement claim, and the one thing that must never happen is it being filled in on its
+        own: an authorization that named a record to supersede without the worker having asked to
+        change anything would supersede instructions nobody asked about. Nothing infers it, so
+        this journey - the only journey in this suite - sends nothing.
+      */
+      await reachBankAuthorization();
+      await sign();
+      await stage("EXECUTED");
+
+      const [, body] = vi.mocked(authorizeOwnPayrollPayment).mock.calls[0];
+      expect((body as { replaces?: unknown }).replaces ?? null).toBeNull();
     });
 
     it("signs ONCE: a second attempt is refused and told plainly", async () => {

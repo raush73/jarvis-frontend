@@ -42,9 +42,16 @@
  *  - IT PROMISES NO PAYCHECK, no bank acceptance, no transmission and no card. What it reports
  *    afterwards is what is on record, and the recorded-outcome shape has no field for anything
  *    else.
- *  - IT OFFERS NO WAY TO CHANGE INSTRUCTIONS ALREADY IN FORCE. That is PRE_DISPATCH
- *    confirm-or-update, which remains governed, deferred and unbuilt; there is no control here for
- *    it and no client call behind one.
+ *  - IT OFFERS NO WAY TO CHANGE INSTRUCTIONS ALREADY IN FORCE ON ITS OWN INITIATIVE.
+ *
+ *    [AMENDED BY GATE 10C-E3 SLICE 4, and the amendment is narrow. What this bullet used to say -
+ *    that changing instructions in force was deferred and unbuilt - is no longer true: a worker
+ *    who was SHOWN the record governing his pay and answered "No, I need to make a change" can now
+ *    replace it, and the last step of that change is this same signature. What has NOT changed is
+ *    that nothing here decides it. This component holds no control that offers a change, resolves
+ *    no record, and compares nothing: it is handed a claim by the screen that asked him the
+ *    question, or it is handed nothing, and an act carrying nothing is refused by the server
+ *    exactly as it always was.]
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -77,7 +84,40 @@ type Props = {
   proposalToken: string;
   /** False for a packet that has left the worker's hands: shown, never acted on. */
   changeable: boolean;
+  /**
+   * [ADDED BY GATE 10C-E3 SLICE 4.] The record the worker deliberately chose to replace, or null.
+   *
+   * NULL IS THE DEFAULT AND THE OVERWHELMING CASE. It is non-null only after he pressed "No - I
+   * need to make a change" against a record he was shown, and it is the identity of THAT record -
+   * never re-read, never refreshed, never substituted for whatever is current when he signs. This
+   * component does not resolve it, does not compare it and does not display it; it hands it on,
+   * and the server decides.
+   */
+  replaces?: string | null;
+  /**
+   * The server refused the replacement because what is in force is no longer the record named.
+   *
+   * Raised so the screen that OWNS the claim can drop it and read the authority again. This
+   * component does not re-aim the act at whatever arrived instead, because a worker who has never
+   * seen that record has not asked to replace it.
+   */
+  onReplacementRefused?: () => void;
 };
+
+/**
+ * The refusals that mean a replacement claim is no longer good (Gate 10C-E3).
+ *
+ * `ALREADY_AUTHORIZED` IS ONE OF THEM HERE, AND ONLY HERE. On an ordinary authorization it means
+ * what it has always meant - the act arrived twice - and is answered exactly as before. On an
+ * authorization carrying a replacement claim it can only mean the server did not accept the claim
+ * and fell through to the default refusal, which is the same stale-screen situation as the other
+ * two: read again, do not resend.
+ */
+const REPLACEMENT_LAPSED_CODES: readonly string[] = [
+  "REPLACEMENT_INSTRUCTION_MISMATCH",
+  "NO_EFFECTIVE_INSTRUCTION",
+  "ALREADY_AUTHORIZED",
+];
 
 /** Why he may not authorize yet, in his own words. Keyed by code so none leaks as an identifier. */
 const BLOCKER_MESSAGES: Record<PayrollPaymentAuthorizationBlocker, string> = {
@@ -91,6 +131,8 @@ export function PayrollPaymentAuthorization({
   invocationId,
   proposalToken,
   changeable,
+  replaces = null,
+  onReplacementRefused,
 }: Props) {
   const [stage, setStage] = useState<PayrollPaymentAuthorizationStage | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -152,6 +194,13 @@ export function PayrollPaymentAuthorization({
           // authorization; it can never define it.
           performedForm: subject.requiredForm,
           capture: act.capture,
+          /*
+            [ADDED BY GATE 10C-E3 SLICE 4.] The claim, when there is one, and nothing when there
+            is not - the client omits the field entirely rather than sending null, so an ordinary
+            authorization is the request it always was. Nothing here decides whether a claim is
+            warranted: this component is handed one or it is not.
+          */
+          replaces: replaces ? { reviewedInstructionId: replaces } : null,
         });
         setStage(value);
         return true;
@@ -162,6 +211,20 @@ export function PayrollPaymentAuthorization({
             ? payrollPaymentRefusalMessage(code)
             : "Something went wrong at our end and nothing was put in force. Please try again.",
         );
+        /*
+          A REFUSED REPLACEMENT GOES BACK TO WHOEVER MADE THE CLAIM (Gate 10C-E3), and only when a
+          claim was actually made - so an ordinary duplicate authorization behaves exactly as it
+          did before this slice, refused and re-read in place.
+
+          It is handed UP rather than handled here because the recovery is not this component's:
+          the claim, the record on screen and the question the worker was answering all live in
+          the module, and re-aiming the act from inside here is precisely the silent re-anchoring
+          the server refused.
+        */
+        if (replaces !== null && code !== null && REPLACEMENT_LAPSED_CODES.includes(code)) {
+          onReplacementRefused?.();
+          return false;
+        }
         // Anything that says the server has moved past what was on screen is followed by a fresh
         // read, so he never signs twice against a stage that no longer exists.
         if (code === "ALREADY_AUTHORIZED" || code === "PROPOSAL_NOT_REVIEW_READY") {
@@ -172,7 +235,7 @@ export function PayrollPaymentAuthorization({
         setSubmitting(false);
       }
     },
-    [invocationId, reload, submitting],
+    [invocationId, onReplacementRefused, reload, replaces, submitting],
   );
 
   /* ---------------------------------------------------------------- render */
