@@ -1,10 +1,16 @@
 /**
  * QA-L3 - the browser client for the QA-L2 Workforce QA worker experience launcher.
  *
- * TWO CALLS, MIRRORING THE TWO ROUTES QA-L2 MOUNTS, and no third. There is deliberately no
- * function here that changes a worker's classification, consumes an entry token, establishes a
- * session, resumes an earlier invocation, or deletes anything: QA-L2 mounts no such route, and a
- * client function for one would be a request waiting for a surface to appear.
+ * THREE CALLS, MIRRORING THE THREE ROUTES THE SERVER MOUNTS, and no fourth. There is deliberately
+ * no function here that changes a worker's classification, consumes an entry token, establishes a
+ * session, resumes an earlier invocation, or deletes anything: the server mounts no such route, and
+ * a client function for one would be a request waiting for a surface to appear.
+ *
+ * THE THIRD IS THE RATIFIED SESSION-ONLY RE-ENTRY, and it is a separate function rather than a flag
+ * on the launch because it is a different act with a different contract: it sends no scope and gets
+ * back no invocation. Re-entry is NOT a resume - it names no invocation, so it has nothing to reach
+ * - it re-authenticates a TEST worker whose QA session expired and lets the delivered runtime
+ * decide what work he has.
  *
  * THE STAFF TRANSPORT IS THE DELIVERED ONE. `onboardingAdminFetch` already carries the staff
  * credential, unwraps the framework envelope, clears a rejected session on 401 and raises the
@@ -124,5 +130,45 @@ export async function launchQaWorkerExperience(
   return onboardingAdminFetch<QaWorkerExperienceLaunch>(`${BASE}/launch`, {
     method: "POST",
     body: { candidateId, scope },
+  });
+}
+
+/**
+ * What a successful session-only RE-ENTRY returns.
+ *
+ * A MIRROR OF THE SERVER'S CONTRACT, WHICH MEANS THIS TYPE IS A LIST OF ABSENCES. There is no
+ * `invocationId`, no `packetId`, no `packetVersion` and no `scope` on it, because a re-entry
+ * composes none of them - and because a type that cannot express an invocation cannot be used to
+ * build an invocation-specific URL. The browser therefore has no way to decide where this worker
+ * should land, which is correct: the delivered runtime owns that.
+ *
+ * `workerEntryToken` IS A SINGLE-USE SECRET FOR IMMEDIATE CONSUMPTION ONLY, on exactly the terms
+ * the launch type states. It exists here because the server returns it and it exists nowhere else
+ * in the browser: see `qaWorkerHandoff.ts`.
+ */
+export type QaWorkerExperienceReEntry = {
+  candidateId: string;
+  workerEntryToken: string;
+  expiresAt: string;
+};
+
+/**
+ * Re-authenticate an existing TEST worker, creating NO new onboarding work.
+ *
+ * ONE ARGUMENT, AND EVERY ABSENCE IS DELIBERATE. There is no scope parameter, because nothing is
+ * composed; no invocation, packet or step parameter, because nothing is resumed; and no override of
+ * any kind. The request body carries the candidate identifier alone, so this function cannot be
+ * made to compose a packet by a caller - the server's DTO would strip anything else regardless, but
+ * there is nothing here to send in the first place.
+ *
+ * IT CALLS ITS OWN ROUTE AND NEVER THE LAUNCH. Routing this through `/launch` with some flag would
+ * compose a real packet version, which is exactly the outcome the capability exists to avoid.
+ */
+export async function reEnterQaWorkerExperience(
+  candidateId: string,
+): Promise<QaWorkerExperienceReEntry> {
+  return onboardingAdminFetch<QaWorkerExperienceReEntry>(`${BASE}/re-enter`, {
+    method: "POST",
+    body: { candidateId },
   });
 }

@@ -3,9 +3,21 @@
 /**
  * QA-L3 - the staff QA persona launcher.
  *
- * ONE SCREEN WITH ONE ACT: choose a formally TEST-classified worker, choose which of the two
- * AUTHORIZED experiences to open, and open a NEW real onboarding run as that worker in a separate
- * tab. It is a QA facility and says so; it is not a production worker tool and contains none of one.
+ * ONE SCREEN WITH TWO DISTINCT ACTS, and the difference between them is the point:
+ *
+ *  - LAUNCH - choose a formally TEST-classified worker, choose which of the two AUTHORIZED
+ *    experiences to open, and open a NEW real onboarding run as that worker in a separate tab.
+ *  - RE-ENTER - sign that same test worker back in, creating NO new onboarding run at all, so a QA
+ *    session that expired mid-run can be resumed against the work that is already there.
+ *
+ * THEY ARE DELIBERATELY NOT ONE CONTROL WITH A CHECKBOX. An operator whose session expired halfway
+ * through a packet wants the packet he was already testing, and a launch would bury it under a newer
+ * one; an operator starting fresh QA wants a new run. Presenting them as separate acts with separate
+ * results is what keeps those two intentions from being confused for each other, and their result
+ * state is kept separate for the same reason - a re-entry panel reporting an invocation would be
+ * describing something that does not exist.
+ *
+ * It is a QA facility and says so; it is not a production worker tool and contains none of one.
  *
  * THE SCOPE IS A CHOICE BETWEEN EXACTLY TWO GOVERNED VALUES, AND IT HAS NO DEFAULT. Owner ruling
  * QA-L5-R1 authorized the surgical Payroll Payment path and the complete onboarding packet, and
@@ -28,7 +40,9 @@
  *    scopes; he cannot name a module, a module set, a workflow or an invocation kind, and the
  *    internal invocation vocabulary is not shown to him at all.
  *  - No invocation field, no packet field, no resume, reopen or rebind control. Every launch is a
- *    NEW run, which is the only thing the backend offers.
+ *    NEW run, and the re-entry act is NOT an exception to this: it takes no invocation, names no
+ *    packet, and lands the worker on the delivered onboarding home so that the APPLICATION'S OWN
+ *    RUNTIME decides what work he has. This screen never chooses a packet for a worker.
  *  - No reset, delete, clear, wipe, force-complete or force-uncomplete control, and no cleanup on
  *    failure. A run that was created stays created.
  *  - No classification editor. Whether a worker is TEST is not this screen's to change.
@@ -62,7 +76,9 @@ import {
 } from "@/lib/workforce/qaWorkerExperienceApi";
 import {
   launchQaWorkerHandoff,
+  reEnterQaWorkerHandoff,
   type QaWorkerHandoff,
+  type QaWorkerReEntry,
 } from "@/lib/workforce/qaWorkerHandoff";
 import { useOnboardingAdminResource } from "@/components/workforce/admin/useOnboardingAdminResource";
 import {
@@ -71,7 +87,7 @@ import {
   OnboardingAdminPanel,
   OnboardingAdminTimestamp,
 } from "@/components/workforce/admin/panels/DetailPanel";
-import { classifyQaLauncherError } from "./qaLauncherErrors";
+import { classifyQaLauncherError, type QaLauncherAct } from "./qaLauncherErrors";
 import { openQaWorkerTab } from "./qaWorkerTab";
 
 /**
@@ -99,8 +115,17 @@ const QA_SCOPE_COPY: Record<
   },
 };
 
-function QaNotice({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
-  const notice = classifyQaLauncherError(error);
+function QaNotice({
+  error,
+  onRetry,
+  act = "LAUNCH",
+}: {
+  error: unknown;
+  onRetry?: () => void;
+  /** Which act was refused, so the notice can state truthfully what was created. */
+  act?: QaLauncherAct;
+}) {
+  const notice = classifyQaLauncherError(error, act);
 
   return (
     <div className="oba-notice oba-notice-error" role="alert">
@@ -140,9 +165,26 @@ export default function QaWorkerExperienceLauncher() {
   const [failure, setFailure] = useState<unknown>(null);
   const [tabBlocked, setTabBlocked] = useState(false);
 
+  // RE-ENTRY STATE, KEPT SEPARATE FROM THE LAUNCH'S THROUGHOUT. Sharing `launched` would mean a
+  // panel that has an invocation field rendering a result that has no invocation, and sharing
+  // `failure` would mean a failed re-entry appearing under "Launch outcome" - which is precisely
+  // the confusion between the two acts this screen exists to prevent.
+  const [reEntering, setReEntering] = useState(false);
+  const [reEntered, setReEntered] = useState<QaWorkerReEntry | null>(null);
+  const [reEntryFailure, setReEntryFailure] = useState<unknown>(null);
+  const [reEntryTabBlocked, setReEntryTabBlocked] = useState(false);
+
   // A second click in the same tick would read a state flag that has not flushed yet. The ref is
   // the actual guard against a duplicate launch; the disabled button is the courtesy.
   const inFlight = useRef(false);
+
+  /**
+   * Either act running blocks both buttons.
+   *
+   * NOT MERELY TIDINESS: both acts establish a worker session in this browser, and two handoffs
+   * overlapping would have the second one's session consumption racing the first one's.
+   */
+  const busy = launching || reEntering;
 
   const directory = useOnboardingAdminResource(() => listQaTestWorkers(), [], {
     enabled: session.ready && session.authenticated && mayLaunch,
@@ -188,6 +230,52 @@ export default function QaWorkerExperienceLauncher() {
     })();
   };
 
+  /**
+   * Sign the selected test worker back in, creating no new onboarding run.
+   *
+   * IT NEEDS THE WORKER AND NOTHING ELSE. There is deliberately no scope read here - `scope` is not
+   * consulted by this function at all - because nothing is composed, so there is nothing for a
+   * scope to describe. That is why the button below enables on a worker selection alone.
+   *
+   * IT CALLS THE RE-ENTRY HANDOFF AND NEVER THE LAUNCH ONE, and it builds no route: the handoff
+   * returns the delivered onboarding home, and no invocation identifier passes through this
+   * function to build anything else from.
+   */
+  const reEnter = () => {
+    if (inFlight.current) return;
+    const candidateId = selected;
+    if (!candidateId) return;
+
+    inFlight.current = true;
+    setReEntering(true);
+    setReEntryFailure(null);
+    setReEntryTabBlocked(false);
+    setReEntered(null);
+
+    // Opened HERE, inside the click, so a popup blocker allows it - the same delivered helper the
+    // launch uses, for the same reason.
+    const tab = openQaWorkerTab();
+
+    void (async () => {
+      try {
+        const handoff = await reEnterQaWorkerHandoff(candidateId);
+        setReEntered(handoff);
+        if (tab) {
+          tab.navigate(handoff.workerPath);
+        } else {
+          setReEntryTabBlocked(true);
+        }
+      } catch (thrown) {
+        // Nothing to clean up, and nothing that could be cleaned up: no run was created.
+        setReEntryFailure(thrown);
+        tab?.close();
+      } finally {
+        inFlight.current = false;
+        setReEntering(false);
+      }
+    })();
+  };
+
   if (!session.ready) {
     return (
       <p className="oba-loading" role="status">
@@ -218,9 +306,10 @@ export default function QaWorkerExperienceLauncher() {
           <h1 className="oba-title">QA / test worker experience</h1>
           <p className="oba-subtitle">
             Opens a NEW real onboarding run for a formally test-classified worker and hands this
-            browser that worker&apos;s own session in a separate tab. This is a quality assurance
-            facility, not a production worker tool: no production worker can be reached from it,
-            and nothing here is a shortcut around a worker&apos;s normal secure entry.
+            browser that worker&apos;s own session in a separate tab, or re-enters an existing test
+            worker&apos;s session without creating any new onboarding work. This is a quality
+            assurance facility, not a production worker tool: no production worker can be reached
+            from it, and nothing here is a shortcut around a worker&apos;s normal secure entry.
           </p>
         </div>
       </header>
@@ -258,7 +347,7 @@ export default function QaWorkerExperienceLauncher() {
                     id={`qa-scope-${option}`}
                     value={option}
                     checked={scope === option}
-                    disabled={launching}
+                    disabled={busy}
                     onChange={() => setScope(option)}
                   />{" "}
                   <label htmlFor={`qa-scope-${option}`}>
@@ -322,7 +411,7 @@ export default function QaWorkerExperienceLauncher() {
                             id={`qa-persona-${worker.candidateId}`}
                             value={worker.candidateId}
                             checked={selected === worker.candidateId}
-                            disabled={launching}
+                            disabled={busy}
                             onChange={() => setSelected(worker.candidateId)}
                           />
                         </td>
@@ -350,7 +439,7 @@ export default function QaWorkerExperienceLauncher() {
             <button
               type="button"
               className="oba-btn oba-btn-primary"
-              disabled={!selected || !scope || launching}
+              disabled={!selected || !scope || busy}
               onClick={launch}
             >
               {launching
@@ -407,6 +496,98 @@ export default function QaWorkerExperienceLauncher() {
                 rel="noopener noreferrer"
               >
                 Open the worker experience
+              </a>
+            </OnboardingAdminPanel>
+          ) : null}
+
+          {/*
+           * RE-ENTRY - a different act with a different purpose, and it says so plainly.
+           *
+           * IT REQUIRES NO LAUNCH SCOPE, which is visible in the button's `disabled` expression:
+           * `scope` is absent from it. An operator recovering an expired session has already
+           * chosen his scope - on the run he is halfway through - and asking him to choose one
+           * again would imply this act composes something.
+           */}
+          <OnboardingAdminPanel
+            title="Re-enter an existing test worker session"
+            description="For a QA session that expired while work was already in progress."
+          >
+            <p className="oba-notice-detail">
+              This creates NO new onboarding packet and no new onboarding run. It signs you in as
+              the selected test worker again and nothing else: his existing onboarding is left
+              exactly as it is, including anything already recorded, and no launch scope is needed
+              because nothing is being composed.
+            </p>
+            <p className="oba-notice-detail">
+              The worker lands on his normal onboarding home and the application finds his
+              outstanding work itself, exactly as it would for a worker arriving from his own
+              secure link. This screen does not choose a packet for him.
+            </p>
+            <p className="oba-notice-detail">
+              {chosen
+                ? `Signs this browser in as ${chosen.displayName} in a separate tab, with no new onboarding run. Your staff session in this tab is not affected.`
+                : "Choose a test worker above to enable re-entry."}
+            </p>
+            <button
+              type="button"
+              className="oba-btn"
+              disabled={!selected || busy}
+              onClick={reEnter}
+            >
+              {reEntering ? "Re-entering…" : "Re-enter as this test worker"}
+            </button>
+          </OnboardingAdminPanel>
+
+          {reEntryFailure ? (
+            <OnboardingAdminPanel title="Re-entry outcome">
+              <QaNotice error={reEntryFailure} act="RE_ENTRY" />
+            </OnboardingAdminPanel>
+          ) : null}
+
+          {reEntered ? (
+            <OnboardingAdminPanel
+              title="Re-entered"
+              description="No new run was created. This browser now holds that worker's own session."
+            >
+              <p className="oba-notice-detail">
+                Your staff session in this tab is untouched: the worker session is stored under
+                its own separate keys, exactly as a worker arriving from his own secure link
+                would have it.
+              </p>
+              {/*
+               * NO INVOCATION FIELD AND NO SCOPE FIELD, because there is neither one to report.
+               * The re-entry result type has no shape to carry them, so this panel could not
+               * render one even if a future edit asked it to.
+               */}
+              <OnboardingAdminFieldList>
+                <OnboardingAdminField
+                  label="Worker"
+                  value={chosen?.displayName ?? reEntered.candidateId}
+                />
+                <OnboardingAdminField
+                  label="New onboarding work created"
+                  value="None"
+                  hint="Re-entry authenticates the worker only. It creates no invocation and no packet."
+                />
+                <OnboardingAdminField
+                  label="Entry link validity"
+                  value={<OnboardingAdminTimestamp value={reEntered.expiresAt} />}
+                  hint="The entry link was already used by this handoff. Entry links are single use."
+                />
+              </OnboardingAdminFieldList>
+              {reEntryTabBlocked ? (
+                <p className="oba-notice-detail">
+                  This browser blocked the new tab. The session is ready either way - open the
+                  worker&apos;s onboarding yourself:
+                </p>
+              ) : null}
+              <a
+                className="oba-btn"
+                href={reEntered.workerPath}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open the worker&apos;s onboarding
               </a>
             </OnboardingAdminPanel>
           ) : null}

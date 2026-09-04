@@ -15,6 +15,13 @@
  *
  * NOTHING CLASSIFIED HERE CAN CONTAIN THE ENTRY TOKEN. The token never reaches an error: the
  * handoff never puts it in one, and `QaWorkerHandoffError` has no field that could hold it.
+ *
+ * IT CLASSIFIES BOTH ACTS, AND THE ACT CHANGES WHAT IS TRUE RATHER THAN WHAT IS POLITE. A launch
+ * can fail AFTER composing a real invocation, so most of its notices must tell the operator that a
+ * run stands in the worker's history. A re-entry composes nothing at any point, so the same
+ * failures mean the worker's onboarding is exactly as he left it - and reporting a standing run
+ * there would contradict the guarantee the capability rests on and send him looking for a packet
+ * that was never created. `act` defaults to `LAUNCH`, so every existing caller is unchanged.
  */
 
 import {
@@ -22,6 +29,19 @@ import {
   StaffSessionMissingError,
 } from "@/lib/workforce/onboardingAdminApi";
 import { QaWorkerHandoffError } from "@/lib/workforce/qaWorkerHandoff";
+
+/**
+ * Which act was refused.
+ *
+ * THIS EXISTS BECAUSE THE TRUE SENTENCE DIFFERS, not because the wording could be nicer. Almost
+ * every notice below tells the operator what happened to the worker's history, and for a LAUNCH the
+ * honest answer is often "the run was created and stands" while for a RE_ENTRY it is ALWAYS
+ * "nothing was created". Telling a re-entry operator that a run stands would contradict the one
+ * guarantee the capability makes, and would send him looking for a packet that does not exist.
+ *
+ * DEFAULTED TO `LAUNCH`, so every existing caller keeps the exact notices it already produced.
+ */
+export type QaLauncherAct = "LAUNCH" | "RE_ENTRY";
 
 export type QaLauncherNotice = {
   title: string;
@@ -48,7 +68,25 @@ function serverSentence(error: OnboardingAdminApiError): string | null {
   return message;
 }
 
-export function classifyQaLauncherError(error: unknown): QaLauncherNotice {
+export function classifyQaLauncherError(
+  error: unknown,
+  act: QaLauncherAct = "LAUNCH",
+): QaLauncherNotice {
+  const reEntry = act === "RE_ENTRY";
+
+  /**
+   * What happened to the worker's onboarding, stated truthfully for the act that was refused.
+   *
+   * FOR A RE-ENTRY THIS IS ALWAYS THE SAME SENTENCE, because a re-entry composes nothing at any
+   * point: there is no step of it after which something would stand.
+   */
+  const historyNote = reEntry
+    ? "No onboarding run and no packet were created, and this worker's existing onboarding is untouched."
+    : "The QA run was created and is still in this worker's history - nothing was removed.";
+  const retryNote = reEntry
+    ? "Re-enter again to get a fresh one."
+    : "Launch again to get a fresh one.";
+
   if (error instanceof StaffSessionMissingError) {
     return {
       title: "Sign in to continue.",
@@ -61,13 +99,14 @@ export function classifyQaLauncherError(error: unknown): QaLauncherNotice {
   }
 
   if (error instanceof QaWorkerHandoffError) {
-    // BOTH OF THESE HAPPEN AFTER THE RUN EXISTS, which is the part the operator needs told: the
-    // invocation stands, nothing was undone, and the recovery is another launch.
+    // FOR A LAUNCH, BOTH OF THESE HAPPEN AFTER THE RUN EXISTS, which is the part the operator needs
+    // told: the invocation stands, nothing was undone, and the recovery is another launch. FOR A
+    // RE-ENTRY there was never a run to stand, so the same two stages mean the worker's onboarding
+    // is exactly as he left it.
     if (error.stage === "ENTRY_NOT_ACCEPTED") {
       return {
         title: "The worker entry link was not accepted.",
-        detail:
-          "The QA run was created and is still in this worker's history - nothing was removed. Entry links are single use and short lived, so launch again to get a fresh one.",
+        detail: `${historyNote} Entry links are single use and short lived, so ${retryNote.toLowerCase()}`,
         code: error.reason,
         retryable: false,
         signInRequired: false,
@@ -75,8 +114,9 @@ export function classifyQaLauncherError(error: unknown): QaLauncherNotice {
     }
     return {
       title: "No worker session was established in this browser.",
-      detail:
-        "The QA run was created and is still in this worker's history - nothing was removed. Your staff session is untouched. Launch again to try the handoff once more.",
+      detail: `${historyNote} Your staff session is untouched. ${
+        reEntry ? "Re-enter" : "Launch"
+      } again to try the handoff once more.`,
       code: null,
       retryable: false,
       signInRequired: false,
@@ -96,7 +136,7 @@ export function classifyQaLauncherError(error: unknown): QaLauncherNotice {
 
     if (error.status === 403) {
       return {
-        title: "This QA launch was refused.",
+        title: reEntry ? "This QA re-entry was refused." : "This QA launch was refused.",
         detail:
           serverSentence(error) ??
           "The QA worker experience launcher requires an explicit grant, an enabled environment, and a formally test-classified worker. All three are decided by the server, and it refused one of them.",
@@ -119,12 +159,24 @@ export function classifyQaLauncherError(error: unknown): QaLauncherNotice {
     }
 
     if (error.status === 503) {
+      // THE RE-ENTRY CASE IS THE SERVER'S `REENTRY_LINK_NOT_CREATED` REFUSAL, and it is reported
+      // differently from the launch's `WORKER_ENTRY_LINK_NOT_CREATED` for the reason the server
+      // separates the two codes: a failed launch can leave a real invocation standing that the
+      // operator must know about, and a failed re-entry leaves nothing at all. Telling him a run
+      // stands here would send him hunting for a packet that was never composed.
       return {
-        title: "The QA run could not be opened.",
-        detail: `${
-          serverSentence(error) ??
-          "The QA worker experience is not available in this environment."
-        } Anything already created stays in this worker's history - nothing was removed - and launching again creates a new run.`,
+        title: reEntry
+          ? "The QA re-entry could not be completed."
+          : "The QA run could not be opened.",
+        detail: reEntry
+          ? `${
+              serverSentence(error) ??
+              "The QA worker experience is not available in this environment."
+            } ${historyNote} Try re-entering again.`
+          : `${
+              serverSentence(error) ??
+              "The QA worker experience is not available in this environment."
+            } Anything already created stays in this worker's history - nothing was removed - and launching again creates a new run.`,
         code: error.code,
         retryable: true,
         signInRequired: false,
@@ -132,7 +184,7 @@ export function classifyQaLauncherError(error: unknown): QaLauncherNotice {
     }
 
     return {
-      title: "That QA launch was refused.",
+      title: reEntry ? "That QA re-entry was refused." : "That QA launch was refused.",
       detail:
         "Nothing was removed from this worker's history. Correct the request and try again.",
       code: error.code,
@@ -143,8 +195,9 @@ export function classifyQaLauncherError(error: unknown): QaLauncherNotice {
 
   return {
     title: "Something went wrong.",
-    detail:
-      "Nothing was removed from this worker's history. Please try the launch again.",
+    detail: `Nothing was removed from this worker's history. Please try the ${
+      reEntry ? "re-entry" : "launch"
+    } again.`,
     code: null,
     retryable: true,
     signInRequired: false,

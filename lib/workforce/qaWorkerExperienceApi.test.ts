@@ -29,6 +29,7 @@ import {
   QA_WORKER_EXPERIENCE_SCOPES,
   launchQaWorkerExperience,
   listQaTestWorkers,
+  reEnterQaWorkerExperience,
 } from "./qaWorkerExperienceApi";
 
 const TOKEN_KEY = "jp_accessToken";
@@ -198,6 +199,90 @@ describe("the launch request", () => {
   });
 });
 
+/* ------------------------------------------------------------------- re-entry */
+
+describe("the re-entry request", () => {
+  it("posts the candidate alone to the re-entry route with the staff credential", async () => {
+    const fetchMock = ok({
+      candidateId: CANDIDATE,
+      workerEntryToken: "raw-entry-token",
+      expiresAt: "2026-08-28T18:00:00.000Z",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await reEnterQaWorkerExperience(CANDIDATE);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/workforce/qa/worker-experience/re-enter");
+    // ITS OWN ROUTE, AND NOT THE LAUNCH. A re-entry travelling to `/launch` would compose a real
+    // packet version, which is the outcome the capability exists to avoid.
+    expect(url).not.toContain("/launch");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Headers).get("Authorization")).toBe("Bearer staff-token");
+    // ONE FIELD IN THE BODY. No scope, no invocation, no override.
+    expect(JSON.parse(String(init.body))).toEqual({ candidateId: CANDIDATE });
+    expect(result).toEqual({
+      candidateId: CANDIDATE,
+      workerEntryToken: "raw-entry-token",
+      expiresAt: "2026-08-28T18:00:00.000Z",
+    });
+  });
+
+  it("takes exactly one argument, so no scope can be supplied", () => {
+    expect(reEnterQaWorkerExperience.length).toBe(1);
+  });
+
+  it("sends no scope even when one is somehow passed alongside", async () => {
+    const fetchMock = ok({
+      candidateId: CANDIDATE,
+      workerEntryToken: "raw-entry-token",
+      expiresAt: "2026-08-28T18:00:00.000Z",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await (reEnterQaWorkerExperience as (...args: unknown[]) => Promise<unknown>)(
+      CANDIDATE,
+      "COMPLETE_PACKET",
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ candidateId: CANDIDATE });
+    expect(String(init.body)).not.toContain("COMPLETE_PACKET");
+  });
+
+  it("raises the delivered refusal contract, unwrapped, on a refusal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith(403, {
+        ok: false,
+        error: {
+          statusCode: 403,
+          code: "FORBIDDEN",
+          message: "A QA worker experience may only be re-entered as a test worker",
+        },
+      }),
+    );
+
+    const thrown = await reEnterQaWorkerExperience(CANDIDATE).catch(
+      (error: unknown) => error,
+    );
+
+    expect(thrown).toBeInstanceOf(OnboardingAdminApiError);
+    expect((thrown as OnboardingAdminApiError).status).toBe(403);
+  });
+
+  it("refuses to send anything without a staff credential", async () => {
+    localStorage.clear();
+    const fetchMock = ok({});
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(reEnterQaWorkerExperience(CANDIDATE)).rejects.toBeInstanceOf(
+      StaffSessionMissingError,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 /* ----------------------------------------------------------------- boundaries */
 
 describe("the boundaries this client keeps", () => {
@@ -210,9 +295,12 @@ describe("the boundaries this client keeps", () => {
     );
   });
 
-  it("mounts only the two routes QA-L2 offers", () => {
+  it("mounts only the three routes the server offers", () => {
     expect(source).toContain("/test-workers");
     expect(source).toContain("/launch");
+    // The ratified session-only re-entry. STILL NOT A RESUME: the forbidden list below is
+    // unchanged, and this client has no way to name an invocation on any of the three.
+    expect(source).toContain("/re-enter");
     for (const forbidden of [
       "consume",
       "resume",

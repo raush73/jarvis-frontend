@@ -31,16 +31,24 @@ import { join } from "node:path";
 
 vi.mock("./qaWorkerExperienceApi", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./qaWorkerExperienceApi")>();
-  return { ...actual, launchQaWorkerExperience: vi.fn() };
+  return {
+    ...actual,
+    launchQaWorkerExperience: vi.fn(),
+    reEnterQaWorkerExperience: vi.fn(),
+  };
 });
 
-const { launchQaWorkerExperience } = await import("./qaWorkerExperienceApi");
+const { launchQaWorkerExperience, reEnterQaWorkerExperience } = await import(
+  "./qaWorkerExperienceApi"
+);
 const {
   QA_WORKER_ENTRY_INTENT,
   QaWorkerHandoffError,
   launchQaWorkerHandoff,
+  reEnterQaWorkerHandoff,
   qaWorkerModuleSlug,
 } = await import("./qaWorkerHandoff");
+const { ONBOARDING_HOME } = await import("./onboardingRuntimeApi");
 const { getWorkerSession } = await import("./workerSession");
 
 const STAFF_TOKEN_KEY = "jp_accessToken";
@@ -54,6 +62,22 @@ function launchResponse(overrides: Record<string, unknown> = {}) {
     candidateId: CANDIDATE,
     invocationId: INVOCATION,
     scope: "PAYROLL_PAYMENT" as const,
+    workerEntryToken: ENTRY_TOKEN,
+    expiresAt: "2026-08-28T18:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/**
+ * What the server returns for a session-only re-entry.
+ *
+ * NOTE WHAT IS NOT HERE: no `invocationId` and no `scope`. The fixture mirrors the server contract
+ * exactly, so a handoff that tried to build a packet route would have nothing to build it from -
+ * which is the guarantee, tested rather than described.
+ */
+function reEntryResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    candidateId: CANDIDATE,
     workerEntryToken: ENTRY_TOKEN,
     expiresAt: "2026-08-28T18:00:00.000Z",
     ...overrides,
@@ -99,6 +123,7 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.setItem(STAFF_TOKEN_KEY, "staff-token");
   vi.mocked(launchQaWorkerExperience).mockResolvedValue(launchResponse());
+  vi.mocked(reEnterQaWorkerExperience).mockResolvedValue(reEntryResponse());
 });
 
 afterEach(() => {
@@ -398,6 +423,158 @@ describe("a handoff that stops after the run exists", () => {
   });
 });
 
+/* ------------------------------------------------------------------- re-entry */
+
+describe("a session-only re-entry handoff", () => {
+  it("calls the re-entry client and NEVER the launch client", async () => {
+    stubFetch(consumeAccepted());
+
+    await reEnterQaWorkerHandoff(CANDIDATE);
+
+    expect(vi.mocked(reEnterQaWorkerExperience)).toHaveBeenCalledWith(CANDIDATE);
+    // THE ZERO-PACKET GUARANTEE AT THIS LAYER. Routing a re-entry through the launch would compose
+    // a real packet version, which is the single outcome the capability exists to avoid.
+    expect(vi.mocked(launchQaWorkerExperience)).not.toHaveBeenCalled();
+  });
+
+  it("sends only the candidate, with no scope of any kind", async () => {
+    stubFetch(consumeAccepted());
+
+    await reEnterQaWorkerHandoff(CANDIDATE);
+
+    expect(vi.mocked(reEnterQaWorkerExperience).mock.calls[0]).toEqual([CANDIDATE]);
+  });
+
+  it("establishes the worker session through the SAME delivered chain a launch uses", async () => {
+    const fetchMock = stubFetch(consumeAccepted());
+
+    await reEnterQaWorkerHandoff(CANDIDATE);
+
+    // The SAME delivered consume route, the SAME body shape, the SAME recognized intent. There is
+    // no second authentication path for re-entry.
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/workforce/auth/magic-link/consume");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({
+      token: ENTRY_TOKEN,
+      requestedIntent: QA_WORKER_ENTRY_INTENT,
+    });
+    // And the session the DELIVERED helper wrote, under the DELIVERED key.
+    expect(getWorkerSession()).toBeTruthy();
+    expect(localStorage.getItem(WORKER_TOKEN_KEY)).toBeTruthy();
+  });
+
+  it("lands on the delivered onboarding home and builds no invocation route", async () => {
+    stubFetch(consumeAccepted());
+
+    const handoff = await reEnterQaWorkerHandoff(CANDIDATE);
+
+    expect(handoff.workerPath).toBe("/workforce/onboarding");
+    expect(handoff.workerPath).toBe(ONBOARDING_HOME);
+    // NO INVOCATION SEGMENT, NO MODULE SEGMENT, NO STEP SEGMENT. The application's own runtime
+    // owns packet discovery, and a browser that guessed here could send the worker to a
+    // superseded packet.
+    expect(handoff.workerPath).not.toContain(INVOCATION);
+    expect(handoff.workerPath).not.toContain("payroll-payment");
+    expect(handoff.workerPath.split("/").filter(Boolean)).toEqual([
+      "workforce",
+      "onboarding",
+    ]);
+  });
+
+  it("returns no token, no invocation and no scope", async () => {
+    stubFetch(consumeAccepted());
+
+    const handoff = await reEnterQaWorkerHandoff(CANDIDATE);
+
+    expect(Object.keys(handoff).sort()).toEqual([
+      "candidateId",
+      "expiresAt",
+      "workerPath",
+    ]);
+    expect(JSON.stringify(handoff)).not.toContain(ENTRY_TOKEN);
+    expect(handoff as Record<string, unknown>).not.toHaveProperty("workerEntryToken");
+    expect(handoff as Record<string, unknown>).not.toHaveProperty("invocationId");
+    expect(handoff as Record<string, unknown>).not.toHaveProperty("scope");
+  });
+
+  it("puts the entry token in no URL and in no storage of its own", async () => {
+    const fetchMock = stubFetch(consumeAccepted());
+
+    const handoff = await reEnterQaWorkerHandoff(CANDIDATE);
+
+    for (const call of fetchMock.mock.calls) {
+      expect(String(call[0])).not.toContain(ENTRY_TOKEN);
+    }
+    expect(handoff.workerPath).not.toContain(ENTRY_TOKEN);
+    expect(JSON.stringify(localStorage)).not.toContain(ENTRY_TOKEN);
+    expect(JSON.stringify(sessionStorage)).not.toContain(ENTRY_TOKEN);
+  });
+
+  it("leaves the staff session exactly as it was", async () => {
+    stubFetch(consumeAccepted());
+
+    await reEnterQaWorkerHandoff(CANDIDATE);
+
+    expect(localStorage.getItem(STAFF_TOKEN_KEY)).toBe("staff-token");
+  });
+
+  it("raises ENTRY_NOT_ACCEPTED, carrying the reason and never the token", async () => {
+    stubFetch(consumeRefused("INVALID_LINK"));
+
+    const thrown = await reEnterQaWorkerHandoff(CANDIDATE).catch(
+      (error: unknown) => error,
+    );
+
+    expect(thrown).toBeInstanceOf(QaWorkerHandoffError);
+    expect((thrown as InstanceType<typeof QaWorkerHandoffError>).stage).toBe(
+      "ENTRY_NOT_ACCEPTED",
+    );
+    expect((thrown as InstanceType<typeof QaWorkerHandoffError>).reason).toBe(
+      "INVALID_LINK",
+    );
+    expect(JSON.stringify(thrown)).not.toContain(ENTRY_TOKEN);
+    expect(String((thrown as Error).message)).not.toContain(ENTRY_TOKEN);
+  });
+
+  it("raises WORKER_SESSION_NOT_ESTABLISHED when the browser holds no worker session", async () => {
+    // Accepted by the server, but this browser could not keep it - the same case the launch suite
+    // exercises. The read-back through the delivered reader is what catches it: the re-entry path
+    // establishes no session itself and must not paper over the absence.
+    stubFetch({
+      ok: true,
+      value: {
+        ...consumeAccepted().value,
+        session: {
+          token: "worker-session-jwt",
+          tokenType: "Bearer",
+          // Already expired: the delivered helper stores it and the delivered reader refuses it.
+          expiresAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      },
+    });
+
+    const thrown = await reEnterQaWorkerHandoff(CANDIDATE).catch(
+      (error: unknown) => error,
+    );
+
+    expect(thrown).toBeInstanceOf(QaWorkerHandoffError);
+    expect((thrown as InstanceType<typeof QaWorkerHandoffError>).stage).toBe(
+      "WORKER_SESSION_NOT_ESTABLISHED",
+    );
+  });
+
+  it("attempts no cleanup on failure, because there is nothing to clean up", async () => {
+    stubFetch(consumeRefused("INVALID_LINK"));
+
+    await reEnterQaWorkerHandoff(CANDIDATE).catch(() => undefined);
+
+    // No compensating call was made, and the launch client was never reached at any point.
+    expect(vi.mocked(launchQaWorkerExperience)).not.toHaveBeenCalled();
+    expect(localStorage.getItem(STAFF_TOKEN_KEY)).toBe("staff-token");
+  });
+});
+
 /* ----------------------------------------------------------------- boundaries */
 
 describe("the boundaries this handoff keeps", () => {
@@ -480,5 +657,31 @@ describe("the boundaries this handoff keeps", () => {
     expect(source).toContain("modulePath(");
     expect(source).not.toContain('"/workforce/onboarding');
     expect(source).not.toContain("`/workforce/onboarding");
+  });
+
+  it("builds NO route at all inside the re-entry function", () => {
+    // THE RE-ENTRY FUNCTION'S BODY, READ FROM SOURCE. It may reference `ONBOARDING_HOME` and
+    // nothing else: `modulePath` and `packetPath` both require an invocation identifier, and a
+    // re-entry has none to give them. Asserting this against the source rather than only against
+    // the returned value is what makes it survive a refactor that changed the route helpers.
+    const body = source.slice(source.indexOf("export async function reEnterQaWorkerHandoff"));
+    expect(body).toContain("ONBOARDING_HOME");
+    expect(body).not.toContain("modulePath(");
+    expect(body).not.toContain("packetPath(");
+    expect(body).not.toContain("invocationId");
+    expect(body).not.toContain("qaWorkerLandingPath(");
+    expect(body).not.toContain("qaWorkerModuleSlug(");
+    // And it does not reach the launch client either.
+    expect(body).not.toContain("launchQaWorkerExperience(");
+  });
+
+  it("keeps the re-entry return shape free of a token and an invocation", () => {
+    const shape = source.slice(
+      source.indexOf("export type QaWorkerReEntry"),
+      source.indexOf("export async function reEnterQaWorkerHandoff"),
+    );
+    expect(shape).not.toContain("workerEntryToken");
+    expect(shape).not.toContain("invocationId");
+    expect(shape).not.toContain("scope");
   });
 });

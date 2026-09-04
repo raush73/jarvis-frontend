@@ -37,11 +37,19 @@
  * A FAILURE AFTER THE LAUNCH UNDOES NOTHING. The invocation QA-L2 created is a real packet version
  * in the worker's history; there is no delete, reset, rollback or compensating call here, and there
  * must never be one. The recovery is another launch, which produces another new run.
+ *
+ * TWO HANDOFFS OVER THAT ONE CHAIN, SHARING EVERY LINK OF IT FROM THE TOKEN ONWARD.
+ * `launchQaWorkerHandoff` hands over a NEW run and lands where the server's scope says. The ratified
+ * `reEnterQaWorkerHandoff` hands over the SAME worker with no new run at all and lands on the
+ * delivered onboarding home, leaving packet discovery to the application's normal runtime. Both use
+ * the same consume call, the same session helper and the same token-free return discipline; neither
+ * authenticates a worker itself.
  */
 
-import { modulePath, packetPath } from "./onboardingRuntimeApi";
+import { ONBOARDING_HOME, modulePath, packetPath } from "./onboardingRuntimeApi";
 import {
   launchQaWorkerExperience,
+  reEnterQaWorkerExperience,
   type QaWorkerExperienceScope,
 } from "./qaWorkerExperienceApi";
 import { getWorkerSession } from "./workerSession";
@@ -183,5 +191,72 @@ export async function launchQaWorkerHandoff(
     // Built from the SERVER'S scope and the SERVER'S invocation, never from the request: what was
     // actually composed is the server's answer, and a route built from the ask could disagree.
     workerPath: qaWorkerLandingPath(launch.invocationId, launch.scope),
+  };
+}
+
+/**
+ * A completed session-only RE-ENTRY: the facts a QA operator needs, and no secret.
+ *
+ * NO TOKEN FIELD, on exactly the terms `QaWorkerHandoff` states - and NO INVOCATION FIELD EITHER,
+ * which is the difference. A re-entry composed nothing, so there is no invocation, packet, version
+ * or scope to report, and `workerPath` is therefore the onboarding HOME rather than a route into a
+ * particular packet. A shape that cannot carry an invocation cannot be used to navigate to one.
+ */
+export type QaWorkerReEntry = {
+  candidateId: string;
+  /** When the (already consumed) entry token would have stopped working. */
+  expiresAt: string;
+  /** Always the delivered onboarding home. The application decides what happens next. */
+  workerPath: string;
+};
+
+/**
+ * Re-authenticate an existing TEST worker and hand the browser to the real worker runtime.
+ *
+ * THE SAME CHAIN AS A LAUNCH FROM THE SECOND LINK ONWARD, AND THE SAME CODE PATH FOR IT. The token
+ * goes straight into the delivered `consumeWorkforceLink`, the delivered helper inside it writes the
+ * session under the delivered keys, and the session is read back through the delivered
+ * `getWorkerSession`. Nothing here decodes, rewrites, re-signs or manufactures a token, assembles a
+ * session by hand, or invents a storage format - and no second authentication path exists for
+ * re-entry, which is the reason this function is nine lines rather than a subsystem.
+ *
+ * IT LANDS ON `ONBOARDING_HOME` AND CANNOT LAND ANYWHERE ELSE. `modulePath` and `packetPath` are
+ * not reachable from this function: both need an invocation identifier, and this function never
+ * receives one, never requests one and has nowhere to put one. THE APPLICATION'S NORMAL RUNTIME
+ * OWNS PACKET DISCOVERY - which is the correct authority for it and the whole reason re-entry is
+ * safe. A browser that guessed a packet here could send the worker to a superseded one, or to one
+ * that is no longer writable, and would be asserting something only the server can know.
+ *
+ * A FAILURE HERE UNDOES NOTHING AND HAS NOTHING TO UNDO. Unlike a launch, no invocation was created
+ * before the handoff, so an unaccepted entry link leaves the worker's onboarding exactly as it was.
+ * The recovery is another re-entry, which still creates nothing.
+ */
+export async function reEnterQaWorkerHandoff(
+  candidateId: string,
+): Promise<QaWorkerReEntry> {
+  const reEntry = await reEnterQaWorkerExperience(candidateId);
+
+  // The raw entry token is read off the response and passed straight into the delivered consume
+  // call, exactly as the launch handoff does. It is never assigned to a variable of its own and
+  // never copied, and the response it arrived on becomes unreachable when this function returns.
+  const entry = await consumeWorkforceLink(
+    reEntry.workerEntryToken,
+    QA_WORKER_ENTRY_INTENT,
+  );
+
+  if (!entry.authenticated) {
+    throw new QaWorkerHandoffError("ENTRY_NOT_ACCEPTED", entry.reason ?? null);
+  }
+
+  if (!getWorkerSession()) {
+    throw new QaWorkerHandoffError("WORKER_SESSION_NOT_ESTABLISHED");
+  }
+
+  // Built field by field, deliberately: a spread of the response would carry the token out of this
+  // scope, which is the one thing this file exists to prevent.
+  return {
+    candidateId: reEntry.candidateId,
+    expiresAt: reEntry.expiresAt,
+    workerPath: ONBOARDING_HOME,
   };
 }

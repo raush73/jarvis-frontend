@@ -40,6 +40,7 @@ vi.mock("@/lib/workforce/qaWorkerExperienceApi", async (importOriginal) => {
     ...actual,
     listQaTestWorkers: vi.fn(),
     launchQaWorkerExperience: vi.fn(),
+    reEnterQaWorkerExperience: vi.fn(),
   };
 });
 
@@ -51,8 +52,12 @@ vi.mock("@/lib/workforce/workforceApi", async (importOriginal) => {
 const session = vi.fn();
 vi.mock("@/lib/auth/useSession", () => ({ useSession: () => session() }));
 
-const { listQaTestWorkers, launchQaWorkerExperience, QA_WORKER_EXPERIENCE_LAUNCH_PERMISSION } =
-  await import("@/lib/workforce/qaWorkerExperienceApi");
+const {
+  listQaTestWorkers,
+  launchQaWorkerExperience,
+  reEnterQaWorkerExperience,
+  QA_WORKER_EXPERIENCE_LAUNCH_PERMISSION,
+} = await import("@/lib/workforce/qaWorkerExperienceApi");
 const { consumeWorkforceLink } = await import("@/lib/workforce/workforceApi");
 const { OnboardingAdminApiError } = await import("@/lib/workforce/onboardingAdminApi");
 const { saveWorkerSession } = await import("@/lib/workforce/workerSession");
@@ -92,6 +97,21 @@ function launchResponse(overrides: Record<string, unknown> = {}) {
     candidateId: CANDIDATE,
     invocationId: INVOCATION,
     scope: "PAYROLL_PAYMENT" as const,
+    workerEntryToken: ENTRY_TOKEN,
+    expiresAt: "2026-08-28T18:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/**
+ * What the server returns for a session-only re-entry.
+ *
+ * NO `invocationId` AND NO `scope`, mirroring the server contract exactly. The screen therefore has
+ * nothing to build an invocation route from even if a future edit tried to.
+ */
+function reEntryResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    candidateId: CANDIDATE,
     workerEntryToken: ENTRY_TOKEN,
     expiresAt: "2026-08-28T18:00:00.000Z",
     ...overrides,
@@ -162,8 +182,20 @@ async function choose(scope: string) {
   chooseScope(scope);
 }
 
+/**
+ * The LAUNCH button specifically.
+ *
+ * ANCHORED ON `Launch` BECAUSE THE RE-ENTRY BUTTON ALSO ENDS IN "as this test worker". The two acts
+ * are deliberately worded in parallel for an operator, so a test selector has to distinguish them
+ * on the verb - and a helper that matched both would silently start asserting the wrong act.
+ */
 function launchButton() {
-  return screen.getByRole("button", { name: /as this test worker$/ });
+  return screen.getByRole("button", { name: /^Launch .*as this test worker$/ });
+}
+
+/** The RE-ENTRY button specifically, by its exact ratified wording. */
+function reEnterButton() {
+  return screen.getByRole("button", { name: "Re-enter as this test worker" });
 }
 
 /** The scope the LAUNCHED panel reports, read off the outcome and not off the chooser. */
@@ -184,6 +216,7 @@ beforeEach(() => {
   session.mockReturnValue(fixtureSession([LAUNCH_GRANT]));
   vi.mocked(listQaTestWorkers).mockResolvedValue(DIRECTORY);
   vi.mocked(launchQaWorkerExperience).mockResolvedValue(launchResponse());
+  vi.mocked(reEnterQaWorkerExperience).mockResolvedValue(reEntryResponse());
   vi.mocked(consumeWorkforceLink).mockImplementation(consumeAcceptsAndEstablishes());
   openedTab = tabStub();
   openWindow = vi.fn(() => openedTab);
@@ -758,6 +791,242 @@ describe("a refused or failed launch", () => {
 
 /* ---------------------------------------------------------- what is not there */
 
+/* ------------------------------------------------------------------- re-entry */
+
+describe("the session-only re-entry act", () => {
+  it("renders with its ratified wording", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await screen.findByText("Fixture, Alpha");
+
+    expect(
+      screen.getByRole("button", { name: "Re-enter as this test worker" }),
+    ).toBeTruthy();
+  });
+
+  it("enables on a worker selection ALONE, with no launch scope chosen", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await screen.findByText("Fixture, Alpha");
+
+    // Disabled with nothing selected...
+    expect((reEnterButton() as HTMLButtonElement).disabled).toBe(true);
+
+    await chooseFirstPersona();
+
+    // ...and enabled by the worker alone. NO SCOPE WAS CHOSEN, and the launch button proves it is
+    // still waiting for one - which is what makes this a genuinely different precondition rather
+    // than the same one worded differently.
+    expect((reEnterButton() as HTMLButtonElement).disabled).toBe(false);
+    expect(scopeRadios().every((radio) => !radio.checked)).toBe(true);
+    expect((launchButton() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("calls re-entry and NEVER the launch", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await chooseFirstPersona();
+
+    fireEvent.click(reEnterButton());
+    await waitFor(() =>
+      expect(vi.mocked(reEnterQaWorkerExperience)).toHaveBeenCalledTimes(1),
+    );
+
+    // THE ZERO-PACKET GUARANTEE AT THE UI LAYER: the launch client, which is what composes a
+    // packet version, was never reached.
+    expect(vi.mocked(reEnterQaWorkerExperience)).toHaveBeenCalledWith(CANDIDATE);
+    expect(vi.mocked(launchQaWorkerExperience)).not.toHaveBeenCalled();
+  });
+
+  it("sends no scope, even after the operator has chosen one for a launch", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await choose("COMPLETE_PACKET");
+
+    fireEvent.click(reEnterButton());
+    await waitFor(() =>
+      expect(vi.mocked(reEnterQaWorkerExperience)).toHaveBeenCalledTimes(1),
+    );
+
+    // A scope selected on the page does not leak into an act that composes nothing.
+    expect(vi.mocked(reEnterQaWorkerExperience).mock.calls[0]).toEqual([CANDIDATE]);
+    expect(vi.mocked(launchQaWorkerExperience)).not.toHaveBeenCalled();
+  });
+
+  it("establishes the worker session through the SAME delivered handoff a launch uses", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await chooseFirstPersona();
+
+    fireEvent.click(reEnterButton());
+    await screen.findByText("Re-entered");
+
+    // The SAME delivered consume, with the SAME recognized intent, and the session written by the
+    // DELIVERED helper under the DELIVERED key. No second authentication path exists.
+    expect(vi.mocked(consumeWorkforceLink)).toHaveBeenCalledWith(
+      ENTRY_TOKEN,
+      "COMPLETE_ONBOARDING",
+    );
+    expect(localStorage.getItem(WORKER_TOKEN_KEY)).toBeTruthy();
+    // And the staff session in this tab is untouched.
+    expect(localStorage.getItem(STAFF_TOKEN_KEY)).toBe("staff-token");
+  });
+
+  it("navigates the worker tab to /workforce/onboarding and to no invocation route", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await chooseFirstPersona();
+
+    fireEvent.click(reEnterButton());
+    await screen.findByText("Re-entered");
+
+    expect(openWindow).toHaveBeenCalled();
+    // Resolved against this application's own origin by the delivered tab helper, exactly as a
+    // launch destination is.
+    expect(new URL(openedTab.location.href).pathname).toBe("/workforce/onboarding");
+    // NO INVOCATION SEGMENT AND NO MODULE SEGMENT. The application's normal runtime discovers the
+    // worker's outstanding packet; this screen never chooses one for him.
+    expect(openedTab.location.href).not.toContain(INVOCATION);
+    expect(openedTab.location.href).not.toContain("payroll-payment");
+    expect(openedTab.location.href).not.toContain(ENTRY_TOKEN);
+  });
+
+  it("reports no invocation and no scope on its result, and says nothing was created", async () => {
+    const { container } = render(<QaWorkerExperienceLauncher />);
+    await chooseFirstPersona();
+
+    fireEvent.click(reEnterButton());
+    const panel = await screen.findByText("Re-entered");
+    const outcome = panel.closest(".oba-panel") ?? container;
+    const text = outcome.textContent ?? "";
+
+    expect(text).not.toContain(INVOCATION);
+    expect(text).not.toContain(ENTRY_TOKEN);
+    // The operator is told plainly what did NOT happen, which is the whole reason he chose this
+    // act over a launch.
+    expect(container.textContent).toContain(
+      "This creates NO new onboarding packet and no new onboarding run",
+    );
+  });
+
+  it("puts the entry token in no rendered text, no URL and no storage", async () => {
+    const { container } = render(<QaWorkerExperienceLauncher />);
+    await chooseFirstPersona();
+
+    fireEvent.click(reEnterButton());
+    await screen.findByText("Re-entered");
+
+    expect(container.textContent ?? "").not.toContain(ENTRY_TOKEN);
+    expect(container.innerHTML).not.toContain(ENTRY_TOKEN);
+    expect(JSON.stringify(localStorage)).not.toContain(ENTRY_TOKEN);
+    expect(JSON.stringify(sessionStorage)).not.toContain(ENTRY_TOKEN);
+    for (const anchor of Array.from(container.querySelectorAll("a"))) {
+      expect(anchor.getAttribute("href") ?? "").not.toContain(ENTRY_TOKEN);
+    }
+  });
+
+  it("cannot be submitted twice while one is in flight", async () => {
+    let release: (value: unknown) => void = () => undefined;
+    vi.mocked(reEnterQaWorkerExperience).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }) as Promise<ReturnType<typeof reEntryResponse>>,
+    );
+
+    render(<QaWorkerExperienceLauncher />);
+    await chooseFirstPersona();
+
+    // The SAME node, clicked three times in the same tick. Re-querying would miss it: the label
+    // becomes "Re-entering…" immediately, which is the courtesy - the ref inside the component is
+    // the actual guard, and that is what this exercises.
+    const button = reEnterButton();
+    fireEvent.click(button);
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(vi.mocked(reEnterQaWorkerExperience)).toHaveBeenCalledTimes(1);
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    release(reEntryResponse());
+    await screen.findByText("Re-entered");
+  });
+
+  it("shows a useful QA error when re-entry is refused, and reports no launch", async () => {
+    vi.mocked(reEnterQaWorkerExperience).mockRejectedValue(
+      new OnboardingAdminApiError({
+        status: 403,
+        code: "FORBIDDEN",
+        message: "A QA worker experience may only be re-entered as a test worker",
+      }),
+    );
+
+    render(<QaWorkerExperienceLauncher />);
+    await chooseFirstPersona();
+
+    fireEvent.click(reEnterButton());
+
+    // Its OWN outcome panel, with the server's own sentence - not the launch's panel.
+    await screen.findByText("Re-entry outcome");
+    expect(
+      screen.getByText("A QA worker experience may only be re-entered as a test worker"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Re-entered")).toBeNull();
+    expect(screen.queryByText("Launch outcome")).toBeNull();
+    // The tab that was opened optimistically is closed again.
+    expect(openedTab.close).toHaveBeenCalled();
+  });
+
+  it("tells the operator truthfully that nothing was created when a handoff fails", async () => {
+    // A refused entry link. For a LAUNCH this notice reports a run standing in the worker's
+    // history; for a RE-ENTRY there is no run, and saying otherwise would contradict the guarantee
+    // the panel above it just made.
+    vi.mocked(consumeWorkforceLink).mockResolvedValue({
+      authenticated: false as const,
+      reason: "INVALID_LINK",
+    } as never);
+
+    const { container } = render(<QaWorkerExperienceLauncher />);
+    await chooseFirstPersona();
+
+    fireEvent.click(reEnterButton());
+    await screen.findByText("Re-entry outcome");
+
+    const text = container.textContent ?? "";
+    expect(text).toContain(
+      "No onboarding run and no packet were created, and this worker's existing onboarding is untouched.",
+    );
+    expect(text).not.toContain("The QA run was created and is still in this worker's history");
+  });
+
+  it("keeps its result state entirely separate from the launch's", async () => {
+    render(<QaWorkerExperienceLauncher />);
+    await choose("PAYROLL_PAYMENT");
+
+    // A launch first...
+    fireEvent.click(launchButton());
+    await screen.findByText("Launched");
+    expect(screen.queryByText("Re-entered")).toBeNull();
+
+    // ...then a re-entry, which reports itself and clears nothing of the launch's.
+    fireEvent.click(reEnterButton());
+    await screen.findByText("Re-entered");
+    expect(screen.getByText("Launched")).toBeTruthy();
+
+    // The launch panel still reports its invocation; the re-entry panel reports none.
+    const reEntryPanel = screen.getByText("Re-entered").closest(".oba-panel");
+    expect(reEntryPanel?.textContent ?? "").not.toContain(INVOCATION);
+    const launchPanel = screen.getByText("Launched").closest(".oba-panel");
+    expect(launchPanel?.textContent ?? "").toContain(INVOCATION);
+  });
+
+  it("is not offered at all to a caller without the sensitive grant", async () => {
+    session.mockReturnValue(fixtureSession([]));
+
+    render(<QaWorkerExperienceLauncher />);
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Re-enter as this test worker" }),
+      ).toBeNull(),
+    );
+    expect(vi.mocked(reEnterQaWorkerExperience)).not.toHaveBeenCalled();
+  });
+});
+
 describe("what this surface deliberately does not offer", () => {
   it("has no free-text field to name a worker, a packet or an invocation", async () => {
     const { container } = render(<QaWorkerExperienceLauncher />);
@@ -796,12 +1065,15 @@ describe("what this surface deliberately does not offer", () => {
     expect(personaRadios().length).toBe(DIRECTORY.length);
   });
 
-  it("offers exactly one act, and it is the launch", async () => {
+  it("offers exactly two acts - the launch and the ratified re-entry - and no third", async () => {
     render(<QaWorkerExperienceLauncher />);
     await screen.findByText("Fixture, Alpha");
 
-    expect(screen.getAllByRole("button").length).toBe(1);
+    // STILL AN EXHAUSTIVE COUNT, so a third act added to this screen without a governance
+    // decision behind it fails here exactly as a second one used to.
+    expect(screen.getAllByRole("button").length).toBe(2);
     expect(launchButton()).toBeTruthy();
+    expect(reEnterButton()).toBeTruthy();
   });
 });
 
