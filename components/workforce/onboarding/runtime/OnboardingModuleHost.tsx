@@ -28,6 +28,7 @@ import OnboardingProgress from "./OnboardingProgress";
 import OnboardingErrorNotice from "./OnboardingErrorNotice";
 import OnboardingNavigation from "./OnboardingNavigation";
 import RestartNotice from "./RestartNotice";
+import OnboardingWorkerIdentity from "./OnboardingWorkerIdentity";
 
 type Props = {
   invocationId: string;
@@ -49,6 +50,7 @@ export function OnboardingModuleHost({ invocationId, moduleSlug, stepSlug }: Pro
     refreshPacketIfStale,
     findPacket,
     findModule,
+    workerDisplayName,
   } = useOnboardingRuntime();
 
   useEffect(() => {
@@ -129,10 +131,25 @@ export function OnboardingModuleHost({ invocationId, moduleSlug, stepSlug }: Pro
   */
   const changeable = activeModule.restart.posture !== "CLOSED";
 
+  /*
+    WHETHER THE WORKER FINISHED THIS SECTION, AND NOTHING ELSE.
+
+    Read from `derivedStatus`, which the module rail and every operator surface already read,
+    so the words here cannot disagree with the status chip beside them. `COMPLETE` is matched
+    exactly and no other state is treated as success: a worker phase finished but awaiting our
+    team is real, tracked, and NOT the same as complete, and calling it complete would tell
+    him a section was closed while MW4H still owed work on it.
+
+    It is a statement about the RECORD, never about whether the section can be changed. That
+    remains the restart posture's answer above, and completion does not soften it.
+  */
+  const moduleComplete = activeModule.derivedStatus.state === "COMPLETE";
+
   return (
     <div className="wf-shell ob-shell">
       <header className="wf-head">
         <p className="wf-eyebrow">Onboarding</p>
+        <OnboardingWorkerIdentity name={workerDisplayName} />
         <h1 className="wf-title">{activeModule.title}</h1>
         <OnboardingProgress completion={packet.completion} />
       </header>
@@ -155,7 +172,11 @@ export function OnboardingModuleHost({ invocationId, moduleSlug, stepSlug }: Pro
 
           <h2 className="wf-section-title">{step.title}</h2>
 
-          <RestartNotice restart={activeModule.restart} subject="This section" />
+          <RestartNotice
+            restart={activeModule.restart}
+            subject="This section"
+            complete={moduleComplete}
+          />
 
           {draft?.saveError ? (
             <OnboardingErrorNotice
@@ -165,7 +186,39 @@ export function OnboardingModuleHost({ invocationId, moduleSlug, stepSlug }: Pro
             />
           ) : null}
 
-          {!changeable ? (
+          {!changeable && moduleComplete ? (
+            /*
+              A SECTION HE FINISHED, SAID SO.
+
+              Read-only and complete are two different facts, and this branch exists because
+              only stating the first left a worker who had just signed looking at a screen
+              that talked about work he still had to do. Completion is stated first and in his
+              terms; that the record can no longer be changed here is stated after it, where
+              it reads as the consequence of being finished rather than as a refusal.
+
+              NO SECTION CONTENT IS RENDERED, exactly as in the read-only case below. The
+              renderer stays unmounted, so there is no input and no act to reach, and nothing
+              about this branch relaxes what the server would refuse to write. It also means
+              no captured value passes through here: the confirmation is that the record is on
+              file, and protected banking, tax and identity values stay where they are.
+            */
+            <div
+              className="ob-module-complete"
+              role="status"
+              data-readonly-module={activeModule.moduleKey}
+              data-module-complete={activeModule.moduleKey}
+            >
+              <p className="ob-module-complete-title">{activeModule.title} complete</p>
+              <p className="ob-module-complete-body">
+                What you entered has been saved and your submission was recorded
+                successfully. It is now on file with MW4H, and you do not need to enter it
+                again.
+              </p>
+              <p className="ob-module-complete-note">
+                This section is shown for reference only. Nothing here can be changed now.
+              </p>
+            </div>
+          ) : !changeable ? (
             <p className="wf-empty" data-readonly-module={activeModule.moduleKey}>
               This section is shown for reference only. Nothing here can be changed now.
             </p>

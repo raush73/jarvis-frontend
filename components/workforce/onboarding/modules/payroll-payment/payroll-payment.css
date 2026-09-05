@@ -112,13 +112,34 @@
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  border: 1px solid var(--color-border, #d7dbe2);
+  /* The payment-method card is the choice's boundary, so it carries the dark edge. */
+  border: 1px solid var(--wf-control-border, #111827);
   border-radius: 10px;
   padding: 14px;
+  background: var(--color-bg-card, #ffffff);
+}
+
+.pp-choice:has(input:disabled) {
+  border-color: var(--wf-control-border-inactive, #d1d5db);
+  background: var(--wf-control-bg-inactive, #f3f4f6);
+  color: var(--color-text-soft, #6b7280);
+  cursor: not-allowed;
 }
 
 .pp-choice input {
   margin-top: 3px;
+}
+
+/* Native controls, kept native. See the note on `.wf-choice input` in workforce.css. */
+.pp-choice input,
+.pp-radio input {
+  accent-color: var(--color-accent-primary, #2563eb);
+}
+
+.pp-choice input:focus-visible,
+.pp-radio input:focus-visible {
+  outline: 2px solid var(--color-accent-primary, #2563eb);
+  outline-offset: 2px;
 }
 
 .pp-choice-body {
@@ -189,20 +210,56 @@
   font-size: 0.95rem;
 }
 
+/*
+  ---------------------------------------------------------------- entry boundary
+
+  This module's text fields predate the shared worker control and carry their own class, so
+  the shared boundary token is applied to them here as well rather than left behind. The
+  token is declared on the workforce page root this module renders inside; the literal is the
+  fallback for a control rendered outside that root, so the field is never left faint.
+
+  It is the same near-black edge, the same louder focus ring, the same thickened error and
+  the same recessed not-editable treatment the shared control uses - the worker crosses
+  between this module and the others and must not meet two different ideas of where to type.
+*/
 .pp-input {
-  border: 1px solid var(--color-border, #d7dbe2);
+  border: 1px solid var(--wf-control-border, #111827);
   border-radius: 8px;
   padding: 10px 12px;
   font: inherit;
   min-width: 0;
+  color: var(--color-text-primary, #111827);
+  background: var(--color-bg-card, #ffffff);
 }
 
 .pp-input-narrow {
   max-width: 8rem;
 }
 
+.pp-input:focus {
+  outline: 2px solid var(--color-accent-primary, #2563eb);
+  outline-offset: 1px;
+  border-color: var(--color-accent-primary, #2563eb);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle-border, #bfdbfe);
+}
+
+/*
+  The error border was an UNDEFINED token falling back to a pale rose that read as decoration
+  rather than as a problem. It now uses the danger token every other Jarvis error uses, and
+  thickens, so it separates from both the dark resting edge and the blue focus ring.
+*/
 .pp-input[aria-invalid="true"] {
-  border-color: var(--color-error-border, #d98b87);
+  border-color: var(--color-danger, #dc2626);
+  border-width: 2px;
+  box-shadow: 0 0 0 3px var(--color-danger-bg, #fff1f2);
+}
+
+.pp-input:disabled,
+.pp-input[readonly] {
+  border-color: var(--wf-control-border-inactive, #d1d5db);
+  background: var(--wf-control-bg-inactive, #f3f4f6);
+  color: var(--color-text-soft, #6b7280);
+  cursor: not-allowed;
 }
 
 .pp-suffix-wrap {

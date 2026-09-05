@@ -230,6 +230,43 @@
   font-size: 0.9rem;
 }
 
+/*
+  A section the worker finished, confirmed as finished.
+
+  Reads as success rather than as a refusal: a calm green boundary, the completion stated
+  first, and the read-only consequence in muted text after it. It stays inside the same card
+  the section content would have occupied, so nothing about the page reflows on completion,
+  and it stays short enough to read on a phone without scrolling.
+*/
+.ob-module-complete {
+  background: #f2fbf5;
+  border: 1px solid #b7e0c4;
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin: 0;
+}
+
+.ob-module-complete-title {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  font-weight: 650;
+  color: #15603a;
+}
+
+.ob-module-complete-body {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--color-text-primary, #111827);
+}
+
+.ob-module-complete-note {
+  margin: 8px 0 0;
+  font-size: 0.86rem;
+  color: var(--color-text-soft, #6b7280);
+}
+
 .ob-session-notice {
   border-radius: 8px;
   padding: 14px 16px;

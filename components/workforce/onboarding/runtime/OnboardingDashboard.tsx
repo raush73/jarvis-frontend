@@ -18,11 +18,13 @@ import { useOnboardingRuntime } from "./OnboardingRuntimeContext";
 import OnboardingErrorNotice from "./OnboardingErrorNotice";
 import OnboardingPacketSelection from "./OnboardingPacketSelection";
 import PacketCard from "./PacketCard";
+import OnboardingWorkerIdentity from "./OnboardingWorkerIdentity";
 import OnboardingWorkerStatusSummary from "../status/OnboardingWorkerStatusSummary";
 import OnboardingWorkerCompletionDetail from "../status/OnboardingWorkerCompletionDetail";
 
 export function OnboardingDashboard() {
-  const { runtime, loading, error, reload } = useOnboardingRuntime();
+  const { runtime, loading, error, reload, workerDisplayName } =
+    useOnboardingRuntime();
 
   if (loading && !runtime) {
     return <p className="wf-loading">Loading your onboarding.</p>;
@@ -57,6 +59,7 @@ export function OnboardingDashboard() {
     <div className="ob-dashboard">
       <header className="wf-head">
         <p className="wf-eyebrow">Onboarding</p>
+        <OnboardingWorkerIdentity name={workerDisplayName} />
         <h1 className="wf-title">
           {everythingDone ? "Your onboarding is complete" : "Your onboarding"}
         </h1>

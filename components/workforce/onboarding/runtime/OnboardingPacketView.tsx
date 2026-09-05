@@ -23,13 +23,21 @@ import OnboardingErrorNotice from "./OnboardingErrorNotice";
 import OnboardingProgress from "./OnboardingProgress";
 import ModuleCard from "./ModuleCard";
 import RestartNotice from "./RestartNotice";
+import OnboardingWorkerIdentity from "./OnboardingWorkerIdentity";
 import { formatActivity } from "./PacketCard";
 import OnboardingDocumentCapture from "../documents/OnboardingDocumentCapture";
 import OnboardingExecutionCapture from "../execution/OnboardingExecutionCapture";
 
 export function OnboardingPacketView({ invocationId }: { invocationId: string }) {
-  const { runtime, loading, error, reload, refreshPacketIfStale, findPacket } =
-    useOnboardingRuntime();
+  const {
+    runtime,
+    loading,
+    error,
+    reload,
+    refreshPacketIfStale,
+    findPacket,
+    workerDisplayName,
+  } = useOnboardingRuntime();
   const packet = findPacket(invocationId);
 
   /*
@@ -92,6 +100,7 @@ export function OnboardingPacketView({ invocationId }: { invocationId: string })
     <div className="ob-packet-view">
       <header className="wf-head">
         <p className="wf-eyebrow">Onboarding</p>
+        <OnboardingWorkerIdentity name={workerDisplayName} />
         <h1 className="wf-title">Your sections</h1>
         <OnboardingProgress completion={packet.completion} />
         {lastActivity ? (

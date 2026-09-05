@@ -17,7 +17,30 @@ type Props = {
   restart: OnboardingRestartInfo;
   /** What the worker is about to re-enter, for the sentence. */
   subject: string;
+  /**
+   * Whether the subject is RECORDED COMPLETE, as the server's status authority says.
+   *
+   * Supplied only where that fact is known and never derived here. It exists because one
+   * closed reason describes work the worker still owes, and a subject he has already
+   * finished is not that - see `REASON_EXPLAINED_BY_COMPLETION`.
+   */
+  complete?: boolean;
 };
+
+/**
+ * The one closed reason that MISDESCRIBES a completed subject.
+ *
+ * `PACKET_NOT_CURRENTLY_BOUND` is emitted for anything not writable, which a finished
+ * packet is not - so a section the worker successfully completed reaches it and gets told to
+ * go and finish the work first. That sentence is about outstanding work, and there is none.
+ *
+ * It is suppressed here rather than reworded because the surface that knows the subject is
+ * complete states that plainly in its own right; two messages about one fact would be worse
+ * than the one that is accurate. EVERY OTHER CLOSED REASON IS LEFT EXACTLY AS IT WAS:
+ * submitted, staff-completed and dependency-blocked are all true of a completed subject too,
+ * and none of them tells the worker he has unfinished work.
+ */
+const REASON_EXPLAINED_BY_COMPLETION = "PACKET_NOT_CURRENTLY_BOUND";
 
 const CLOSED_REASON_TEXT: Record<string, string> = {
   PACKET_NO_LONGER_OPEN_TO_WORKER:
@@ -34,10 +57,11 @@ const CLOSED_REASON_TEXT: Record<string, string> = {
     "is waiting on another section. It will open once that section is finished.",
 };
 
-export function RestartNotice({ restart, subject }: Props) {
+export function RestartNotice({ restart, subject, complete = false }: Props) {
   if (restart.posture === "RESTARTABLE") return null;
 
   if (restart.posture === "CLOSED") {
+    if (complete && restart.reason === REASON_EXPLAINED_BY_COMPLETION) return null;
     return (
       <p className="ob-notice" data-restart-posture="CLOSED">
         {subject}{" "}

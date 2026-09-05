@@ -473,10 +473,27 @@ function image(name = "passport.jpg", size = 2048): File {
   return file;
 }
 
+/**
+ * This step's OWN rendering of the worker's name.
+ *
+ * Waited on by element rather than by text, because the shared worker shell now names the
+ * authenticated worker in its header too: a bare text match would be satisfied by the header
+ * and let a test proceed before this capsule had rendered anything.
+ */
+const identityName = () => document.querySelector("[data-worker-name]");
+
+async function findIdentityName() {
+  return waitFor(() => {
+    const found = identityName();
+    expect(found).not.toBeNull();
+    return found as HTMLElement;
+  });
+}
+
 /** Answer the identity question, then leave the step exactly as the worker would. */
 async function answerIdentity(answer = "Yes, this is me.") {
   const view = openModule(IDENTITY);
-  await screen.findByText(WORKER_NAME);
+  await findIdentityName();
   fireEvent.click(screen.getByLabelText(answer));
   view.unmount();
 }
@@ -664,14 +681,15 @@ describe("step one - is this you", () => {
   it("shows the worker's own canonical name, read from the certified projection", async () => {
     openModule(IDENTITY);
 
-    expect(await screen.findByText(WORKER_NAME)).toBeTruthy();
+    // This capsule's own name element, so the shell's header cannot satisfy the assertion.
+    expect((await findIdentityName()).textContent).toBe(WORKER_NAME);
     expect(vi.mocked(getWorkerPortalIdentity)).toHaveBeenCalled();
     expect(screen.getByText("Is this you?")).toBeTruthy();
   });
 
   it("shows no date of birth and no Social Security Number, and offers no field for either", async () => {
     openModule(IDENTITY);
-    await screen.findByText(WORKER_NAME);
+    await findIdentityName();
 
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/social security/i);
@@ -695,7 +713,7 @@ describe("step one - is this you", () => {
   it("records a negative answer, and corrects no identity anywhere", async () => {
     await answerIdentity("This information is not correct.");
     const view = openModule(IDENTITY);
-    await screen.findByText(WORKER_NAME);
+    await findIdentityName();
 
     // The worker is told the truth: we keep his answer and a person will look at it.
     expect(

@@ -12,6 +12,29 @@
   background: var(--color-bg-main);
   color: var(--color-text-primary);
   padding: 32px 20px 64px;
+
+  /* --------------------- Worker form-control boundary ---------------------
+     WHERE THE WORKER IS SUPPOSED TO TYPE, made unmistakable.
+
+     The shared token layer's border colors are panel borders: correct for
+     separating regions of a page, and far too faint for an entry control on a
+     white card, where a worker filling in banking and tax details could not
+     find the fields. These name the ENTRY BOUNDARY specifically, so a control
+     he may edit is dark and a region he may only read is not.
+
+     DECLARED HERE, ON THE WORKFORCE PAGE ROOT, AND NOT IN THE GLOBAL TOKEN
+     LAYER. Redefining a global border token would restyle every Jarvis surface
+     that borrows it - admin, dispatch, careers, catalog - none of which is this
+     assignment's product surface. Scoped to `.wf-page`, the darker boundary
+     reaches exactly the worker-facing application and onboarding pages that
+     render inside it, including module stylesheets that inherit the token.
+
+     Editable is near-black; not-editable stays on the faint panel gray, which
+     is what keeps a disabled control from reading as somewhere to type.
+  ------------------------------------------------------------------------ */
+  --wf-control-border: #111827;
+  --wf-control-border-inactive: var(--color-border-strong);
+  --wf-control-bg-inactive: #f3f4f6;
 }
 
 .wf-shell,
@@ -33,6 +56,21 @@
   text-transform: uppercase;
   color: var(--color-accent-primary);
   margin: 0 0 6px;
+}
+
+/*
+  Whose onboarding is open. Deliberately SUBORDINATE to the section title below it: smaller,
+  lighter and in secondary text, because the page is about the section being filled in and the
+  name only answers which worker's session this is. A long name wraps instead of forcing the
+  header wider, which is what keeps a narrow phone header intact.
+*/
+.wf-worker-identity {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-text-secondary);
+  margin: 0 0 4px;
+  overflow-wrap: break-word;
 }
 
 .wf-title {
@@ -182,22 +220,59 @@
   font-size: 14px;
   color: var(--color-text-primary);
   background: var(--color-bg-card);
-  border: 1px solid var(--color-border-strong);
+  /* Dark at rest, so the field is findable before it is touched. */
+  border: 1px solid var(--wf-control-border, #111827);
   border-radius: 6px;
 }
 
+/*
+  Focus, kept plainly louder than the darker resting state.
+
+  Against a near-black border a recolored border alone would be a change of hue and not of
+  weight, so focus adds a ring OUTSIDE the control as well: the accent outline and the soft
+  halo behind it are visible at a glance and at a distance, which resting contrast is not.
+*/
 .wf-input:focus,
 .wf-select:focus,
 .wf-textarea:focus {
-  outline: 2px solid var(--color-accent-subtle-border);
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 1px;
   border-color: var(--color-accent-primary);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle-border);
 }
 
-/* A field the worker still has to fill in, marked alongside the message naming it. */
+/*
+  A field the worker still has to fill in, marked alongside the message naming it.
+
+  Error stays unmistakably error rather than merely a darker border in another color: the
+  boundary thickens and carries a red halo, so it separates from both the resting state and
+  from focus, and it does not depend on color alone to be noticed.
+*/
 .wf-input[aria-invalid="true"],
 .wf-select[aria-invalid="true"],
 .wf-textarea[aria-invalid="true"] {
   border-color: var(--color-danger);
+  border-width: 2px;
+  box-shadow: 0 0 0 3px var(--color-danger-bg);
+}
+
+/*
+  Nothing to type in here, and it must not look as though there is.
+
+  The dark boundary is what now says "enter something", so a control the worker cannot edit
+  gives it up: faint border, recessed fill, muted text. Read-only is included alongside
+  disabled because a read-only field is just as much not-his-to-change, and native
+  appearance alone left the two indistinguishable from an editable one.
+*/
+.wf-input:disabled,
+.wf-select:disabled,
+.wf-textarea:disabled,
+.wf-input[readonly],
+.wf-textarea[readonly] {
+  border-color: var(--wf-control-border-inactive, #d1d5db);
+  background: var(--wf-control-bg-inactive, #f3f4f6);
+  color: var(--color-text-soft);
+  cursor: not-allowed;
 }
 
 .wf-textarea {
@@ -207,6 +282,27 @@
 
 /* --------------------------- Choice controls ---------------------------- */
 
+/*
+  EVERY worker-facing radio and checkbox, whatever wraps it.
+
+  The onboarding modules wrap their radios in their own labels - the tax questions, the
+  emergency-contact designations, the work-authorization statuses - and those wrappers carry
+  no boundary of their own. Rather than draw a new card around each one, which would change
+  layouts the Owner asked to preserve, the control itself is darkened and given the same
+  explicit focus ring as every other worker control. Scoped to `.wf-page`, so it reaches the
+  worker application and onboarding surfaces and nothing else in Jarvis.
+*/
+.wf-page input[type="radio"],
+.wf-page input[type="checkbox"] {
+  accent-color: var(--color-accent-primary);
+}
+
+.wf-page input[type="radio"]:focus-visible,
+.wf-page input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+}
+
 .wf-choices {
   display: flex;
   flex-direction: column;
@@ -215,6 +311,7 @@
 
 .wf-choices[aria-invalid="true"] .wf-choice {
   border-color: var(--color-danger);
+  border-width: 2px;
 }
 
 .wf-choice {
@@ -222,7 +319,8 @@
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
-  border: 1px solid var(--color-border-strong);
+  /* The choice card IS the control's boundary here, so it carries the dark edge. */
+  border: 1px solid var(--wf-control-border, #111827);
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
@@ -235,8 +333,36 @@
   background: var(--color-accent-subtle-bg);
 }
 
+/* A choice the worker cannot take must not be bounded like one he can. */
+.wf-choice:has(input:disabled) {
+  border-color: var(--wf-control-border-inactive, #d1d5db);
+  background: var(--wf-control-bg-inactive, #f3f4f6);
+  color: var(--color-text-soft);
+  cursor: not-allowed;
+}
+
+/*
+  Radios and checkboxes stay NATIVE.
+
+  A darker box drawn around a native control, or a styled substitute replacing one, would
+  cost the platform's own keyboard behaviour and its accessible name and role - too high a
+  price for a border. `accent-color` darkens the control itself where the browser supports
+  it, the card above supplies the visible boundary, and focus is given the same explicit ring
+  the text controls get so keyboard position is never in doubt.
+*/
+.wf-choice input,
+.wf-choices input[type="radio"],
+.wf-choices input[type="checkbox"] {
+  accent-color: var(--color-accent-primary);
+}
+
 .wf-choice input {
   margin-top: 2px;
+}
+
+.wf-choice input:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
 }
 
 .wf-choice-body {

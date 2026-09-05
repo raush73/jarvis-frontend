@@ -51,6 +51,7 @@ import {
   type OnboardingRuntimeModule,
   type OnboardingRuntimePacket,
 } from "@/lib/workforce/onboardingRuntimeApi";
+import { getWorkerPortalIdentity } from "@/lib/workforce/workerPortalApi";
 
 /** How long after the last keystroke an unsaved draft is persisted. */
 const DRAFT_DEBOUNCE_MS = 1200;
@@ -108,6 +109,17 @@ type RuntimeContextValue = {
   /** A failure loading the projection itself. */
   error: unknown;
   reload: () => Promise<void>;
+
+  /**
+   * Whose onboarding this is, as the certified worker portal projects it.
+   *
+   * READ FROM THE SESSION, NEVER FROM THE URL. It is resolved server-side from the
+   * candidate the worker's own session is bound to, so a typed or shared link cannot make
+   * one worker's screen carry another worker's name. Null is the only fallback: a name that
+   * could not be read is shown as no name at all, because guessing one is the single
+   * failure this display must never have.
+   */
+  workerDisplayName: string | null;
 
   /**
    * True when a worker write has succeeded since the projection was last read from the
@@ -227,6 +239,38 @@ export function OnboardingRuntimeProvider({ children }: { children: ReactNode })
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  /* --------------------------------------------------------- worker identity */
+
+  /**
+   * WHOSE onboarding is open, read once for the whole runtime.
+   *
+   * It is read HERE rather than in each header so the certified identity projection is
+   * asked once per session and every worker-facing shell shows the same answer. The
+   * projection is `GET /workforce/portal`, which resolves the candidate from the worker's
+   * bound session; nothing on this client tells it who to answer about, which is what makes
+   * a fabricated URL unable to relabel the page.
+   *
+   * A FAILURE LEAVES IT NULL AND SAYS NOTHING. The name is a courtesy on a page whose
+   * authority is the projection above it, so a read that failed must not blank the screen,
+   * must not retry the worker into a loop, and must never fall back to an identity supplied
+   * by the browser.
+   */
+  const [workerDisplayName, setWorkerDisplayName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    getWorkerPortalIdentity()
+      .then((identity) => {
+        if (live) setWorkerDisplayName(identity.displayName);
+      })
+      .catch(() => {
+        if (live) setWorkerDisplayName(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   /* ------------------------------------------------- staleness and refresh */
 
@@ -560,6 +604,7 @@ export function OnboardingRuntimeProvider({ children }: { children: ReactNode })
       loading,
       error,
       reload,
+      workerDisplayName,
       stale,
       refreshPacket,
       refreshPacketIfStale,
@@ -592,6 +637,7 @@ export function OnboardingRuntimeProvider({ children }: { children: ReactNode })
       saveDraft,
       setValue,
       stale,
+      workerDisplayName,
     ],
   );
 

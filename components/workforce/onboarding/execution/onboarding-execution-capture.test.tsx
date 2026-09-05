@@ -173,11 +173,19 @@ function server(config: {
   subjects: () => Reply;
   submit?: () => Reply;
 }) {
-  const calls: { method: string; url: string; body: unknown }[] = [];
+  const calls: {
+    method: string;
+    url: string;
+    body: unknown;
+    authorization: string | null;
+  }[] = [];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     const body = init?.body ? JSON.parse(init.body as string) : null;
-    calls.push({ method, url, body });
+    // Recorded so a read can be proven to travel under the worker's own session, which is
+    // what the suite actually claims, rather than by which request happened to be first.
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    calls.push({ method, url, body, authorization: headers.Authorization ?? null });
     const reply =
       method === "POST"
         ? (config.submit ?? (() => envelope(executionFixture())))()
@@ -1241,8 +1249,23 @@ describe("inside the existing packet", () => {
   it("reads the packet's executions through the worker session it already had", async () => {
     const { calls } = await renderPacket();
 
-    await waitFor(() => expect(calls.length).toBeGreaterThan(0));
-    expect(calls[0].url).toContain(`/packets/${INVOCATION_ID}/executions/subjects`);
+    /*
+      FOUND AMONG THE PACKET PAGE'S READS RATHER THAN ASSUMED TO BE THE FIRST OF THEM.
+
+      The page legitimately reads more than one thing on load - the projection, and now the
+      worker's own identity for the shell header - and their order is not this feature's to
+      promise. What matters is that the executions read happens, and happens under the
+      session the worker already had: no second session, no new credential.
+    */
+    const read = await waitFor(() => {
+      const found = calls.find((call) =>
+        call.url.includes(`/packets/${INVOCATION_ID}/executions/subjects`),
+      );
+      expect(found).toBeDefined();
+      return found!;
+    });
+    expect(read.method).toBe("GET");
+    expect(read.authorization).toBe("Bearer worker-token");
     expect(localStorage.getItem("jp_workerSession")).toBe("worker-token");
   });
 
