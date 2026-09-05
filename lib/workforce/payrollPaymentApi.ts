@@ -244,6 +244,18 @@ export type PayrollPaymentReview = {
 export const PAYROLL_PAYMENT_AUTHORIZATION_BLOCKERS = [
   "PROPOSAL_NOT_REVIEW_READY",
   "ALREADY_AUTHORIZED",
+  /**
+   * THE RECORD HE ASKED TO REPLACE IS NO LONGER THE ONE IN FORCE (Gate 10C-E3 slice 4).
+   *
+   * The slice 3 token, arriving as a BLOCKER on the read rather than only as a refusal on the act
+   * - the same situation reached by reading instead of by signing. It says only that what he named
+   * is not current: never what is, never whose, and never whether anything exists.
+   *
+   * A SCREEN TO RECOVER AND NOT AN ERROR TO SHOW. The surface drops the claim and reads the
+   * authority again, which is the delivered E3 recovery, so he is put back in front of whatever is
+   * actually in force to decide about instead of signing against a record he was never shown.
+   */
+  "REPLACEMENT_INSTRUCTION_MISMATCH",
 ] as const;
 export type PayrollPaymentAuthorizationBlocker =
   (typeof PAYROLL_PAYMENT_AUTHORIZATION_BLOCKERS)[number];
@@ -688,12 +700,32 @@ export async function getOwnPayrollPaymentReview(
  *
  * READING WHAT ONE WOULD BE ASKED TO AUTHORIZE IS NOT AUTHORIZING IT. This performs nothing,
  * records nothing and completes nothing, which is why it is a GET.
+ *
+ * [AMENDED BY GATE 10C-E3 SLICE 4.] It now says WHICH TASK the worker is on, where he is on the
+ * replacement one. Whether he is authorizing for the first time or replacing what governs his pay
+ * cannot be read off any record - both have the same instruction, the same act and the same draft
+ * - so a read that is not told reports the record he is replacing as his finished module, and the
+ * signature that would replace it is never reached.
+ *
+ * THE CLAIM IS THE WORKER'S OWN AND NOTHING IS INFERRED FROM IT HERE. It is passed when the screen
+ * that asked him the question hands one over, omitted otherwise, and it grants nothing: the server
+ * resolves the operative instruction for itself, and the act decides admission again at write
+ * time. Every initial authorization omits it and is the request it always was.
  */
 export async function getOwnPayrollPaymentAuthorization(
   invocationId: string,
+  reviewedInstructionId: string | null = null,
 ): Promise<PayrollPaymentAuthorization> {
+  /*
+    OMITTED RATHER THAN SENT EMPTY. An `?reviewedInstructionId=` with nothing after it is a claim
+    naming no record, which the server would have to answer as a lapsed one - so the ordinary read
+    carries no query string at all.
+  */
+  const query = reviewedInstructionId
+    ? `?reviewedInstructionId=${encodeURIComponent(reviewedInstructionId)}`
+    : "";
   return onboardingWorkerFetch<PayrollPaymentAuthorization>(
-    `${workerBase(invocationId)}/authorization`,
+    `${workerBase(invocationId)}/authorization${query}`,
   );
 }
 

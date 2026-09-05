@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   authorizeOwnPayrollPayment,
   confirmOwnPayrollPaymentVerification,
+  getOwnPayrollPaymentAuthorization,
   getOwnPayrollPaymentVerification,
+  PAYROLL_PAYMENT_AUTHORIZATION_BLOCKERS,
   PAYROLL_PAYMENT_VERIFICATION_STATES,
   payrollPaymentRefusalCode,
   type PayrollPaymentVerification,
@@ -22,6 +24,10 @@ import { saveWorkerSession } from "./workerSession";
  *    time sends the request he always sent, and the server's default refusal goes on protecting
  *    every instruction already in force.
  *  - THE DELIBERATE REPLACEMENT CARRIES EXACTLY ONE OPAQUE IDENTITY and nothing beside it.
+ *
+ * [EXTENDED BY GATE 10C-E3 SLICE 4.] The same two questions are now asked of the authorization
+ * READ, which is where the defect lived: the ordinary read must still carry NO query string at
+ * all, and the replacement read must carry one escaped opaque identity on a GET with no body.
  *
  * The routes, the verbs and the state vocabulary are checked here too, because a client pointed at
  * the wrong path or inventing a sixth state would be caught by nothing else in the browser.
@@ -260,6 +266,88 @@ describe("Gate 10C-E3 - the verification transport", () => {
       expect(payrollPaymentRefusalCode(failure)).toBe(
         "REPLACEMENT_INSTRUCTION_MISMATCH",
       );
+    });
+  });
+
+  /**
+   * THE AUTHORIZATION READ, WHICH NOW SAYS WHICH TASK HE IS ON (Gate 10C-E3 slice 4).
+   *
+   * The transport half of the read-projection fix. What matters at this level is that the ordinary
+   * read is the request it always was - no query string at all - and that the one thing the
+   * replacement read adds is an opaque identity, on a GET, with no body.
+   */
+  describe("the authorization read, with and without a claim", () => {
+    const stage = {
+      review: null,
+      available: false,
+      blockers: ["ALREADY_AUTHORIZED"],
+      guidance: [],
+      authorization: null,
+      executed: null,
+    };
+
+    it("asks the delivered route as a read, with no query at all", async () => {
+      vi.stubGlobal("fetch", respondWith(200, { ok: true, value: stage }));
+
+      await getOwnPayrollPaymentAuthorization(INVOCATION);
+
+      // NO `?` ANYWHERE. The delivered read is untouched by this slice, which is the compatibility
+      // guarantee stated as a request rather than as a comment.
+      expect(sentTo()).toEqual({ url: `${BASE}/authorization`, method: "GET" });
+    });
+
+    it("asks the same way when the caller passes an explicit null", async () => {
+      vi.stubGlobal("fetch", respondWith(200, { ok: true, value: stage }));
+
+      await getOwnPayrollPaymentAuthorization(INVOCATION, null);
+
+      expect(sentTo().url).toBe(`${BASE}/authorization`);
+    });
+
+    it("omits the query entirely rather than sending an empty claim", async () => {
+      // An empty claim names no record, which the server must answer as a lapsed one. The absence
+      // of the parameter is the absence of the claim.
+      vi.stubGlobal("fetch", respondWith(200, { ok: true, value: stage }));
+
+      await getOwnPayrollPaymentAuthorization(INVOCATION, "");
+
+      expect(sentTo().url).toBe(`${BASE}/authorization`);
+    });
+
+    it("carries ONE opaque identity for a deliberate replacement, and still no body", async () => {
+      vi.stubGlobal("fetch", respondWith(200, { ok: true, value: stage }));
+
+      await getOwnPayrollPaymentAuthorization(INVOCATION, "ppi_reviewed_0001");
+
+      const sent = sentTo();
+      expect(sent.method).toBe("GET");
+      expect(sent.url).toBe(
+        `${BASE}/authorization?reviewedInstructionId=ppi_reviewed_0001`,
+      );
+      // READING IS NOT ASKING FOR ANYTHING TO HAPPEN. A GET with a body would be a write wearing a
+      // read's method.
+      const call = vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit | undefined;
+      expect(call?.body).toBeUndefined();
+    });
+
+    it("escapes the identity rather than trusting its shape", async () => {
+      // It is opaque, so nothing here may assume it is URL-safe.
+      vi.stubGlobal("fetch", respondWith(200, { ok: true, value: stage }));
+
+      await getOwnPayrollPaymentAuthorization(INVOCATION, "ppi/a b&c=d");
+
+      expect(sentTo().url).toBe(
+        `${BASE}/authorization?reviewedInstructionId=ppi%2Fa%20b%26c%3Dd`,
+      );
+    });
+
+    it("knows the lapsed-claim blocker the read can now answer with", () => {
+      // A blocker the browser invented would be a browser deciding something the server decides.
+      expect([...PAYROLL_PAYMENT_AUTHORIZATION_BLOCKERS]).toEqual([
+        "PROPOSAL_NOT_REVIEW_READY",
+        "ALREADY_AUTHORIZED",
+        "REPLACEMENT_INSTRUCTION_MISMATCH",
+      ]);
     });
   });
 });

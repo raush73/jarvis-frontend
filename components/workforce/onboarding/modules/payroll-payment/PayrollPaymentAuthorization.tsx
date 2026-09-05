@@ -125,7 +125,30 @@ const BLOCKER_MESSAGES: Record<PayrollPaymentAuthorizationBlocker, string> = {
     "Finish the payment details above and read them through. Then you can put them in force here.",
   ALREADY_AUTHORIZED:
     "Your payroll payment instructions are already in force. If they need to change, tell us and we will record new ones.",
+  /*
+    PRESENT FOR COMPLETENESS AND ORDINARILY UNSEEN (Gate 10C-E3 slice 4). When this blocker arrives
+    against a claim the module recovers, so the screen he lands on is the current record to decide
+    about again rather than this sentence. It is written anyway because a blocker with no wording
+    would be a code shown to a worker, and it says nothing about any record.
+  */
+  REPLACEMENT_INSTRUCTION_MISMATCH:
+    "Your payroll payment details have changed since we showed them to you. Please look at what we have on file now and tell us again.",
 };
+
+/**
+ * Does this read say the replacement claim is no longer good (Gate 10C-E3 slice 4)?
+ *
+ * ONE TOKEN, AND DELIBERATELY NOT THE THREE THE ACT'S RECOVERY WATCHES. The act can only infer a
+ * lapsed claim from a refusal that might have meant something else - `ALREADY_AUTHORIZED` among
+ * them - because it learns after the fact. The read is answered directly, so it needs no
+ * inference: a stage carrying this blocker beside a claim is the server saying the claim is stale,
+ * and nothing else is treated as saying it.
+ */
+function lapsed(
+  blockers: readonly PayrollPaymentAuthorizationBlocker[],
+): boolean {
+  return blockers.includes("REPLACEMENT_INSTRUCTION_MISMATCH");
+}
 
 export function PayrollPaymentAuthorization({
   invocationId,
@@ -146,11 +169,33 @@ export function PayrollPaymentAuthorization({
     // `live` guards a response arriving after the worker moved on, which would otherwise show one
     // packet's authorization under another's screen.
     let live = true;
-    getOwnPayrollPaymentAuthorization(invocationId)
+    /*
+      [AMENDED BY GATE 10C-E3 SLICE 4.] The claim travels on the READ as well as the act, because
+      the stage is what decides whether the signature is on screen at all. Without it the server
+      reports the record he is replacing as his finished module and this component renders the
+      terminal panel, which is the whole of the defect this slice closes.
+
+      `replaces` IS A DEPENDENCY, so acquiring or dropping the anchor re-reads. A worker who
+      answers "no - I need to make a change" after this component has already read the stage must
+      not be left looking at the answer to the other question.
+    */
+    getOwnPayrollPaymentAuthorization(invocationId, replaces)
       .then((value) => {
         if (!live) return;
         setStage(value);
         setLoadError(null);
+        /*
+          THE CLAIM LAPSED WHILE HE WAS DECIDING, discovered by reading rather than by signing.
+
+          HANDED UP, EXACTLY AS THE REFUSED ACT IS. The recovery is not this component's: the
+          claim, the record on screen and the question he was answering all live in the module. It
+          re-aims nothing at whatever arrived instead, because a worker who has never seen that
+          record has not asked to replace it - and it does not act, because reading told us this
+          before he signed, which is the point of asking.
+        */
+        if (replaces !== null && lapsed(value.blockers)) {
+          onReplacementRefused?.();
+        }
       })
       .catch((failure: unknown) => {
         if (live) setLoadError(failure);
@@ -158,7 +203,7 @@ export function PayrollPaymentAuthorization({
     return () => {
       live = false;
     };
-  }, [invocationId, proposalToken, reloads]);
+  }, [invocationId, onReplacementRefused, proposalToken, reloads, replaces]);
 
   /**
    * Perform the act.

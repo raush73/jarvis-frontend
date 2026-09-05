@@ -33,7 +33,6 @@ import { saveWorkerSession } from "@/lib/workforce/workerSession";
 import type {
   PayrollPaymentAccountView,
   PayrollPaymentAuthorization,
-  PayrollPaymentAuthorizationBlocker,
   PayrollPaymentConfirmation,
   PayrollPaymentInstructionView,
   PayrollPaymentInterview,
@@ -212,6 +211,24 @@ type Instruction = {
   }[];
   effectiveFrom: string;
   supersededAt: string | null;
+  /**
+   * WHEN THE GOVERNED ACT BOUND TO THIS VERSION WAS PERFORMED (Gate 10C-E3 slice 4 correction).
+   *
+   * [ADDED BY THE SLICE 4 FAKE CORRECTION, and it is the invariant this fake was missing.] The
+   * server holds this as `executionRecordId` on the instruction, and its rule is absolute: AN
+   * INSTRUCTION WITH NO BINDING IS NOT AN AUTHORIZATION. An operative row that nobody signed
+   * cannot arise from the ordered path and cannot survive one, so it does not exist in production.
+   *
+   * IT USED TO BE ONE MODULE-LEVEL `authorizedAt`, WHICH IS WHY THE DEFECT SHIPPED. That variable
+   * started null and was set only when a TEST performed the act, so it modelled "did this test
+   * sign" rather than "is there an authorized instruction on record". The seeded stale record was
+   * therefore operative and unbound - a state the backend states is impossible, and doubly so
+   * here, because a record can only be RECORD_STALE if it was authorized in the first place. Every
+   * replacement test in this file ran against a precondition production cannot produce, and the
+   * stage they asserted was one no worker could reach. It belongs to the VERSION, as it does on
+   * the server.
+   */
+  authorizedAt: string | null;
 };
 
 let history: Instruction[] = [];
@@ -226,12 +243,32 @@ let mode: string | null = null;
 let draft: DraftAccount[] = [];
 let savedAt: string | null = null;
 let minted = 0;
-let authorizedAt: string | null = null;
+/** Every replacement identity the AUTHORIZATION READ was told about, in order. */
+let authorizationReadClaims: (string | null)[] = [];
 
 function operative(): Instruction | null {
   return history.find((row) => row.supersededAt === null) ?? null;
 }
 
+/**
+ * The operative instruction, but only where a governed act is bound to it.
+ *
+ * The server's own `operativeAuthorized`, reproduced because the stage turns on it: an unbound row
+ * is not an authorization and must never be reported as one.
+ */
+function operativeAuthorized(): Instruction | null {
+  const effective = operative();
+  if (effective === null) return null;
+  return effective.authorizedAt === null ? null : effective;
+}
+
+/**
+ * A record IN FORCE, which means AUTHORIZED AND BOUND (Gate 10C-E3 slice 4 correction).
+ *
+ * The default is now William's shape: an instruction he signed on 1 September and which still
+ * governs his pay. That is the only shape a stale verification can be about, and asserting against
+ * anything else is asserting against a state no worker can be in.
+ */
 function instructionInForce(overrides: Partial<Instruction> = {}): Instruction {
   return {
     id: IN_FORCE_ID,
@@ -251,6 +288,7 @@ function instructionInForce(overrides: Partial<Instruction> = {}): Instruction {
     ],
     effectiveFrom: "2026-02-01",
     supersededAt: null,
+    authorizedAt: "2026-09-01T09:00:00.000Z",
     ...overrides,
   };
 }
@@ -266,7 +304,7 @@ function resetServer(): void {
   draft = [];
   savedAt = null;
   minted = 0;
-  authorizedAt = null;
+  authorizationReadClaims = [];
 }
 
 function mask(value: string): string {
@@ -490,8 +528,22 @@ function reviewView(): PayrollPaymentReview {
 const AUTHORIZATION_REVISION = "10C.1";
 const AUTHORIZATION_HASH = "c".repeat(64);
 
+/**
+ * The governed subject, as the DELIVERED execution foundation projects it.
+ *
+ * `requiresExecution` IS THE FOUNDATION'S ANSWER ABOUT THE RECORD, NOT ABOUT THE SCREEN, and this
+ * is where the corrected invariant does its work. The foundation asks whether an act is in force
+ * against the operative governed record - so a worker whose 1 September signature still binds the
+ * instruction that still governs his pay needs no further act, and `requiresExecution` is false
+ * from the moment the fixture is seeded. It only becomes true again when a NEW effective
+ * instruction exists, which on the ordered path is created by the act itself.
+ *
+ * THAT IS THE CHICKEN AND EGG THE CLAIM EXISTS TO BREAK, and modelling it honestly is what makes
+ * the regression below real: nothing about the record can tell the read that he is replacing.
+ */
 function authorizationSubject(): OnboardingExecutionSubject {
-  const done = authorizedAt !== null;
+  const bound = operativeAuthorized();
+  const done = bound !== null;
   return {
     moduleKey: MODULE_KEY,
     subjectKey: "WORKER_PAYMENT_AUTHORIZATION",
@@ -527,7 +579,7 @@ function authorizationSubject(): OnboardingExecutionSubject {
           },
           evidenceKind: "NATIVE_CAPTURE",
           evidence: null,
-          executedAt: authorizedAt as string,
+          executedAt: bound?.authorizedAt as string,
           supersededAt: null,
           supersedesId: null,
         }
@@ -537,45 +589,126 @@ function authorizationSubject(): OnboardingExecutionSubject {
   };
 }
 
-function recordedAccountViews(): PayrollPaymentRecordedAccountView[] {
-  return accountViews().map((account) => ({
+/**
+ * What is ON RECORD, projected from the INSTRUCTION rather than from the draft.
+ *
+ * [CORRECTED BY GATE 10C-E3 SLICE 4.] This used to map `accountViews()`, which is the draft he is
+ * editing - so the "already in force" panel described his UNSAVED replacement instead of the
+ * record it is reporting. The server maps `instruction.accounts`, and the difference is exactly
+ * what the owner saw in the browser: the terminal panel named the OLD bank while the review above
+ * it named the new one. Masked here, as the read-security boundary masks them.
+ */
+function recordedAccountViews(
+  instruction: Instruction,
+): PayrollPaymentRecordedAccountView[] {
+  return instruction.accounts.map((account) => ({
     position: account.position,
-    accountType: account.accountType,
+    accountType:
+      account.accountType as PayrollPaymentRecordedAccountView["accountType"],
     financialInstitutionName: account.financialInstitutionName,
-    routingNumberEntered: account.routingNumberEntered,
-    routingNumberMasked: account.routingNumberMasked,
-    accountNumberEntered: account.accountNumberEntered,
-    accountNumberMasked: account.accountNumberMasked,
-    allocationKind: account.allocationKind,
+    routingNumberEntered: true,
+    routingNumberMasked: mask(account.routingNumber),
+    accountNumberEntered: true,
+    accountNumberMasked: mask(account.accountNumber),
+    allocationKind:
+      account.allocationKind as PayrollPaymentRecordedAccountView["allocationKind"],
     allocationPercentage: account.allocationPercentage,
-    allocationAmount: account.allocationAmount,
-    accountConfirmationMethod: account.accountConfirmationMethod,
-    accountConfirmationRecordedAt: account.accountConfirmationRecordedAt,
+    allocationAmount: null,
+    accountConfirmationMethod: "INDEPENDENT_SECOND_ENTRY",
+    accountConfirmationRecordedAt: instruction.authorizedAt,
   }));
 }
 
-function authorizationView(): PayrollPaymentAuthorization {
+/**
+ * THE AUTHORIZATION READ, modelling the delivered service including Gate 10C-E3 slice 4.
+ *
+ * MODELLED RATHER THAN STUBBED, and each branch below exists in the backend and is proved there by
+ * section M of `payroll-payment.replacement.spec.ts`. The behaviour under test is precisely how
+ * the screen responds to each answer, so a fake that returned a convenient one would make every
+ * assertion in this file vacuous - which is what the previous version did.
+ *
+ * THE ORDER MATTERS AND IS THE SERVER'S ORDER. The claim is examined first, so a worker who asked
+ * to change his details is never answered as one who asked to authorize twice; `executed` is only
+ * ever reported where he is genuinely finished, because the surface renders it ahead of
+ * everything else.
+ */
+function authorizationView(
+  claim: string | null = null,
+): PayrollPaymentAuthorization {
+  const subject = authorizationSubject();
+  const effective = operative();
+  const bound = operativeAuthorized();
+  const guidance = ["This is the last step."];
+
+  // A claim that does not name what is operative: recoverable, and disclosing nothing about what
+  // is. One answer for a superseded record, a foreign one and no record at all.
+  if (claim !== null && (effective === null || effective.id !== claim)) {
+    return {
+      review: null,
+      available: false,
+      blockers: ["REPLACEMENT_INSTRUCTION_MISMATCH"],
+      guidance,
+      authorization: subject,
+      executed: null,
+    };
+  }
+
+  const replacing = claim !== null;
   const ready = violationsOf().length === 0 && method !== null;
-  const blockers: PayrollPaymentAuthorizationBlocker[] = [];
-  if (authorizedAt !== null) blockers.push("ALREADY_AUTHORIZED");
-  else if (!ready) blockers.push("PROPOSAL_NOT_REVIEW_READY");
+
+  /*
+    THE SUBJECT AS IT STANDS TOWARD THE ACT HE IS ABOUT TO PERFORM (Gate 10C-E3 slice 4).
+
+    Nothing has been performed toward the REPLACEMENT, so nothing is in force against it: the act
+    reported by the foundation is bound to the record he is replacing, and the new instruction does
+    not exist until he signs. `current` is null for this projection and `requiresExecution` is
+    restated to match, exactly as the delivered service does - and exactly as the delivered Federal
+    Tax later election does for the same situation.
+
+    WITHOUT IT THE STAGE SAYS READY AND THE CARD STILL OFFERS NO CONTROL, because the delivered
+    execution card asks the SUBJECT whether an act is outstanding before it renders the capture
+    surface. That is the second gate, and it is why correcting this fake was worth doing: no
+    assertion in this file could see it while the seeded record was unbound.
+  */
+  const toward = replacing
+    ? { ...subject, current: null, requiresExecution: true }
+    : subject;
+
+  if (!replacing && bound !== null && !subject.requiresExecution) {
+    return {
+      review: null,
+      available: false,
+      blockers: ["ALREADY_AUTHORIZED"],
+      guidance,
+      authorization: subject,
+      executed: {
+        paymentMethod: bound.paymentMethod as PayrollPaymentReview["paymentMethod"],
+        setVersion: bound.setVersion,
+        authorizedAt: bound.authorizedAt as string,
+        effectiveFrom: bound.effectiveFrom,
+        accounts: recordedAccountViews(bound),
+      },
+    };
+  }
+
+  if (!ready) {
+    return {
+      review: null,
+      available: false,
+      blockers: ["PROPOSAL_NOT_REVIEW_READY"],
+      guidance,
+      authorization: toward,
+      executed: null,
+    };
+  }
 
   return {
-    review: ready ? reviewView() : null,
-    available: blockers.length === 0,
-    blockers,
-    guidance: ["This is the last step."],
-    authorization: authorizationSubject(),
-    executed:
-      authorizedAt === null
-        ? null
-        : {
-            paymentMethod: method as PayrollPaymentReview["paymentMethod"],
-            setVersion: (operative()?.setVersion ?? 1),
-            authorizedAt,
-            effectiveFrom: "2026-09-04",
-            accounts: recordedAccountViews(),
-          },
+    review: reviewView(),
+    available: true,
+    blockers: [],
+    guidance,
+    authorization: toward,
+    executed: null,
   };
 }
 
@@ -608,11 +741,18 @@ function authorize(input: {
     throw new Refusal("PROPOSAL_NOT_REVIEW_READY");
   }
 
-  authorizedAt = "2026-09-04T09:00:00.000Z";
+  /*
+    THE ACT CREATES A NEW BOUND VERSION AND SUPERSEDES THE OLD ONE, which is the ordered path: the
+    instruction is appended, the act is bound to IT, and the predecessor closes. The binding lands
+    on the version rather than on the module, so the record that governs is always the record that
+    was signed.
+  */
+  const authorizedAt = "2026-09-04T09:00:00.000Z";
   if (effective !== null) effective.supersededAt = authorizedAt;
   history.unshift({
     id: "ppi_the_new_one",
     setVersion: (effective?.setVersion ?? 0) + 1,
+    authorizedAt,
     paymentMethod: method,
     allocationMode: mode,
     accounts: draft.map((row) => ({
@@ -779,8 +919,30 @@ async function authorizeStage(state: string): Promise<HTMLElement> {
  * second form here, and this helper would not compile against one.
  */
 async function changeToNewAccount(): Promise<void> {
+  await enterNewAccountDetails();
+  fireEvent.click(action("review"));
+  await authorizeStage("READY");
+}
+
+/**
+ * The change journey UP TO the point of asking to review, and no further.
+ *
+ * Split out so a test can let the record move WHILE HE IS TYPING - before the review read rather
+ * than after it - which is the window the slice 4 read now closes.
+ */
+async function enterNewAccountDetails(): Promise<void> {
+  await pressChange();
+  await fillNewAccount();
+}
+
+/** "No - I need to make a change", and the method question it leads to. */
+async function pressChange(): Promise<void> {
   fireEvent.click(verifyAction("change"));
   await waitFor(() => expect(capsule().querySelector("[data-pp-method-choice]")).not.toBeNull());
+}
+
+/** Direct deposit, and a complete set of new details on the one account. */
+async function fillNewAccount(): Promise<void> {
   chooseMethod("bank");
   await waitFor(() => expect(accountCard(1)).toBeTruthy());
   const card = accountCard(1);
@@ -791,8 +953,6 @@ async function changeToNewAccount(): Promise<void> {
   typeInto(field("routing", card), NEW_ROUTING);
   typeInto(field("account", card), NEW_ACCOUNT);
   typeInto(field("account-confirm", card), NEW_ACCOUNT);
-  fireEvent.click(action("review"));
-  await authorizeStage("READY");
 }
 
 /** The body of the one authorization request made, as the screen assembled it. */
@@ -820,8 +980,16 @@ beforeEach(() => {
   vi.mocked(getOwnPayrollPayment).mockImplementation(async () => interviewView());
   vi.mocked(saveOwnPayrollPayment).mockImplementation(async (_id, input) => save(input));
   vi.mocked(getOwnPayrollPaymentReview).mockImplementation(async () => reviewView());
-  vi.mocked(getOwnPayrollPaymentAuthorization).mockImplementation(async () =>
-    authorizationView(),
+  /*
+    THE READ RECEIVES WHAT THE SCREEN SENDS (Gate 10C-E3 slice 4). The second argument is the
+    worker's own replacement claim, recorded so the tests below can assert WHEN it travels as well
+    as what comes back for it.
+  */
+  vi.mocked(getOwnPayrollPaymentAuthorization).mockImplementation(
+    async (_id, reviewedInstructionId = null) => {
+      authorizationReadClaims.push(reviewedInstructionId ?? null);
+      return authorizationView(reviewedInstructionId ?? null);
+    },
   );
   vi.mocked(authorizeOwnPayrollPayment).mockImplementation(async (_id, input) =>
     authorize(input),
@@ -1373,8 +1541,15 @@ describe("Module 4.4 Gate 10C-E3 slice 4 - checking how he already gets paid", (
     it("carries none merely because a record already exists and his draft differs", async () => {
       /*
         THE WHOLE POINT OF "DELIBERATE". This worker has instructions in force and a screen full of
-        different details, and he never pressed "No". The claim is not inferred from any of it, so
-        the server's default refusal is what he meets - exactly as it did before this slice.
+        different details, and he never pressed "No". Nothing infers a claim from any of it.
+
+        [STRENGTHENED BY GATE 10C-E3 SLICE 4.] This test used to reach READY, sign, and assert that
+        the POST was refused `ALREADY_AUTHORIZED`. It could only do that because the seeded record
+        was operative and UNBOUND, so the read reported an outstanding act - and production cannot
+        produce that. With the invariant corrected, the honest assertion is stronger and is made a
+        step earlier: a worker who asked for nothing is not offered a signature the server would
+        refuse. He is shown what is on record. The act's own default refusal is unchanged and is
+        proved where it lives, in the backend replacement suite's section M1.
       */
       verdict = "SATISFIED";
       verdictAbout = null;
@@ -1392,17 +1567,19 @@ describe("Module 4.4 Gate 10C-E3 slice 4 - checking how he already gets paid", (
       typeInto(field("account", card), NEW_ACCOUNT);
       typeInto(field("account-confirm", card), NEW_ACCOUNT);
       fireEvent.click(action("review"));
-      await authorizeStage("READY");
-      await sign();
 
-      expect(replacementClaims).toEqual([null]);
-      const refused = await waitFor(() => {
-        const found = capsule().querySelector("[data-pp-authorize-refusal]");
-        expect(found).not.toBeNull();
-        return found as HTMLElement;
-      });
-      expect(refused.textContent).toContain("already in force");
-      // And the record he never asked to change is untouched.
+      // What is on record, because that is what he asked about: nothing else.
+      const terminal = await authorizeStage("EXECUTED");
+      expect(terminal.textContent).toContain("in effect");
+
+      // NO CLAIM WAS EVER SENT, on any read. This is the assertion the slice turns on: the anchor
+      // comes from his answer to the question, and he was never asked one.
+      expect(authorizationReadClaims.every((claim) => claim === null)).toBe(true);
+
+      // AND NO ACT WAS OFFERED OR ATTEMPTED. There is no capture surface to draw on, and nothing
+      // was submitted - so the record he never asked to change is untouched.
+      expect(capsule().querySelector("[data-capture-pad]")).toBeNull();
+      expect(authorizeOwnPayrollPayment).not.toHaveBeenCalled();
       expect(operative()?.id).toBe(IN_FORCE_ID);
       expect(operative()?.supersededAt).toBeNull();
     });
@@ -1847,6 +2024,223 @@ describe("Module 4.4 Gate 10C-E3 slice 4 - checking how he already gets paid", (
       expect(document.getElementById("pp-verify-question")?.textContent).toBe(
         "Is this still how you want to be paid?",
       );
+    });
+  });
+
+  /* ---------------------------------------------------------------------- V */
+
+  /**
+   * V. THE SIGNATURE BEING THERE AT ALL (Gate 10C-E3 slice 4 read projection).
+   *
+   * THE ASSERTION THIS FILE WAS MISSING, and it was missing for a reason worth recording. Sections
+   * H to M walk the whole change journey and end at a signature, so on their face they covered
+   * this. They passed because the fixture seeded a record that was operative and UNBOUND - and on
+   * that record the server reports an outstanding act, so the stage came back READY. Production
+   * cannot produce that record: a stale verification is about a record he SIGNED, and a signed
+   * record is bound. Against the real shape the read reported his old instruction as a finished
+   * module, the surface rendered "Payroll Payment complete", and no worker with instructions in
+   * force could reach the signature that would replace them.
+   *
+   * SO THE FIXTURE IS CORRECTED AND THIS SECTION ASSERTS THE REACHABILITY DIRECTLY. Every test
+   * above now runs against an execution-bound record, which is the larger part of the protection;
+   * what is added here is the part that must never regress silently again - that the worker who
+   * says "no, my details have changed" is offered a pad to sign, and is not shown the record he is
+   * replacing as his completed work.
+   *
+   * WHAT IS DELIBERATELY NOT RE-ASSERTED HERE. That the act still carries the claim is section K,
+   * and that a claim refused AT THE POST recovers is section L; both are unchanged behaviour and
+   * both now run against the corrected invariant, which is worth more than a copy of them here.
+   */
+  describe("V. the replacement signature being reachable at all", () => {
+    describe("V1. the read is told which task he is on", () => {
+      it("sends the record he reviewed, once he has said his details changed", async () => {
+        await open();
+        await changeToNewAccount();
+
+        // The anchor is his answer to the question, carried onto the read that decides the stage.
+        expect(authorizationReadClaims).toContain(IN_FORCE_ID);
+        expect(authorizationReadClaims.every((claim) => claim === IN_FORCE_ID)).toBe(true);
+        // Opaque, and an identity only: no banking value went with it.
+        for (const claim of authorizationReadClaims) {
+          expect(claim).not.toContain(NEW_ACCOUNT);
+          expect(claim).not.toContain(OLD_ACCOUNT);
+          expect(claim).not.toContain(NEW_ROUTING);
+        }
+      });
+
+      it("omits it entirely on an ordinary first authorization", async () => {
+        // Nobody has anything in force, so there is nothing to replace and nothing to claim.
+        history = [];
+        verdict = "RECORD_ABSENT";
+        verdictAbout = null;
+        await open();
+
+        chooseMethod("bank");
+        await waitFor(() => expect(accountCard(1)).toBeTruthy());
+        const card = accountCard(1);
+        fireEvent.change(field("institution", card), {
+          target: { value: "Amarillo National" },
+        });
+        const type = card.querySelector<HTMLInputElement>(
+          '[data-pp-account-type="CHECKING"] input',
+        );
+        fireEvent.click(type as HTMLInputElement);
+        typeInto(field("routing", card), NEW_ROUTING);
+        typeInto(field("account", card), NEW_ACCOUNT);
+        typeInto(field("account-confirm", card), NEW_ACCOUNT);
+        fireEvent.click(action("review"));
+        await authorizeStage("READY");
+
+        expect(authorizationReadClaims.length).toBeGreaterThan(0);
+        expect(authorizationReadClaims.every((claim) => claim === null)).toBe(true);
+      });
+
+      it("re-reads when the anchor is acquired rather than answering the old question", async () => {
+        /*
+          A WORKER WHO IS ASKED CHANGES WHICH QUESTION IS OUTSTANDING. The stage read is not a
+          one-off at mount: acquiring the anchor must re-ask, or he is left looking at the answer
+          to a question he is no longer on.
+        */
+        await open();
+        await changeToNewAccount();
+        const withClaim = authorizationReadClaims.filter(
+          (claim) => claim === IN_FORCE_ID,
+        );
+        expect(withClaim.length).toBeGreaterThan(0);
+      });
+    });
+
+    describe("V2. the pad is on the screen", () => {
+      it("reaches READY and offers the capture surface", async () => {
+        /*
+          THE REGRESSION ASSERTION, END TO END: the stale question, "no - I need to make a change",
+          the method, the details, the review, and then a signature he can actually make. This is
+          the exact journey the owner walked in the browser, and the exact point at which it stopped.
+        */
+        await open();
+        // He is asked about a record he signed, which is the only kind there is.
+        expect(verifyPanel()).not.toBeNull();
+        expect(operative()?.authorizedAt).not.toBeNull();
+
+        await pressChange();
+        await fillNewAccount();
+        fireEvent.click(action("review"));
+
+        const ready = await authorizeStage("READY");
+        expect(ready).not.toBeNull();
+        expect(capsule().querySelector("[data-capture-pad]")).not.toBeNull();
+      });
+
+      it("shows the replacement above the signature, still not in force", async () => {
+        await open();
+        await changeToNewAccount();
+
+        // The new details are what he is being asked to sign for.
+        const review = capsule().querySelector("[data-pp-review]") as HTMLElement;
+        expect(review).not.toBeNull();
+        expect(review.textContent).toContain("Amarillo National");
+        expect(capsule().querySelector("[data-capture-pad]")).not.toBeNull();
+      });
+
+      it("does not put the record he is replacing in the authorization slot", async () => {
+        /*
+          THE DEFECT, ASSERTED AS AN ABSENCE. What the owner saw was the new review and, directly
+          beneath it, "Payroll Payment complete ... now in effect ... you signed this on September
+          1" - the old record occupying the slot the signature belongs in. It must not be there
+          while a valid replacement is awaiting his mark.
+        */
+        await open();
+        await changeToNewAccount();
+
+        expect(capsule().querySelector('[data-pp-authorize-state="EXECUTED"]')).toBeNull();
+        const authorization = capsule().querySelector(
+          "[data-pp-authorize-state]",
+        ) as HTMLElement;
+        expect(authorization.dataset.ppAuthorizeState).toBe("READY");
+        expect(authorization.textContent).not.toMatch(/now in effect/i);
+        expect(authorization.textContent).not.toMatch(/September 1, 2026/);
+        // And the old record's own details are nowhere on the screen he is signing from.
+        expect(capsule().textContent).not.toContain("Frost Bank");
+      });
+    });
+
+    describe("V3. reading it does nothing", () => {
+      it("authorizes nothing by being read, however ready it says he is", async () => {
+        await open();
+        await changeToNewAccount();
+
+        expect(authorizeOwnPayrollPayment).not.toHaveBeenCalled();
+        expect(confirmOwnPayrollPaymentVerification).not.toHaveBeenCalled();
+        expect(completeOnboardingModule).not.toHaveBeenCalled();
+        // The record he is replacing is still the one in force, still unsuperseded.
+        expect(operative()?.id).toBe(IN_FORCE_ID);
+        expect(operative()?.supersededAt).toBeNull();
+        expect(history).toHaveLength(1);
+      });
+    });
+
+    describe("V4. a claim the server will not vouch for", () => {
+      it("recovers when the record moved before he reached the review", async () => {
+        /*
+          THE SAME LAPSE AS SECTION L, CAUGHT A STEP EARLIER. There the record moved after his read
+          and he learned of it by being refused; here it moves while he is still typing, so the
+          READ finds out and he is recovered without ever signing against a record he never saw.
+        */
+        await open();
+        await enterNewAccountDetails();
+        // Something else legitimately becomes current before he asks to review.
+        history = [instructionInForce({ id: OTHER_ID, setVersion: 7 })];
+        verdictAbout = OTHER_ID;
+
+        fireEvent.click(action("review"));
+
+        // Back to the question, about what is actually in force now.
+        await waitFor(() =>
+          expect(capsule().querySelector("[data-pp-verify-moved]")).not.toBeNull(),
+        );
+        await waitFor(() => expect(verifyPanel()).not.toBeNull());
+
+        // NOTHING WAS SIGNED AND NOTHING WAS RE-AIMED. He was never offered the pad for a claim
+        // the server would not vouch for, and the claim was dropped rather than pointed at OTHER_ID.
+        expect(authorizeOwnPayrollPayment).not.toHaveBeenCalled();
+        expect(authorizationReadClaims).not.toContain(OTHER_ID);
+        expect(operative()?.id).toBe(OTHER_ID);
+        expect(operative()?.supersededAt).toBeNull();
+      });
+
+      it("names no record and shows no code while recovering", async () => {
+        await open();
+        await enterNewAccountDetails();
+        history = [instructionInForce({ id: OTHER_ID, setVersion: 7 })];
+        verdictAbout = OTHER_ID;
+        fireEvent.click(action("review"));
+        await waitFor(() =>
+          expect(capsule().querySelector("[data-pp-verify-moved]")).not.toBeNull(),
+        );
+
+        expect(capsule().outerHTML).not.toContain(IN_FORCE_ID);
+        expect(capsule().outerHTML).not.toContain(OTHER_ID);
+        expect(capsule().textContent).not.toContain("REPLACEMENT_INSTRUCTION_MISMATCH");
+      });
+
+      it("lets him decide again about the record that is actually current", async () => {
+        await open();
+        await enterNewAccountDetails();
+        history = [instructionInForce({ id: OTHER_ID, setVersion: 7 })];
+        verdictAbout = OTHER_ID;
+        fireEvent.click(action("review"));
+        await waitFor(() => expect(verifyPanel()).not.toBeNull());
+
+        // Pressing "No" again anchors to what he is being shown NOW, and the signature is there.
+        await changeToNewAccount();
+        expect(capsule().querySelector("[data-capture-pad]")).not.toBeNull();
+        await sign();
+
+        expect(authorizedWith().replaces).toEqual({
+          reviewedInstructionId: OTHER_ID,
+        });
+        expect(operative()?.id).toBe("ppi_the_new_one");
+      });
     });
   });
 });
