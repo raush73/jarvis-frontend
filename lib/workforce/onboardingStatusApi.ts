@@ -54,6 +54,25 @@ export type OnboardingConsumerWorkState =
   | "IN_PROGRESS"
   | "ALL_MODULES_COMPLETE";
 
+/**
+ * The PRE_DISPATCH readiness verdict, mirroring the server's vocabulary exactly.
+ *
+ * `NO_ONBOARDING_ON_FILE` is deliberately NOT a kind of not-ready-yet: a worker with no
+ * packet has no applicable composition to satisfy, which is a different situation from one
+ * whose requirements are known and outstanding. The two outstanding verdicts stay separate
+ * for the same reason - a worker who still owes work has to be given the work, while a
+ * worker whose only gap is an expired record has to be asked to affirm or replace it.
+ *
+ * `READY` means "onboarding is not holding anything up", never "dispatch him". These are
+ * four states and there is no fifth: the server decides the verdict, and a client that
+ * invented a state would be a client deciding something it does not answer for.
+ */
+export type OnboardingPreDispatchReadinessState =
+  | "NO_ONBOARDING_ON_FILE"
+  | "WORKER_OBLIGATIONS_OUTSTANDING"
+  | "VERIFICATION_OUTSTANDING"
+  | "READY";
+
 // --------------------------------------------------------------------------
 // Shared shapes
 // --------------------------------------------------------------------------
@@ -209,6 +228,33 @@ export type OnboardingEvaluableModule = {
 export type OnboardingPreDispatchStatus = OnboardingConsumerStatus & {
   audience: "PRE_DISPATCH";
   modulesDeclaringPreDispatchEvaluation: OnboardingEvaluableModule[];
+  /**
+   * The authoritative readiness verdict, carried verbatim from the server's readiness
+   * authority. Never recomputed here, and never second-guessed from the fields below: a
+   * client that derived its own verdict could disagree with the one the server audited.
+   */
+  readinessState: OnboardingPreDispatchReadinessState;
+  /** Whether applicable requirements the WORKER still owes are outstanding. */
+  workerObligationsOutstanding: boolean;
+  /**
+   * Whether an applicable requirement whose governed record already exists is reported by
+   * its owning module as expired or missing.
+   *
+   * A SEPARATE FACT from the one above, because they call for different interactions. It is
+   * never overstated by the server: where the verdict cannot distinguish a withheld
+   * confidential verification from a withheld confidential obligation, this reports `false`
+   * and the field above carries the blockage instead. Nothing here differences the two.
+   */
+  verificationOutstanding: boolean;
+  /**
+   * How many outstanding applicable requirements are withheld because the owning module
+   * declared its participation confidential.
+   *
+   * A COUNT AND NOT A NAME, carried through unchanged and unsplit. Naming the module would
+   * tell this audience that a module it may not know about exists; omitting the count
+   * silently would make `readinessState` a lie.
+   */
+  withheldConfidentialCount: number;
 };
 
 export type OnboardingCompletionFact = {
@@ -291,8 +337,13 @@ export async function getOnboardingVettingStatus(
 }
 
 /**
- * The PRE_DISPATCH projection: the minimal facts plus the modules that declared themselves
- * evaluable at assignment readiness. The caller decides what, if anything, to do with them.
+ * The PRE_DISPATCH projection: the minimal facts, the modules that declared themselves
+ * evaluable at assignment readiness, and the server's readiness verdict. The caller decides
+ * what, if anything, to do with any of it - the projection reports facts and issues no
+ * instruction, so `READY` is a fact about onboarding and not a direction to dispatch.
+ *
+ * The request is unchanged by the readiness fields: same route, same read, same staff
+ * credential, and no parameter through which a caller could ask for more.
  */
 export async function getOnboardingPreDispatchStatus(
   candidateId: string,
