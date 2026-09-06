@@ -13,9 +13,12 @@
  *    tokens are proven unassignable.
  *  - THE REQUEST DID NOT CHANGE. Same route, same read, same staff credential, still no
  *    query string, and still nothing attempted without a session.
- *  - NOTHING CONSUMES IT. The fields reach no component, no page, and no
- *    Recruiting/Vetting/Dispatch surface, which is asserted against the source tree rather
- *    than promised in prose. `READY` is a fact about onboarding; acting on it is a later
+ *  - EXACTLY ONE SURFACE CONSUMES IT. The read is performed by the Vetting PRE_DISPATCH
+ *    loader and by nothing else, and the fields themselves reach only that loader, the
+ *    candidate model it attaches them to, and the ONE Vetting surface authorized to word
+ *    them. This is asserted against the source tree rather than promised in prose, and the
+ *    lists are exact, so a second loader or an unauthorized screen fails here rather than
+ *    arriving unnoticed. `READY` is a fact about onboarding; ENFORCING it remains a later
  *    slice's authorization, and this one must be provably short of it.
  */
 
@@ -305,9 +308,40 @@ describe("Gate 10C-E4 - the PRE_DISPATCH readiness contract", () => {
     });
   });
 
-  describe("no consumer, which is the whole of the restraint", () => {
-    it("is read by no component, no page, and no other module", () => {
-      const consumers = ["components", "app", "lib"]
+  describe("exactly one authorized consumer, which is now the whole of the restraint", () => {
+    /**
+     * E4-2 asserted that NOTHING consumed this contract, because at that point nothing was
+     * authorized to. Slice E4-4 authorized exactly one consumer - the Vetting PRE_DISPATCH
+     * data loader - so the assertion moves from "no consumer" to "THAT CONSUMER AND NO OTHER".
+     * It is deliberately not relaxed into a floor: the lists below are exact, so an indicator,
+     * a gate, a dispatch button or a second loader still fails here rather than arriving
+     * unnoticed.
+     */
+    it("is CALLED by the authorized Vetting loader and by nothing else", () => {
+      const callers = ["components", "app", "lib", "data"]
+        .flatMap((directory) => sourceFilesUnder(join(ROOT, directory)))
+        .filter((file) => {
+          // A CALL, not a type reference: the risk being guarded is an unaudited read
+          // arriving from a surface nobody authorized, and every such read is a call.
+          const source = readFileSync(file, "utf8");
+          return /getOnboardingPreDispatchStatus\s*\(/.test(source);
+        })
+        .map((file) => relative(ROOT, file).split(sep).join("/"))
+        // The client itself DECLARES the function; declaring it is not consuming it.
+        .filter((path) => path !== "lib/workforce/onboardingStatusApi.ts")
+        .sort();
+
+      // The Vetting loader, and this suite exercising the client against a stubbed transport.
+      // The E4-4 suite is deliberately absent: it MOCKS the read rather than performing one,
+      // which is why a test cannot become a second consumer by accident.
+      expect(callers).toEqual([
+        "app/orders/[id]/vetting/useVettingData.ts",
+        "lib/workforce/onboardingStatusApi.predispatch.test.ts",
+      ]);
+    });
+
+    it("reaches no surface beyond that loader, the candidate model, and the one authorized screen", () => {
+      const referrers = ["components", "app", "lib", "data"]
         .flatMap((directory) => sourceFilesUnder(join(ROOT, directory)))
         .filter((file) => {
           const source = readFileSync(file, "utf8");
@@ -316,12 +350,32 @@ describe("Gate 10C-E4 - the PRE_DISPATCH readiness contract", () => {
         .map((file) => relative(ROOT, file).split(sep).join("/"))
         .sort();
 
-      // The client that declares the contract, and this suite that proves it. Nothing else.
-      // A component, page, indicator, or gate would appear here and fail.
-      expect(consumers).toEqual([
+      // The client that declares the contract, the three suites that prove it, the ONE
+      // authorized loader, the candidate model the loader attaches the projection to, and -
+      // as of E4-5 - the ONE screen authorized to word the verdict. A second screen, a
+      // Recruiting surface or a dispatch gate would appear here and fail.
+      expect(referrers).toEqual([
+        "app/orders/[id]/vetting/page.tsx",
+        "app/orders/[id]/vetting/useVettingData.onboarding.test.ts",
+        "app/orders/[id]/vetting/useVettingData.ts",
+        "app/orders/[id]/vetting/vettingOnboardingClearance.test.tsx",
+        "data/mockRecruitingData.ts",
         "lib/workforce/onboardingStatusApi.predispatch.test.ts",
         "lib/workforce/onboardingStatusApi.ts",
       ]);
+    });
+
+    it("reaches no shared component, so no other screen can render the verdict", () => {
+      // E4-5 AUTHORIZED ONE SCREEN, NOT A REUSABLE WIDGET. The clearance indicator lives
+      // inside the Vetting page, so the shared component library stays innocent of this
+      // contract and no other surface can grow a verdict by importing one. A shared
+      // `OnboardingClearanceBadge` would appear here and fail, which is the point.
+      const components = sourceFilesUnder(join(ROOT, "components")).filter((file) => {
+        const source = readFileSync(file, "utf8");
+        return READINESS_TOKENS.some((token) => source.includes(token));
+      });
+
+      expect(components).toEqual([]);
     });
 
     it("added no write, no movement, and no dispatch to the status client", () => {

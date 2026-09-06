@@ -14,6 +14,7 @@ import {
   ComplianceSignalItem,
   PpeSignalItem,
   ToolSignalItem,
+  OnboardingPreDispatchReadiness,
 } from '@/data/mockRecruitingData';
 import { BucketTradeSummary } from '@/components/BucketTradeSummary';
 import { useAuth } from "@/lib/auth/useAuth";
@@ -101,6 +102,112 @@ const SOURCE_LABELS: Record<string, { label: string; icon: string }> = {
   recruiter: { label: 'Manual', icon: '👤' },
   roadtechs: { label: 'Roadtechs', icon: '🛣️' },
 };
+
+/**
+ * Gate 10C-E4 - HOW AN AUTHORITATIVE ONBOARDING CLEARANCE VERDICT IS WORDED, AND THE ONE
+ * PLACE IT IS WORDED.
+ *
+ * The card and the detail panel must never be able to disagree about a worker, so both read
+ * this function and neither interprets `readinessState` itself. What it maps is the SERVER'S
+ * verdict onto the Owner-ratified wording, and nothing else: no verdict is computed here, no
+ * verdict is corrected, and the four governed states are the only ones with a business
+ * meaning.
+ *
+ * THE WORKER IS ALREADY IN PRE_DISPATCH, so the question this wording answers is clearance
+ * to CONTINUE toward Dispatch. That is why nothing here says "ready for pre-dispatch" or
+ * "eligible for pre-dispatch" - he is already there, and saying so would answer a question
+ * nobody asked.
+ *
+ * UNREADABLE IS NOT A VERDICT, AND IS THE DEFAULT. A failed read, a missing attachment and
+ * an unrecognized state all resolve to `UNAVAILABLE` - never to cleared, and never to not
+ * cleared either, because inventing a negative verdict about a worker is as wrong as
+ * inventing a positive one. `UNAVAILABLE` is reached by falling through rather than by being
+ * asked for, so a state this function does not understand cannot come out green.
+ */
+type OnboardingClearanceTone = 'CLEARED' | 'NOT_CLEARED' | 'UNAVAILABLE';
+
+type OnboardingClearancePresentation = {
+  tone: OnboardingClearanceTone;
+  /** The card's wording. Always rendered as text, never carried by colour alone. */
+  label: string;
+  /** The detail panel's `Status:` value. */
+  statusWord: string;
+  /** The detail panel's `Reason:` value, where the verdict has one. */
+  reason: string | null;
+  /**
+   * That an outstanding requirement is withheld as confidential - NEVER WHICH ONE, AND NEVER
+   * HOW MANY. The server sends a count so that the verdict is not a lie; this carries only
+   * its existence, so the panel can explain a blockage without naming a module, implying
+   * Payroll Payment, or disclosing a protected fact.
+   */
+  confidentialOutstanding: boolean;
+  /** The SERVER'S timestamp, and only where the server supplied one. Never request time. */
+  generatedAt: string | null;
+};
+
+const ONBOARDING_CLEARANCE_UNAVAILABLE: OnboardingClearancePresentation = {
+  tone: 'UNAVAILABLE',
+  label: 'Onboarding Status Unavailable',
+  statusWord: 'Unavailable',
+  reason: null,
+  confidentialOutstanding: false,
+  generatedAt: null,
+};
+
+function presentOnboardingClearance(
+  readiness: OnboardingPreDispatchReadiness | undefined,
+): OnboardingClearancePresentation {
+  // `undefined` is "never asked" and `FAILED` is "asked, unanswerable". Neither is a fact
+  // about the worker, so both are presented identically and neither reaches a verdict.
+  if (!readiness || readiness.read === 'FAILED') return ONBOARDING_CLEARANCE_UNAVAILABLE;
+
+  const status = readiness.status;
+  const notCleared = (reason: string): OnboardingClearancePresentation => ({
+    tone: 'NOT_CLEARED',
+    label: 'Onboarding Not Cleared',
+    statusWord: 'Not Cleared',
+    reason,
+    confidentialOutstanding: status.withheldConfidentialCount > 0,
+    generatedAt: status.generatedAt,
+  });
+
+  switch (status.readinessState) {
+    case 'READY':
+      return {
+        tone: 'CLEARED',
+        label: 'Onboarding Cleared',
+        statusWord: 'Cleared',
+        reason: null,
+        confidentialOutstanding: false,
+        generatedAt: status.generatedAt,
+      };
+    case 'NO_ONBOARDING_ON_FILE':
+      return notCleared('No onboarding on file');
+    case 'WORKER_OBLIGATIONS_OUTSTANDING':
+      return notCleared('Worker action required');
+    case 'VERIFICATION_OUTSTANDING':
+      return notCleared('Verification required');
+    default:
+      return ONBOARDING_CLEARANCE_UNAVAILABLE;
+  }
+}
+
+/** The tone as a class suffix, so the stylesheet and the verdict cannot drift apart. */
+function onboardingClearanceClass(tone: OnboardingClearanceTone): string {
+  return tone === 'CLEARED' ? 'oc-cleared' : tone === 'NOT_CLEARED' ? 'oc-not-cleared' : 'oc-unavailable';
+}
+
+/**
+ * The server's `generatedAt`, rendered as local time.
+ *
+ * Returns null rather than a substitute when the server sent nothing usable: an "as of" the
+ * browser invented would present request time as backend authority.
+ */
+function formatOnboardingAsOf(generatedAt: string | null): string | null {
+  if (!generatedAt) return null;
+  const when = new Date(generatedAt);
+  return Number.isNaN(when.getTime()) ? null : when.toLocaleString();
+}
 
 function getReadinessSignal(candidate: Candidate): { color: 'green' | 'yellow' | 'red'; label: string } {
   if (!candidate.signals) {
@@ -507,6 +614,22 @@ export default function VettingPage() {
   const pipelineBuckets = order.buckets.filter(bucket => bucket.id !== 'CLOSED');
   const closedBucket = order.buckets.find(b => b.id === 'CLOSED');
 
+  /**
+   * The drill-down's Onboarding context, resolved against the LIVE lane rather than the
+   * clicked snapshot.
+   *
+   * `splitViewCandidate` is the object captured when the card was clicked, so reading the
+   * verdict off it would leave the panel showing a stale clearance after a refetch. Looking
+   * the worker up in the current PRE_DISPATCH lane also answers the other question the panel
+   * cannot answer for itself - WHETHER HE IS IN THAT LANE AT ALL - so a candidate from any
+   * other lane gets no Onboarding section rather than a fabricated one.
+   */
+  const preDispatchInDrillDown = splitViewCandidate
+    ? order.buckets
+        .find(bucket => bucket.id === 'PRE_DISPATCH')
+        ?.candidates.find(candidate => candidate.id === splitViewCandidate.id)
+    : undefined;
+
   // Handler for adding to Identified (mock)
   const handleAddToIdentified = (_candidate: Candidate) => {
     // no-op placeholder for future implementation
@@ -817,6 +940,8 @@ export default function VettingPage() {
         <section className="split-view-section">
           <SplitViewPanel
             candidate={splitViewCandidate}
+            showOnboardingClearance={!!preDispatchInDrillDown}
+            onboardingReadiness={preDispatchInDrillDown?.onboardingPreDispatch}
             onClose={() => setSplitViewCandidate(null)}
           />
         </section>
@@ -1417,6 +1542,7 @@ function LaneColumn({
                 candidate={candidate}
                 showSemantics={showSemantics}
                 showSelectionControl={isPreDispatchBucket}
+                showOnboardingClearance={isPreDispatchBucket}
                 onClick={() => onCardClick(candidate)}
                 onApprovalChange={(status) => onApprovalChange(candidate.id, status)}
                 onSelectToggle={isPreDispatchBucket && onSelectToggle ? () => onSelectToggle(candidate) : undefined}
@@ -1746,6 +1872,7 @@ function VettingCandidateCard({
   candidate,
   showSemantics,
   showSelectionControl,
+  showOnboardingClearance,
   onClick,
   onApprovalChange,
   onSelectToggle,
@@ -1758,6 +1885,8 @@ function VettingCandidateCard({
   candidate: Candidate;
   showSemantics: boolean;
   showSelectionControl?: boolean;
+  /** PRE_DISPATCH only: no other lane has an Onboarding clearance question to answer. */
+  showOnboardingClearance?: boolean;
   onClick: () => void;
   onApprovalChange: (status: CustomerApprovalStatusType) => void;
   onSelectToggle?: () => void;
@@ -1778,6 +1907,7 @@ function VettingCandidateCard({
   };
 
   const isSelected = candidate.selectedForDispatch === true;
+  const clearance = presentOnboardingClearance(candidate.onboardingPreDispatch);
 
   return (
     <div
@@ -1809,6 +1939,27 @@ function VettingCandidateCard({
           <span className="confidence">{candidate.matchConfidence}%</span>
         )}
       </div>
+
+      {/*
+        Gate 10C-E4 - the authoritative Onboarding clearance verdict.
+
+        DELIBERATELY ITS OWN ROW, AND DELIBERATELY NOT THE SELECTION INDICATOR. The header's
+        circle-and-check and the footer's "Selected" button are STAGING semantics - whether
+        this operator has picked the worker for a dispatch action - and they are already
+        green. This says something entirely different, so it is placed away from both, names
+        the subject in its own text ("Onboarding ..."), and uses no check or circle glyph
+        that could be read as selection. A worker can therefore be staged AND not cleared at
+        the same time, which is exactly the situation an operator most needs to see.
+
+        THE TEXT CARRIES THE MEANING; colour and the dashed unavailable border only reinforce
+        it, so the verdict survives a colour-blind operator and a greyscale screen.
+      */}
+      {showOnboardingClearance && (
+        <div className={`onboarding-clearance ${onboardingClearanceClass(clearance.tone)}`}>
+          <span className="oc-dot" aria-hidden="true" />
+          <span className="oc-label">{clearance.label}</span>
+        </div>
+      )}
 
       {/* Source Badge + Readiness + Eligibility (Semantics) */}
       {showSemantics && (
@@ -1926,6 +2077,59 @@ function VettingCandidateCard({
         .candidate-card.checkbox-selected-card:hover {
           background: #dbeafe;
           border-color: #1d4ed8;
+        }
+
+        /* Onboarding clearance (Gate 10C-E4) — a labelled verdict, not a selection cue */
+        .onboarding-clearance {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 6px;
+          padding: 3px 8px;
+          border: 1px solid;
+          border-radius: 4px;
+          font-size: 11px;
+          font-weight: 600;
+        }
+
+        .oc-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          flex: 0 0 auto;
+        }
+
+        .oc-cleared {
+          background: #ecfdf5;
+          border-color: #6ee7b7;
+          color: #047857;
+        }
+
+        .oc-cleared .oc-dot {
+          background: #059669;
+        }
+
+        .oc-not-cleared {
+          background: #fef2f2;
+          border-color: #fca5a5;
+          color: #b91c1c;
+        }
+
+        .oc-not-cleared .oc-dot {
+          background: #dc2626;
+        }
+
+        /* Neutral and DASHED: an unread status must not read as a verdict, and must not
+           resemble the cleared state in colour, weight, or edge. */
+        .oc-unavailable {
+          background: #f8fafc;
+          border-color: #cbd5e1;
+          border-style: dashed;
+          color: #475569;
+        }
+
+        .oc-unavailable .oc-dot {
+          background: #94a3b8;
         }
 
         .card-checkbox-label {
@@ -3385,9 +3589,14 @@ function CustomerApprovalGate({
 // Split View Panel (Card Drill-Down — order-linked requirement truth)
 function SplitViewPanel({
   candidate,
+  showOnboardingClearance,
+  onboardingReadiness,
   onClose,
 }: {
   candidate: Candidate;
+  /** PRE_DISPATCH only, decided by the page against the live lane. */
+  showOnboardingClearance?: boolean;
+  onboardingReadiness?: OnboardingPreDispatchReadiness;
   onClose: () => void;
 }) {
   const certItems: CertSignalItem[] = candidate.signals?.hardGates?.certifications?.items ?? [];
@@ -3395,6 +3604,8 @@ function SplitViewPanel({
   const ppeItems: PpeSignalItem[] = candidate.signals?.softSignals?.ppe?.items ?? [];
   const toolItems: ToolSignalItem[] = candidate.signals?.softSignals?.tools?.items ?? [];
   const hasSignals = !!candidate.signals;
+  const clearance = presentOnboardingClearance(onboardingReadiness);
+  const clearanceAsOf = formatOnboardingAsOf(clearance.generatedAt);
 
   return (
     <div className="split-view-panel">
@@ -3415,6 +3626,45 @@ function SplitViewPanel({
             <div className="profile-name">{candidate.name}</div>
             <div className="profile-trade">{candidate.tradeName}</div>
           </div>
+
+          {/*
+            Gate 10C-E4 - the Onboarding clearance drill-down.
+
+            Placed immediately under the worker's name because it is the first thing an
+            operator staging a PRE_DISPATCH worker needs, and it is a fact about the WORKER
+            rather than about this order - which is why it sits in the profile column and not
+            under the order's eligibility checklist.
+
+            WHAT IS DELIBERATELY ABSENT: the read's HTTP status, the framework refusal code,
+            the confidential count, the name of any withheld requirement, and every protected
+            worker value. The panel reports a verdict, a governed reason, and the server's own
+            timestamp. It is not a debugging display.
+          */}
+          {showOnboardingClearance && (
+            <div className="profile-group">
+              <h4>Onboarding</h4>
+              <div className={`oc-detail ${onboardingClearanceClass(clearance.tone)}`}>
+                <div className="oc-detail-row">
+                  <span className="oc-detail-key">Status:</span>
+                  <span className="oc-detail-value">{clearance.statusWord}</span>
+                </div>
+                {clearance.reason && (
+                  <div className="oc-detail-row">
+                    <span className="oc-detail-key">Reason:</span>
+                    <span className="oc-detail-value">{clearance.reason}</span>
+                  </div>
+                )}
+                {clearance.confidentialOutstanding && (
+                  <div className="oc-detail-note">
+                    Additional confidential verification required
+                  </div>
+                )}
+                {clearanceAsOf && (
+                  <div className="oc-detail-asof">As of {clearanceAsOf}</div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="profile-group">
             <h4>MW4H Job History</h4>
@@ -3717,6 +3967,63 @@ function SplitViewPanel({
           text-transform: uppercase;
           letter-spacing: 0.5px;
           color: #6b7280;
+        }
+
+        /* Onboarding clearance drill-down (Gate 10C-E4) */
+        .oc-detail {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          padding: 6px 8px;
+          border: 1px solid;
+          border-radius: 4px;
+          font-size: 11px;
+        }
+
+        .oc-detail-row {
+          display: flex;
+          gap: 6px;
+        }
+
+        .oc-detail-key {
+          font-weight: 600;
+          opacity: 0.75;
+        }
+
+        .oc-detail-value {
+          font-weight: 700;
+        }
+
+        .oc-detail-note {
+          margin-top: 2px;
+          font-style: italic;
+          opacity: 0.85;
+        }
+
+        .oc-detail-asof {
+          margin-top: 2px;
+          font-size: 10px;
+          opacity: 0.7;
+        }
+
+        .oc-cleared {
+          background: #ecfdf5;
+          border-color: #6ee7b7;
+          color: #047857;
+        }
+
+        .oc-not-cleared {
+          background: #fef2f2;
+          border-color: #fca5a5;
+          color: #b91c1c;
+        }
+
+        /* Neutral and dashed, so an unread status cannot be mistaken for a cleared one. */
+        .oc-unavailable {
+          background: #f8fafc;
+          border-color: #cbd5e1;
+          border-style: dashed;
+          color: #475569;
         }
 
         .placeholder-content {

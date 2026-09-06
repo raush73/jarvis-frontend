@@ -7,6 +7,8 @@
  * Open changes ONLY at Dispatch or No-Show
  */
 
+import type { OnboardingPreDispatchStatus } from '@/lib/workforce/onboardingStatusApi';
+
 export type Trade = {
   id: string;
   name: string;
@@ -85,6 +87,30 @@ export type AssignmentInfo = {
   expectedEndDate: string | null;
 };
 
+/**
+ * Gate 10C-E4 - the authoritative Workforce Onboarding PRE_DISPATCH readiness projection as
+ * a Vetting surface carries it.
+ *
+ * A WRAPPER AROUND THE SERVER'S PROJECTION AND NOT A SECOND READINESS MODEL. The verdict
+ * itself is `OnboardingPreDispatchStatus`, mirrored once in `lib/workforce/onboardingStatusApi.ts`
+ * and carried here verbatim; nothing in this file derives, re-words, or corrects it.
+ *
+ * What the wrapper adds is the one distinction the projection cannot make about itself:
+ * **AN AUTHORITATIVE BUSINESS VERDICT IS NOT THE SAME THING AS A STATUS THAT COULD NOT BE
+ * READ.** A transport failure, a dead session and a refusal are all `FAILED`, and `FAILED`
+ * carries `status: null` so there is NO SHAPE IN WHICH A FAILED READ CAN PRESENT A
+ * `readinessState` - not `READY`, and not one of the three outstanding verdicts either.
+ * A surface that renders this must therefore handle unavailability deliberately rather than
+ * falling through to green.
+ *
+ * `httpStatus` is the refusal's number and nothing more: it lets a later slice distinguish
+ * "you do not hold this grant" from "this could not be reached" without exposing a message,
+ * a worker fact, or any protected detail.
+ */
+export type OnboardingPreDispatchReadiness =
+  | { read: 'SUCCEEDED'; status: OnboardingPreDispatchStatus }
+  | { read: 'FAILED'; status: null; httpStatus: number | null };
+
 export type Candidate = {
   id: string;
   candidateId?: string;
@@ -109,6 +135,16 @@ export type Candidate = {
   selectedForDispatch?: boolean;
   selectedAt?: string;
   assignment?: AssignmentInfo;
+  /**
+   * The Onboarding clearance projection, attached by the Vetting loader for PRE_DISPATCH
+   * candidates only.
+   *
+   * OPTIONAL AND ABSENT BY DEFAULT, which is deliberate: `undefined` means this candidate was
+   * never asked about - he is in another lane, or carries no Workforce candidate identity -
+   * and it must not be read as a verdict either. It is distinct from `{ read: 'FAILED' }`,
+   * which means the question WAS asked and could not be answered.
+   */
+  onboardingPreDispatch?: OnboardingPreDispatchReadiness;
 };
 
 export type BucketId =

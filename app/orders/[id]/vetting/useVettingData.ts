@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/api';
+import { getOnboardingPreDispatchStatus } from '@/lib/workforce/onboardingStatusApi';
 import type {
   Order,
   Trade,
   Bucket,
   BucketId,
   Candidate,
+  OnboardingPreDispatchReadiness,
   CandidateSignals,
   CertSignalItem,
   ComplianceSignalItem,
@@ -278,6 +280,86 @@ function buildBuckets(backendCandidates: BackendCandidate[]): Bucket[] {
   }));
 }
 
+/**
+ * Gate 10C-E4 - the Vetting lane's read of authoritative Onboarding PRE_DISPATCH clearance.
+ *
+ * THE ONE AUTHORIZED CONSUMER of the internal PRE_DISPATCH status projection. The worker is
+ * already in the lane, so the question asked here is never "may he enter PRE_DISPATCH" but
+ * "HAS ONBOARDING CLEARED HIM TO CONTINUE TOWARD DISPATCH" - a fact this loader reports and
+ * never acts on. Nothing here selects, stages, moves or dispatches anybody, and no verdict is
+ * derived: the server's four-state vocabulary is carried through untouched.
+ *
+ * Read against `candidate.candidateId`, WHICH IS THE WORKFORCE `Candidate.id`. `candidate.id`
+ * is the ORDER-SCOPED `OrderCandidate.id` and identifies a row in a recruiting pipeline, not
+ * a worker - passing it would ask onboarding about a worker who does not exist, and would do
+ * so under a staff grant and an audit event. The two are never interchangeable.
+ *
+ * ONE READ PER WORKER PER LOAD, and no read at all outside this lane. Successful reads are
+ * audited server-side, which is why there is no polling, no timer and no revalidation loop
+ * here, and why identities are de-duplicated before anything is requested: refresh follows
+ * the loader's own deliberate lifecycle and nothing else.
+ */
+const ONBOARDING_LANE: BucketId = 'PRE_DISPATCH';
+
+/** The Workforce identity, or nothing. A blank string is not an identity. */
+function workforceCandidateId(candidate: Candidate): string | null {
+  const id = candidate.candidateId;
+  return typeof id === 'string' && id.trim().length > 0 ? id : null;
+}
+
+/** A refusal's status number, where the transport supplied one. */
+function refusalStatus(reason: unknown): number | null {
+  const status = (reason as { status?: unknown } | null)?.status;
+  return typeof status === 'number' ? status : null;
+}
+
+async function attachOnboardingReadiness(buckets: Bucket[]): Promise<Bucket[]> {
+  const lane = buckets.find((bucket) => bucket.id === ONBOARDING_LANE);
+  if (!lane) return buckets;
+
+  const identities = [
+    ...new Set(
+      lane.candidates
+        .map(workforceCandidateId)
+        .filter((id): id is string => id !== null),
+    ),
+  ];
+  if (identities.length === 0) return buckets;
+
+  // In parallel, and SETTLED rather than raced: one worker's refusal, dead session or
+  // network failure isolates to that worker instead of failing the Vetting load, which
+  // would take an order's whole pipeline off the screen over a status indicator.
+  const outcomes = await Promise.allSettled(
+    identities.map((candidateId) => getOnboardingPreDispatchStatus(candidateId)),
+  );
+
+  // Associated by POSITION AGAINST THE REQUESTED IDENTITY, never by completion order:
+  // `allSettled` preserves input order, so the worker a response belongs to is fixed
+  // before any of them resolve and a slow read cannot land on a different candidate.
+  const readiness = new Map<string, OnboardingPreDispatchReadiness>();
+  identities.forEach((candidateId, index) => {
+    const outcome = outcomes[index];
+    readiness.set(
+      candidateId,
+      outcome.status === 'fulfilled'
+        ? { read: 'SUCCEEDED', status: outcome.value }
+        : { read: 'FAILED', status: null, httpStatus: refusalStatus(outcome.reason) },
+    );
+  });
+
+  return buckets.map((bucket) => {
+    if (bucket.id !== ONBOARDING_LANE) return bucket;
+    return {
+      ...bucket,
+      candidates: bucket.candidates.map((candidate) => {
+        const id = workforceCandidateId(candidate);
+        const attached = id ? readiness.get(id) : undefined;
+        return attached ? { ...candidate, onboardingPreDispatch: attached } : candidate;
+      }),
+    };
+  });
+}
+
 function buildTrades(tradeReqs: BackendTradeRequirement[], dispatchedCandidates: Candidate[]): Trade[] {
   return tradeReqs.map((tr) => {
     const dispatched = dispatchedCandidates.filter((c) => c.tradeId === tr.tradeId).length;
@@ -348,7 +430,7 @@ export function useVettingData(orderId: string | undefined): {
         })),
       );
 
-      const buckets = buildBuckets(backendCandidates);
+      const buckets = await attachOnboardingReadiness(buildBuckets(backendCandidates));
       const dispatchedBucket = buckets.find((b) => b.id === 'DISPATCHED');
       const trades = buildTrades(backendOrder.tradeRequirements ?? [], dispatchedBucket?.candidates ?? []);
 
