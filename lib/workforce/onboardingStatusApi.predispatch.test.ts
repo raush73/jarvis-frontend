@@ -350,15 +350,20 @@ describe("Gate 10C-E4 - the PRE_DISPATCH readiness contract", () => {
         .map((file) => relative(ROOT, file).split(sep).join("/"))
         .sort();
 
-      // The client that declares the contract, the three suites that prove it, the ONE
+      // The client that declares the contract, the four suites that prove it, the ONE
       // authorized loader, the candidate model the loader attaches the projection to, and -
       // as of E4-5 - the ONE screen authorized to word the verdict. A second screen, a
       // Recruiting surface or a dispatch gate would appear here and fail.
+      //
+      // The selection-gate suite joined this list when the verdict began governing the
+      // PRE_DISPATCH dispatch-selection checkbox. It is still ONE screen: that gate lives in
+      // the same authorized page, which is why no new production entry accompanies it.
       expect(referrers).toEqual([
         "app/orders/[id]/vetting/page.tsx",
         "app/orders/[id]/vetting/useVettingData.onboarding.test.ts",
         "app/orders/[id]/vetting/useVettingData.ts",
         "app/orders/[id]/vetting/vettingOnboardingClearance.test.tsx",
+        "app/orders/[id]/vetting/vettingOnboardingSelectionGate.test.tsx",
         "data/mockRecruitingData.ts",
         "lib/workforce/onboardingStatusApi.predispatch.test.ts",
         "lib/workforce/onboardingStatusApi.ts",

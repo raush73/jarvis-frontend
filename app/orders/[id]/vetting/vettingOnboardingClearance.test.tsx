@@ -893,7 +893,16 @@ describe('E4-5 Dispatch and existing Vetting behaviour', () => {
     );
   });
 
-  it('leaves the staging checkbox live for a worker who is not cleared', () => {
+  /**
+   * Retargeted to the card-level staging control.
+   *
+   * This originally asserted the upper-left dispatch-selection checkbox as well, which the
+   * Owner has since ruled must be withheld from a worker who is not cleared - proven in
+   * `vettingOnboardingSelectionGate.test.tsx`. E4-5's finding survives where it is still
+   * true: STAGING IS NOT DISPATCH SELECTION, so the Select control stays live regardless of
+   * the verdict, and an unreadable status is no more disqualifying here than a negative one.
+   */
+  it('leaves the staging control live when the verdict could not be read at all', () => {
     renderVetting({
       PRE_DISPATCH: [
         candidate({
@@ -902,12 +911,22 @@ describe('E4-5 Dispatch and existing Vetting behaviour', () => {
       ],
     });
 
-    const checkbox = document.querySelector('.card-checkbox') as HTMLInputElement;
-    expect(checkbox).not.toBeNull();
-    expect(checkbox.disabled).toBe(false);
+    const stagingControl = document.querySelector('.select-toggle-btn') as HTMLButtonElement;
+    expect(stagingControl).not.toBeNull();
+    expect(stagingControl.disabled).toBe(false);
+    expect(stagingControl.textContent).toContain('Select');
   });
 
-  it('gates no Dispatch or movement path on the new verdict', () => {
+  /**
+   * Narrowed to what these assertions actually establish.
+   *
+   * The title once claimed the verdict gated nothing at all. It now gates one thing - whether
+   * the PRE_DISPATCH dispatch-selection checkbox is rendered - and does so by withholding the
+   * control at render time. That is why these assertions still hold: no control is DISABLED
+   * by the verdict, and no dispatch, staging or movement ACTION branches on it. Both remain
+   * worth holding, because either would be a different and worse design.
+   */
+  it('disables no control, and puts the verdict inside no dispatch, staging or movement action', () => {
     // No control's enabled-ness is bound to the verdict.
     expect(PAGE_SOURCE).not.toMatch(/disabled=\{[^}]*clearance/);
     expect(PAGE_SOURCE).not.toMatch(/disabled=\{[^}]*onboarding/i);

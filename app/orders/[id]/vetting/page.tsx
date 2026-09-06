@@ -198,6 +198,23 @@ function onboardingClearanceClass(tone: OnboardingClearanceTone): string {
 }
 
 /**
+ * Whether Onboarding permits this worker to be added to the dispatch-selection collection.
+ *
+ * Asks the verdict mapper above rather than reading `read` and `readinessState` itself, so
+ * the checkbox cannot contradict the words printed next to it: a worker reading "Onboarding
+ * Not Cleared" is not selectable, and one reading "Onboarding Cleared" is, by construction
+ * rather than by two agreeing implementations.
+ *
+ * Only `CLEARED` permits selection. Every other verdict withholds the control, including the
+ * ones that are not findings about the worker at all - a failed read, an absent attachment,
+ * and a state the mapper does not recognise all arrive here as `UNAVAILABLE`. Unreadable is
+ * therefore treated as not selectable, which is the safe direction to be wrong in.
+ */
+function isOnboardingClearedForDispatchSelection(candidate: Candidate): boolean {
+  return presentOnboardingClearance(candidate.onboardingPreDispatch).tone === 'CLEARED';
+}
+
+/**
  * The server's `generatedAt`, rendered as local time.
  *
  * Returns null rather than a substitute when the server sent nothing usable: an "as of" the
@@ -483,8 +500,12 @@ export default function VettingPage() {
   }, []);
 
   const preDispatchCheckedIds = selectedIds['PRE_DISPATCH'] || new Set<string>();
+  // A check is local and survives a refetch; Onboarding clearance is authoritative and does
+  // not. Re-asking on every render means a worker checked while cleared and since degraded
+  // drops out of this collection, and therefore out of the modal and the payload built from
+  // it, without anything having to remember to prune the checked set.
   const dispatchModalCandidates = (vettingState.status === 'ready')
-    ? (vettingState.order.buckets.find(b => b.id === 'PRE_DISPATCH')?.candidates.filter(c => preDispatchCheckedIds.has(c.id)) || [])
+    ? (vettingState.order.buckets.find(b => b.id === 'PRE_DISPATCH')?.candidates.filter(c => preDispatchCheckedIds.has(c.id) && isOnboardingClearedForDispatchSelection(c)) || [])
     : [];
 
   const handleBulkDispatch = async () => {
@@ -1497,7 +1518,14 @@ function LaneColumn({
     ? bucket.candidates.filter(c => c.selectedForDispatch).length
     : 0;
   const totalInLane = bucket.candidates.length;
-  const bucketSelectedCount = selectedIds?.size ?? 0;
+  // In PRE_DISPATCH, a check survives a refetch but Onboarding clearance does not have to.
+  // Counting only workers who are still cleared keeps this number equal to what the Dispatch
+  // modal would actually carry, so the button cannot offer more workers than it can send.
+  const bucketSelectedCount = isPreDispatchBucket
+    ? bucket.candidates.filter(
+        c => selectedIds?.has(c.id) && isOnboardingClearedForDispatchSelection(c),
+      ).length
+    : selectedIds?.size ?? 0;
 
   const laneColors: Record<string, string> = {
     OPTED_IN: '#6366f1',
@@ -1548,7 +1576,10 @@ function LaneColumn({
                 onSelectToggle={isPreDispatchBucket && onSelectToggle ? () => onSelectToggle(candidate) : undefined}
                 isAuthenticated={isAuthenticated}
                 demoTitle={demoTitle}
-                showCheckbox={!!isSelectable}
+                showCheckbox={
+                  !!isSelectable &&
+                  (!isPreDispatchBucket || isOnboardingClearedForDispatchSelection(candidate))
+                }
                 isChecked={!!selectedIds?.has(candidate.id)}
                 onCheckboxToggle={onToggleSelection ? () => onToggleSelection(candidate.id) : undefined}
               />
