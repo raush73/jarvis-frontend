@@ -15,7 +15,9 @@ import {
   PpeSignalItem,
   ToolSignalItem,
   OnboardingPreDispatchReadiness,
+  PreDispatchWorkerRequestRead,
 } from '@/data/mockRecruitingData';
+import type { PreDispatchInterestResult } from '@/lib/recruiting/preDispatchWorkerRequestApi';
 import { BucketTradeSummary } from '@/components/BucketTradeSummary';
 import { useAuth } from "@/lib/auth/useAuth";
 import { EventSpineTimelineSnapshot } from "@/components/EventSpineTimelineSnapshot";
@@ -212,6 +214,182 @@ function onboardingClearanceClass(tone: OnboardingClearanceTone): string {
  */
 function isOnboardingClearedForDispatchSelection(candidate: Candidate): boolean {
   return presentOnboardingClearance(candidate.onboardingPreDispatch).tone === 'CLEARED';
+}
+
+/* ==========================================================================
+   Phase 17 S2 - the PRE_DISPATCH worker-request state.
+
+   A SECOND, SEPARATE STATUS SITTING BESIDE ONBOARDING CLEARANCE, AND NOT A SECOND OPINION
+   ABOUT IT. Clearance answers "has Onboarding cleared this worker to continue toward
+   dispatch". This answers an operational question about a different subject entirely: "what
+   is happening with the job-specific request for this worker's action on this candidacy".
+
+   The two are kept apart by construction rather than by convention:
+
+   - separate attachment on the candidate (`preDispatchWorkerRequest`, not `onboardingPreDispatch`);
+   - separate mapper below, sharing no branch with `presentOnboardingClearance`;
+   - separate `pdr-` class namespace, so no request state can inherit `oc-cleared` styling;
+   - separate wording, every string prefixed "Worker Request", so the subject is named in text.
+
+   THE REQUEST STATE IS NOT A GATE AND MUST NEVER BECOME ONE HERE. It feeds no selection
+   decision, no checkbox, and no dispatch control. Only Onboarding clearance does that, and
+   only through `isOnboardingClearedForDispatchSelection`.
+   ========================================================================== */
+
+/**
+ * How prominent a request state is, and in what colour family.
+ *
+ * `PENDING` and `WAITING` are deliberately the SAME neutral tone with different words. An
+ * operational "we have not sent this yet" is not a failure and must not borrow the red that
+ * means "Onboarding Not Cleared"; a worker who owes an answer is not a worker who has been
+ * refused. `CLEARED` is the only tone permitted anything green, and only because the persisted
+ * state genuinely says CLEARED.
+ */
+type WorkerRequestTone = 'PENDING' | 'WAITING' | 'RESPONDED' | 'CLEARED' | 'CLOSED' | 'UNAVAILABLE';
+
+type WorkerRequestPresentation = {
+  tone: WorkerRequestTone;
+  /** The card's wording. Always text, never carried by colour alone. */
+  label: string;
+  /** The detail panel's `Request:` value. */
+  statusWord: string;
+  /** A short operational elaboration, where the state has one. */
+  detail: string | null;
+  cycleSequence: number | null;
+};
+
+const WORKER_REQUEST_UNAVAILABLE: WorkerRequestPresentation = {
+  tone: 'UNAVAILABLE',
+  label: 'Worker Request Unavailable',
+  statusWord: 'Unavailable',
+  detail: null,
+  cycleSequence: null,
+};
+
+/**
+ * Maps the persisted request lifecycle to staff-facing wording.
+ *
+ * READS THE AUTHORITATIVE `state` AND NOTHING ELSE TO CHOOSE THE WORDING. Timestamps are used
+ * only to elaborate a state that has already been chosen, never to infer one. That distinction
+ * is the whole reason this function exists rather than a few ternaries at the call site:
+ * PENDING_INITIAL_COMMUNICATION means the request exists and NOTHING HAS BEEN SENT, and while
+ * S8-S10 delivery remains blocked it is the state nearly every live request is in. Wording it
+ * as "sent" or "waiting for worker" would tell an operator a worker owes an answer to a
+ * question he has never been asked.
+ *
+ * The inverse guard matters too: AWAITING_WORKER_RESPONSE is worded as waiting ONLY because the
+ * stored state says so. It is never reached by observing that `initialSentAt` is populated.
+ *
+ * UNAVAILABLE IS THE DEFAULT AND IS REACHED BY FALLING THROUGH. A missing attachment, a failed
+ * read, a successful read reporting no current request, and an unrecognised state all resolve
+ * here - never to a lifecycle state, and never to CLEARED.
+ */
+function presentWorkerRequest(
+  attached: PreDispatchWorkerRequestRead | undefined,
+): WorkerRequestPresentation {
+  // `undefined` is "never asked" and `FAILED` is "asked, unanswerable". Neither is a fact about
+  // the request, so both present identically and NEITHER FABRICATES A STATE.
+  if (!attached || attached.read === 'FAILED') return WORKER_REQUEST_UNAVAILABLE;
+
+  const status = attached.status;
+
+  // A successful read can legitimately report that there is no current request: the candidacy
+  // left the lane, or it entered the lane before Phase 17 existed. Reported, never invented.
+  if (!status.present) {
+    return {
+      ...WORKER_REQUEST_UNAVAILABLE,
+      label: 'No Worker Request',
+      statusWord: 'None',
+      detail:
+        status.absence === 'NOT_IN_PRE_DISPATCH'
+          ? 'Candidacy is not in Pre-Dispatch'
+          : 'No request on file for this candidacy',
+    };
+  }
+
+  const request = status.request;
+  const cycleSequence = request.cycleSequence;
+
+  switch (request.state) {
+    case 'PENDING_INITIAL_COMMUNICATION':
+      return {
+        tone: 'PENDING',
+        label: 'Worker Request Not Sent',
+        statusWord: 'Not Sent',
+        detail: 'Request created; initial communication not yet sent',
+        cycleSequence,
+      };
+    case 'AWAITING_WORKER_RESPONSE':
+      return {
+        tone: 'WAITING',
+        label: 'Awaiting Worker Response',
+        statusWord: 'Awaiting Response',
+        detail: 'Sent; waiting for the worker to respond',
+        cycleSequence,
+      };
+    case 'WORKER_RESPONDED':
+      return {
+        tone: 'RESPONDED',
+        label: 'Worker Responded',
+        statusWord: 'Responded',
+        detail: presentInterestResult(request.interestResult),
+        cycleSequence,
+      };
+    case 'CLEARED':
+      return {
+        tone: 'CLEARED',
+        label: 'Worker Request Cleared',
+        statusWord: 'Cleared',
+        detail: presentInterestResult(request.interestResult),
+        cycleSequence,
+      };
+    case 'CLOSED':
+      return {
+        tone: 'CLOSED',
+        label: 'Worker Request Closed',
+        statusWord: 'Closed',
+        detail: request.closeReason ?? null,
+        cycleSequence,
+      };
+    default:
+      // An unrecognised state is unavailable, NOT a guess. Reached by falling through, so a
+      // state this mapper does not understand cannot come out looking answered or cleared.
+      return { ...WORKER_REQUEST_UNAVAILABLE, cycleSequence };
+  }
+}
+
+/**
+ * The worker's recorded answer, in words. Null where nothing has been recorded.
+ *
+ * S2 only DISPLAYS a result the worker has already given. Recording one is S3.
+ */
+function presentInterestResult(result: PreDispatchInterestResult | null): string | null {
+  if (result === 'CONTINUED_INTEREST_CONFIRMED') return 'Continued interest confirmed';
+  if (result === 'WITHDRAWAL_REQUESTED') return 'Withdrawal requested';
+  return null;
+}
+
+/**
+ * The tone as a class suffix.
+ *
+ * A `pdr-` NAMESPACE, SHARING NO CLASS NAME WITH THE `oc-` CLEARANCE STYLES. A request state
+ * therefore cannot pick up the clearance gate's green or red by accident, and the two
+ * indicators cannot be restyled into looking like one badge by a single stylesheet edit.
+ */
+function workerRequestClass(tone: WorkerRequestTone): string {
+  switch (tone) {
+    case 'CLEARED':
+      return 'pdr-cleared';
+    case 'RESPONDED':
+      return 'pdr-responded';
+    case 'CLOSED':
+      return 'pdr-closed';
+    case 'PENDING':
+    case 'WAITING':
+      return 'pdr-pending';
+    default:
+      return 'pdr-unavailable';
+  }
 }
 
 /**
@@ -963,6 +1141,8 @@ export default function VettingPage() {
             candidate={splitViewCandidate}
             showOnboardingClearance={!!preDispatchInDrillDown}
             onboardingReadiness={preDispatchInDrillDown?.onboardingPreDispatch}
+            showWorkerRequest={!!preDispatchInDrillDown}
+            workerRequestRead={preDispatchInDrillDown?.preDispatchWorkerRequest}
             onClose={() => setSplitViewCandidate(null)}
           />
         </section>
@@ -1571,6 +1751,7 @@ function LaneColumn({
                 showSemantics={showSemantics}
                 showSelectionControl={isPreDispatchBucket}
                 showOnboardingClearance={isPreDispatchBucket}
+                showWorkerRequest={isPreDispatchBucket}
                 onClick={() => onCardClick(candidate)}
                 onApprovalChange={(status) => onApprovalChange(candidate.id, status)}
                 onSelectToggle={isPreDispatchBucket && onSelectToggle ? () => onSelectToggle(candidate) : undefined}
@@ -1904,6 +2085,7 @@ function VettingCandidateCard({
   showSemantics,
   showSelectionControl,
   showOnboardingClearance,
+  showWorkerRequest,
   onClick,
   onApprovalChange,
   onSelectToggle,
@@ -1918,6 +2100,13 @@ function VettingCandidateCard({
   showSelectionControl?: boolean;
   /** PRE_DISPATCH only: no other lane has an Onboarding clearance question to answer. */
   showOnboardingClearance?: boolean;
+  /**
+   * PRE_DISPATCH only: no other lane has a job-specific worker request.
+   *
+   * A SEPARATE PROP FROM `showOnboardingClearance` even though both lanes-gate identically
+   * today, so that showing one status never implies showing the other.
+   */
+  showWorkerRequest?: boolean;
   onClick: () => void;
   onApprovalChange: (status: CustomerApprovalStatusType) => void;
   onSelectToggle?: () => void;
@@ -1939,6 +2128,7 @@ function VettingCandidateCard({
 
   const isSelected = candidate.selectedForDispatch === true;
   const clearance = presentOnboardingClearance(candidate.onboardingPreDispatch);
+  const workerRequest = presentWorkerRequest(candidate.preDispatchWorkerRequest);
 
   return (
     <div
@@ -1989,6 +2179,28 @@ function VettingCandidateCard({
         <div className={`onboarding-clearance ${onboardingClearanceClass(clearance.tone)}`}>
           <span className="oc-dot" aria-hidden="true" />
           <span className="oc-label">{clearance.label}</span>
+        </div>
+      )}
+
+      {/*
+        Phase 17 S2 - the job-specific worker-request state.
+
+        ADJACENT TO THE CLEARANCE VERDICT, AND DELIBERATELY NOT MERGED WITH IT. It is grouped
+        with clearance because an operator reasons about both at once, but it is its own row,
+        its own element, its own `pdr-` class namespace and its own wording - so the two read
+        as two statuses about two subjects rather than one badge with two colours.
+
+        LIGHTER THAN THE GATE ABOVE, ON PURPOSE. Clearance is the dispatch gate and keeps the
+        heavier bordered treatment; this is operational information and is rendered smaller and
+        flatter so it informs without competing. A request state never controls a control.
+
+        THE TEXT NAMES ITS OWN SUBJECT ("Worker Request ...", "Awaiting Worker Response"), so
+        the meaning survives greyscale, colour-blindness, and a glance.
+      */}
+      {showWorkerRequest && (
+        <div className={`worker-request ${workerRequestClass(workerRequest.tone)}`}>
+          <span className="pdr-dot" aria-hidden="true" />
+          <span className="pdr-label">{workerRequest.label}</span>
         </div>
       )}
 
@@ -2161,6 +2373,97 @@ function VettingCandidateCard({
 
         .oc-unavailable .oc-dot {
           background: #94a3b8;
+        }
+
+        /* ------------------------------------------------------------------
+           Phase 17 S2 - the worker-request state.
+
+           SUBORDINATE TO THE CLEARANCE GATE BY DESIGN. No border, a smaller type size and a
+           lighter weight than .onboarding-clearance above, so it sits with the verdict
+           without competing with it. Recruiting still reads it at a glance because the words
+           name the subject; it simply does not look like a gate, because it is not one.
+
+           A SEPARATE pdr- NAMESPACE FROM oc-. No selector below is shared with the
+           clearance styles, so a request state cannot inherit the gate's green or red.
+           ------------------------------------------------------------------ */
+        .worker-request {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 4px;
+          padding: 2px 6px;
+          border-radius: 3px;
+          font-size: 10px;
+          font-weight: 500;
+          line-height: 1.4;
+          /* Wraps rather than truncating: an operational status that has been cut off is a
+             status an operator has to open a panel to trust. */
+          white-space: normal;
+        }
+
+        .pdr-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          flex: 0 0 auto;
+        }
+
+        /*
+          PENDING and WAITING share this neutral amber. Neither is a failure, so neither may
+          borrow the red that means "Onboarding Not Cleared" - a worker who has not been sent a
+          request, and a worker who owes an answer, have both done nothing wrong.
+        */
+        .pdr-pending {
+          background: #fffbeb;
+          color: #92400e;
+        }
+
+        .pdr-pending .pdr-dot {
+          background: #d97706;
+        }
+
+        /* Informational blue: an answer is on file, which is progress and not a verdict. */
+        .pdr-responded {
+          background: #eff6ff;
+          color: #1d4ed8;
+        }
+
+        .pdr-responded .pdr-dot {
+          background: #2563eb;
+        }
+
+        /*
+          The ONLY green in this namespace, and reachable only from the persisted CLEARED state.
+          Deliberately flatter and borderless so that even here it cannot be mistaken for the
+          bordered "Onboarding Cleared" gate above it.
+        */
+        .pdr-cleared {
+          background: #f0fdf4;
+          color: #15803d;
+        }
+
+        .pdr-cleared .pdr-dot {
+          background: #16a34a;
+        }
+
+        .pdr-closed {
+          background: #f1f5f9;
+          color: #475569;
+        }
+
+        .pdr-closed .pdr-dot {
+          background: #64748b;
+        }
+
+        /* Unread and no-request-on-file: neutral, and never mistakable for an answer. */
+        .pdr-unavailable {
+          background: #f8fafc;
+          color: #64748b;
+          font-style: italic;
+        }
+
+        .pdr-unavailable .pdr-dot {
+          background: #cbd5e1;
         }
 
         .card-checkbox-label {
@@ -3622,12 +3925,17 @@ function SplitViewPanel({
   candidate,
   showOnboardingClearance,
   onboardingReadiness,
+  showWorkerRequest,
+  workerRequestRead,
   onClose,
 }: {
   candidate: Candidate;
   /** PRE_DISPATCH only, decided by the page against the live lane. */
   showOnboardingClearance?: boolean;
   onboardingReadiness?: OnboardingPreDispatchReadiness;
+  /** Phase 17 S2. PRE_DISPATCH only, decided by the page against the live lane. */
+  showWorkerRequest?: boolean;
+  workerRequestRead?: PreDispatchWorkerRequestRead;
   onClose: () => void;
 }) {
   const certItems: CertSignalItem[] = candidate.signals?.hardGates?.certifications?.items ?? [];
@@ -3637,6 +3945,7 @@ function SplitViewPanel({
   const hasSignals = !!candidate.signals;
   const clearance = presentOnboardingClearance(onboardingReadiness);
   const clearanceAsOf = formatOnboardingAsOf(clearance.generatedAt);
+  const workerRequest = presentWorkerRequest(workerRequestRead);
 
   return (
     <div className="split-view-panel">
@@ -3692,6 +4001,41 @@ function SplitViewPanel({
                 )}
                 {clearanceAsOf && (
                   <div className="oc-detail-asof">As of {clearanceAsOf}</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/*
+            Phase 17 S2 - the worker-request detail.
+
+            ITS OWN `profile-group` WITH ITS OWN HEADING, immediately after Onboarding rather
+            than inside it. Grouping it under the "Onboarding" heading would assert that the
+            request lifecycle is part of the clearance determination, which is exactly the
+            conflation this slice exists to avoid. The heading names the subject.
+
+            The cycle is shown because a candidacy can legitimately re-enter PRE_DISPATCH, and
+            an operator looking at a request needs to know which entry it belongs to.
+          */}
+          {showWorkerRequest && (
+            <div className="profile-group">
+              <h4>Worker Request</h4>
+              <div className={`pdr-detail ${workerRequestClass(workerRequest.tone)}`}>
+                <div className="pdr-detail-row">
+                  <span className="pdr-detail-key">Request:</span>
+                  <span className="pdr-detail-value">{workerRequest.statusWord}</span>
+                </div>
+                {workerRequest.detail && (
+                  <div className="pdr-detail-row">
+                    <span className="pdr-detail-key">Detail:</span>
+                    <span className="pdr-detail-value">{workerRequest.detail}</span>
+                  </div>
+                )}
+                {workerRequest.cycleSequence !== null && (
+                  <div className="pdr-detail-row">
+                    <span className="pdr-detail-key">Cycle:</span>
+                    <span className="pdr-detail-value">{workerRequest.cycleSequence}</span>
+                  </div>
                 )}
               </div>
             </div>
@@ -4055,6 +4399,39 @@ function SplitViewPanel({
           border-color: #cbd5e1;
           border-style: dashed;
           color: #475569;
+        }
+
+        /* ------------------------------------------------------------------
+           Phase 17 S2 - the worker-request detail block.
+
+           BORDERLESS, unlike .oc-detail above, so that in the drill-down as on the card the
+           clearance gate stays visually primary and the request state stays informational.
+           The pdr- tone classes (.pdr-pending, .pdr-cleared, ...) are defined with the
+           card styles and are reused here unchanged, so a state's colour cannot differ between
+           the two places an operator sees it.
+           ------------------------------------------------------------------ */
+        .pdr-detail {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          padding: 6px 8px;
+          border-radius: 4px;
+          font-size: 11px;
+        }
+
+        .pdr-detail-row {
+          display: flex;
+          gap: 6px;
+        }
+
+        .pdr-detail-key {
+          font-weight: 600;
+          opacity: 0.75;
+          flex: 0 0 auto;
+        }
+
+        .pdr-detail-value {
+          font-weight: 700;
         }
 
         .placeholder-content {

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/api';
 import { getOnboardingPreDispatchStatus } from '@/lib/workforce/onboardingStatusApi';
+import { getPreDispatchWorkerRequest } from '@/lib/recruiting/preDispatchWorkerRequestApi';
 import type {
   Order,
   Trade,
@@ -10,6 +11,7 @@ import type {
   BucketId,
   Candidate,
   OnboardingPreDispatchReadiness,
+  PreDispatchWorkerRequestRead,
   CandidateSignals,
   CertSignalItem,
   ComplianceSignalItem,
@@ -360,6 +362,103 @@ async function attachOnboardingReadiness(buckets: Bucket[]): Promise<Bucket[]> {
   });
 }
 
+/**
+ * Phase 17 S2 - the Vetting lane's read of the job-specific PRE_DISPATCH worker-request state.
+ *
+ * A SEPARATE READ FROM ONBOARDING CLEARANCE ABOVE, answering a separate question. Clearance
+ * asks whether Onboarding has cleared the WORKER; this asks what is happening with the request
+ * for that worker's action on THIS candidacy. The two are fetched independently, attached to
+ * independent fields, and presented as independent statuses, so neither can be mistaken for the
+ * other and a failure of one cannot corrupt the other.
+ *
+ * KEYED BY `candidate.id`, WHICH IS THE `OrderCandidate.id` - THE EXACT OPPOSITE OF THE READ
+ * ABOVE. The request is job-specific: one worker can hold a request awaiting his response on
+ * one order and no request at all on another. Keying this by the workforce `candidateId` would
+ * merge those into a single wrong answer and show an operator a request that belongs to a
+ * different job. The asymmetry between the two reads is deliberate, not an oversight.
+ *
+ * READING NEVER CREATES, AND NEVER SENDS. This is a GET against a server surface that is proven
+ * incapable of creating a request, advancing a cycle, issuing a MagicLink, or sending anything.
+ * That is why it is safe to run on every deliberate load - and why there is still no polling,
+ * no timer and no revalidation loop here: refresh follows the loader's own lifecycle only.
+ */
+const WORKER_REQUEST_LANE: BucketId = 'PRE_DISPATCH';
+
+/**
+ * The candidacy identity, or nothing.
+ *
+ * Reads `candidate.id`, the ORDER-SCOPED `OrderCandidate.id`. Deliberately a separate helper
+ * from `workforceCandidateId` so the two identities cannot be swapped by editing one line.
+ */
+function candidacyId(candidate: Candidate): string | null {
+  const id = candidate.id;
+  return typeof id === 'string' && id.trim().length > 0 ? id : null;
+}
+
+/**
+ * The HTTP status of a failed staff read, where one is recoverable.
+ *
+ * `apiFetch` throws a plain `Error` whose message begins `API <status> ...`, so the number is
+ * parsed from that format rather than read off a property the transport does not set. Returns
+ * null when nothing usable is present: an invented status would be worse than no status, and
+ * NOTHING IN THE PRESENTATION LAYER BRANCHES ON A VERDICT BECAUSE OF THIS VALUE - a failed read
+ * is unavailable regardless of why.
+ */
+function staffReadStatus(reason: unknown): number | null {
+  const direct = (reason as { status?: unknown } | null)?.status;
+  if (typeof direct === 'number') return direct;
+
+  const message = (reason as { message?: unknown } | null)?.message;
+  if (typeof message !== 'string') return null;
+  const matched = /^API\s+(\d{3})\b/.exec(message);
+  return matched ? Number(matched[1]) : null;
+}
+
+async function attachWorkerRequestState(buckets: Bucket[]): Promise<Bucket[]> {
+  const lane = buckets.find((bucket) => bucket.id === WORKER_REQUEST_LANE);
+  if (!lane) return buckets;
+
+  const candidacies = [
+    ...new Set(
+      lane.candidates.map(candidacyId).filter((id): id is string => id !== null),
+    ),
+  ];
+  if (candidacies.length === 0) return buckets;
+
+  // In parallel, and SETTLED rather than raced, for the same reason as the clearance read: one
+  // candidacy's refusal or transport failure isolates to that candidacy instead of taking the
+  // order's whole pipeline off the screen over a status line.
+  const outcomes = await Promise.allSettled(
+    candidacies.map((orderCandidateId) => getPreDispatchWorkerRequest(orderCandidateId)),
+  );
+
+  // Associated BY POSITION AGAINST THE REQUESTED CANDIDACY, never by completion order, so a
+  // slow response cannot land on a different candidacy and report one worker's request state
+  // against another worker's card.
+  const reads = new Map<string, PreDispatchWorkerRequestRead>();
+  candidacies.forEach((orderCandidateId, index) => {
+    const outcome = outcomes[index];
+    reads.set(
+      orderCandidateId,
+      outcome.status === 'fulfilled'
+        ? { read: 'SUCCEEDED', status: outcome.value }
+        : { read: 'FAILED', status: null, httpStatus: staffReadStatus(outcome.reason) },
+    );
+  });
+
+  return buckets.map((bucket) => {
+    if (bucket.id !== WORKER_REQUEST_LANE) return bucket;
+    return {
+      ...bucket,
+      candidates: bucket.candidates.map((candidate) => {
+        const id = candidacyId(candidate);
+        const attached = id ? reads.get(id) : undefined;
+        return attached ? { ...candidate, preDispatchWorkerRequest: attached } : candidate;
+      }),
+    };
+  });
+}
+
 function buildTrades(tradeReqs: BackendTradeRequirement[], dispatchedCandidates: Candidate[]): Trade[] {
   return tradeReqs.map((tr) => {
     const dispatched = dispatchedCandidates.filter((c) => c.tradeId === tr.tradeId).length;
@@ -430,7 +529,11 @@ export function useVettingData(orderId: string | undefined): {
         })),
       );
 
-      const buckets = await attachOnboardingReadiness(buildBuckets(backendCandidates));
+      // Two independent PRE_DISPATCH reads, layered in sequence over the built buckets. Each
+      // attaches to its own field and neither can overwrite the other's attachment.
+      const buckets = await attachWorkerRequestState(
+        await attachOnboardingReadiness(buildBuckets(backendCandidates)),
+      );
       const dispatchedBucket = buckets.find((b) => b.id === 'DISPATCHED');
       const trades = buildTrades(backendOrder.tradeRequirements ?? [], dispatchedBucket?.candidates ?? []);
 

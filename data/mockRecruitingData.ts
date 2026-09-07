@@ -8,6 +8,7 @@
  */
 
 import type { OnboardingPreDispatchStatus } from '@/lib/workforce/onboardingStatusApi';
+import type { PreDispatchWorkerRequestStatus } from '@/lib/recruiting/preDispatchWorkerRequestApi';
 
 export type Trade = {
   id: string;
@@ -111,6 +112,24 @@ export type OnboardingPreDispatchReadiness =
   | { read: 'SUCCEEDED'; status: OnboardingPreDispatchStatus }
   | { read: 'FAILED'; status: null; httpStatus: number | null };
 
+/**
+ * Phase 17 S2 - the PRE_DISPATCH worker-request state, attached by the Vetting loader.
+ *
+ * A DIFFERENT QUESTION FROM ONBOARDING CLEARANCE, and deliberately a separate field rather
+ * than another member of the type above. Clearance answers "may this worker be dispatched at
+ * all", which is a worker-level determination. This answers "what is happening with the
+ * job-specific request for this worker's action on THIS candidacy". A worker can be fully
+ * cleared with no request sent, and can have answered a request while still not cleared.
+ * Collapsing them into one attachment would eventually collapse them into one indicator.
+ *
+ * The same `SUCCEEDED`/`FAILED` wrapper discipline applies for the same reason: a read that
+ * could not be answered must be structurally incapable of presenting a lifecycle state, so
+ * `FAILED` carries `status: null` and there is no shape in which it can produce one.
+ */
+export type PreDispatchWorkerRequestRead =
+  | { read: 'SUCCEEDED'; status: PreDispatchWorkerRequestStatus }
+  | { read: 'FAILED'; status: null; httpStatus: number | null };
+
 export type Candidate = {
   id: string;
   candidateId?: string;
@@ -145,6 +164,16 @@ export type Candidate = {
    * which means the question WAS asked and could not be answered.
    */
   onboardingPreDispatch?: OnboardingPreDispatchReadiness;
+  /**
+   * Phase 17 S2. The job-specific PRE_DISPATCH worker-request state, attached by the Vetting
+   * loader for PRE_DISPATCH candidates only.
+   *
+   * OPTIONAL AND ABSENT BY DEFAULT, on the same reasoning as the field above: `undefined`
+   * means this candidacy was never asked about, which is not the same as `{ read: 'FAILED' }`
+   * (asked, unanswerable) and not the same as a successful read reporting that no request is
+   * on file. All three are presented as unavailable, and none of them as a lifecycle state.
+   */
+  preDispatchWorkerRequest?: PreDispatchWorkerRequestRead;
 };
 
 export type BucketId =

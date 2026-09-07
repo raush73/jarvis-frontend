@@ -358,12 +358,20 @@ describe("Gate 10C-E4 - the PRE_DISPATCH readiness contract", () => {
       // The selection-gate suite joined this list when the verdict began governing the
       // PRE_DISPATCH dispatch-selection checkbox. It is still ONE screen: that gate lives in
       // the same authorized page, which is why no new production entry accompanies it.
+      //
+      // Phase 17 S2 added the worker-request suite for the OPPOSITE reason to the others: it
+      // references the readiness tokens in order to prove that the clearance verdict stays
+      // INDEPENDENT of the new request state - that a cleared request cannot open the dispatch
+      // checkbox, and that clearance keeps its own wording and its own green/red styling. It
+      // is again the same one screen, and again brings NO new production entry: S2's own
+      // production files carry request-state tokens, not readiness tokens.
       expect(referrers).toEqual([
         "app/orders/[id]/vetting/page.tsx",
         "app/orders/[id]/vetting/useVettingData.onboarding.test.ts",
         "app/orders/[id]/vetting/useVettingData.ts",
         "app/orders/[id]/vetting/vettingOnboardingClearance.test.tsx",
         "app/orders/[id]/vetting/vettingOnboardingSelectionGate.test.tsx",
+        "app/orders/[id]/vetting/vettingPreDispatchWorkerRequest.test.tsx",
         "data/mockRecruitingData.ts",
         "lib/workforce/onboardingStatusApi.predispatch.test.ts",
         "lib/workforce/onboardingStatusApi.ts",
