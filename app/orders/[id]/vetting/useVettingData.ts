@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/api';
 import { getOnboardingPreDispatchStatus } from '@/lib/workforce/onboardingStatusApi';
 import { getPreDispatchWorkerRequest } from '@/lib/recruiting/preDispatchWorkerRequestApi';
+import { getJobOfferHistory } from '@/lib/recruiting/jobOfferLifecycleApi';
 import type {
   Order,
   Trade,
@@ -12,6 +13,7 @@ import type {
   Candidate,
   OnboardingPreDispatchReadiness,
   PreDispatchWorkerRequestRead,
+  JobOfferHistoryRead,
   CandidateSignals,
   CertSignalItem,
   ComplianceSignalItem,
@@ -459,6 +461,78 @@ async function attachWorkerRequestState(buckets: Bucket[]): Promise<Bucket[]> {
   });
 }
 
+/**
+ * Gate JO-2C - the Vetting lane's read of one candidacy's JOB OFFER history.
+ *
+ * Governance: VETTING_SYSTEM.md, as corrected by the JO-2C lifecycle ruling.
+ *
+ * WHY A THIRD PRE_DISPATCH READ RATHER THAN A WIDER ONE. It answers a third distinct question. Onboarding
+ * clearance asks whether the WORKER has been cleared; the worker-request read asks what is happening with
+ * the request for that worker's action on this candidacy; this asks WHETHER MW4H HAS OFFERED THIS WORKER
+ * THIS JOB, AND WHAT BECAME OF IT. A worker can be fully cleared, hold no worker request, and still have
+ * had an offer that MW4H rescinded last week. Folding any two of these together would eventually collapse
+ * them into one indicator that answers none of the three.
+ *
+ * THE PROBLEM IT SOLVES. A candidacy whose offer lapsed or was rescinded STAYS in PRE_DISPATCH, and until
+ * now looked exactly like a candidacy that had never been offered anything. Staff deciding whom to offer
+ * next could not see that this worker had already been selected, nor - crucially - that it was MW4H and
+ * not the worker who ended it.
+ *
+ * KEYED BY `candidate.id`, THE `OrderCandidate.id`, exactly like the worker-request read above and
+ * deliberately NOT like the onboarding read. An offer is made on a candidacy: the same worker can hold a
+ * rescinded offer on one order and none at all on another, and keying this by the workforce candidate id
+ * would merge those into a single wrong answer.
+ *
+ * READING NEVER ADVANCES AN OFFER. The server derives effective state - so a cycle past its deadline reads
+ * LAPSED - and deliberately persists nothing on this path. A board refresh cannot lapse, decide, rescind or
+ * end an offer, which is why this is safe on every deliberate load and why there is still no polling here.
+ */
+const JOB_OFFER_LANE: BucketId = 'PRE_DISPATCH';
+
+async function attachJobOfferHistory(buckets: Bucket[]): Promise<Bucket[]> {
+  const lane = buckets.find((bucket) => bucket.id === JOB_OFFER_LANE);
+  if (!lane) return buckets;
+
+  const candidacies = [
+    ...new Set(
+      lane.candidates.map(candidacyId).filter((id): id is string => id !== null),
+    ),
+  ];
+  if (candidacies.length === 0) return buckets;
+
+  // SETTLED rather than raced, for the same reason as the two reads above: one candidacy's refusal or
+  // transport failure isolates to that candidacy instead of taking the order's whole pipeline off the
+  // screen over a history line.
+  const outcomes = await Promise.allSettled(
+    candidacies.map((orderCandidateId) => getJobOfferHistory(orderCandidateId)),
+  );
+
+  // Associated BY POSITION against the requested candidacy, never by completion order, so a slow response
+  // cannot report one worker's offer history against another worker's card.
+  const reads = new Map<string, JobOfferHistoryRead>();
+  candidacies.forEach((orderCandidateId, index) => {
+    const outcome = outcomes[index];
+    reads.set(
+      orderCandidateId,
+      outcome.status === 'fulfilled'
+        ? { read: 'SUCCEEDED', history: outcome.value }
+        : { read: 'FAILED', history: null, httpStatus: staffReadStatus(outcome.reason) },
+    );
+  });
+
+  return buckets.map((bucket) => {
+    if (bucket.id !== JOB_OFFER_LANE) return bucket;
+    return {
+      ...bucket,
+      candidates: bucket.candidates.map((candidate) => {
+        const id = candidacyId(candidate);
+        const attached = id ? reads.get(id) : undefined;
+        return attached ? { ...candidate, jobOffer: attached } : candidate;
+      }),
+    };
+  });
+}
+
 function buildTrades(tradeReqs: BackendTradeRequirement[], dispatchedCandidates: Candidate[]): Trade[] {
   return tradeReqs.map((tr) => {
     const dispatched = dispatchedCandidates.filter((c) => c.tradeId === tr.tradeId).length;
@@ -529,10 +603,13 @@ export function useVettingData(orderId: string | undefined): {
         })),
       );
 
-      // Two independent PRE_DISPATCH reads, layered in sequence over the built buckets. Each
-      // attaches to its own field and neither can overwrite the other's attachment.
-      const buckets = await attachWorkerRequestState(
-        await attachOnboardingReadiness(buildBuckets(backendCandidates)),
+      // THREE independent PRE_DISPATCH reads, layered in sequence over the built buckets. Each attaches
+      // to its own field and none can overwrite another's attachment, so a failure of one leaves the
+      // other two intact and correct.
+      const buckets = await attachJobOfferHistory(
+        await attachWorkerRequestState(
+          await attachOnboardingReadiness(buildBuckets(backendCandidates)),
+        ),
       );
       const dispatchedBucket = buckets.find((b) => b.id === 'DISPATCHED');
       const trades = buildTrades(backendOrder.tradeRequirements ?? [], dispatchedBucket?.candidates ?? []);

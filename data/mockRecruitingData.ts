@@ -9,6 +9,7 @@
 
 import type { OnboardingPreDispatchStatus } from '@/lib/workforce/onboardingStatusApi';
 import type { PreDispatchWorkerRequestStatus } from '@/lib/recruiting/preDispatchWorkerRequestApi';
+import type { JobOfferHistory } from '@/lib/recruiting/jobOfferLifecycleApi';
 
 export type Trade = {
   id: string;
@@ -130,6 +131,19 @@ export type PreDispatchWorkerRequestRead =
   | { read: 'SUCCEEDED'; status: PreDispatchWorkerRequestStatus }
   | { read: 'FAILED'; status: null; httpStatus: number | null };
 
+/**
+ * Gate JO-2C. One candidacy's Job Offer history, as the Vetting loader attaches it.
+ *
+ * THE SAME `SUCCEEDED`/`FAILED` WRAPPER DISCIPLINE as the two reads above, for the same reason: a read
+ * that could not be answered must be structurally incapable of presenting an offer outcome. `FAILED`
+ * carries `history: null` and there is no shape in which it can produce a state - which matters more here
+ * than anywhere else on the card, because a wrongly-presented `RESCINDED` would tell an operator that
+ * MW4H withdrew an offer that may never have existed.
+ */
+export type JobOfferHistoryRead =
+  | { read: 'SUCCEEDED'; history: JobOfferHistory }
+  | { read: 'FAILED'; history: null; httpStatus: number | null };
+
 export type Candidate = {
   id: string;
   candidateId?: string;
@@ -174,6 +188,16 @@ export type Candidate = {
    * on file. All three are presented as unavailable, and none of them as a lifecycle state.
    */
   preDispatchWorkerRequest?: PreDispatchWorkerRequestRead;
+  /**
+   * Gate JO-2C. The candidacy's Job Offer history, attached by the Vetting loader for PRE_DISPATCH
+   * candidates only.
+   *
+   * OPTIONAL AND ABSENT BY DEFAULT, on the same reasoning as the two fields above: `undefined` means this
+   * candidacy was never asked about, which is not `{ read: 'FAILED' }` (asked, unanswerable) and not a
+   * successful read reporting no offer was ever made. All three are presented as "no offer history shown",
+   * and none of them as an outcome.
+   */
+  jobOffer?: JobOfferHistoryRead;
 };
 
 export type BucketId =

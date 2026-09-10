@@ -693,7 +693,15 @@ describe('S2 changes no selection or dispatch control', () => {
     expect(checkboxFor('Fixture Worker A')).not.toBeNull();
   });
 
-  it('checking the box still raises "Dispatch Selected (1)"', () => {
+  /**
+   * GATE JO-2C RENAMED THIS ONE BUTTON'S LABEL, AND NOTHING ELSE ABOUT IT.
+   *
+   * The control now opens a modal that issues Job Offers with a response deadline rather than
+   * dispatching anybody, so "Dispatch Selected" would have promised something it does not do. The
+   * class name, the selector, the count and the behaviour under test are all unchanged - what this
+   * test proves is still that checking a box raises the collection control with a count of 1.
+   */
+  it('checking the box still raises the collection control with a count of 1', () => {
     renderVetting({
       PRE_DISPATCH: [
         candidate({
@@ -705,7 +713,7 @@ describe('S2 changes no selection or dispatch control', () => {
 
     expect(dispatchSelectedButton()).toBeNull();
     fireEvent.click(checkboxFor('Fixture Worker A')!);
-    expect(dispatchSelectedButton()?.textContent).toContain('Dispatch Selected (1)');
+    expect(dispatchSelectedButton()?.textContent).toContain('Offer Job to Selected (1)');
   });
 
   it('the bottom persisted Select control is still rendered and still independent', () => {

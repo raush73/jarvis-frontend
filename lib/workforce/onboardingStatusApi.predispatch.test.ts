@@ -365,10 +365,18 @@ describe("Gate 10C-E4 - the PRE_DISPATCH readiness contract", () => {
       // checkbox, and that clearance keeps its own wording and its own green/red styling. It
       // is again the same one screen, and again brings NO new production entry: S2's own
       // production files carry request-state tokens, not readiness tokens.
+      //
+      // Gate JO-2C added the Job Offer visibility suite for a third, narrower reason again: to open the
+      // Job Offer issuance modal at all, a fixture candidacy has to SATISFY this clearance gate, because
+      // the gate withholds the selection checkbox otherwise. That suite therefore constructs a READY
+      // readiness projection and nothing more - it words no verdict, renders no indicator and imports no
+      // client. It is the same one screen once more, and brings NO new production entry: JO-2C's own
+      // production files carry Job Offer tokens, not readiness tokens.
       expect(referrers).toEqual([
         "app/orders/[id]/vetting/page.tsx",
         "app/orders/[id]/vetting/useVettingData.onboarding.test.ts",
         "app/orders/[id]/vetting/useVettingData.ts",
+        "app/orders/[id]/vetting/vettingJobOfferVisibility.test.tsx",
         "app/orders/[id]/vetting/vettingOnboardingClearance.test.tsx",
         "app/orders/[id]/vetting/vettingOnboardingSelectionGate.test.tsx",
         "app/orders/[id]/vetting/vettingPreDispatchWorkerRequest.test.tsx",

@@ -392,14 +392,17 @@ describe('a cleared worker retains the existing Dispatch Selected behaviour', ()
     expect(checkboxFor('Fixture Worker A')!.checked).toBe(true);
   });
 
-  it('raises "Dispatch Selected (1)" once checked', () => {
+  // Gate JO-2C relabelled this control from "Dispatch Selected" to "Offer Job to Selected", because it
+  // now opens a modal that issues Job Offers with a response deadline rather than dispatching anybody.
+  // Its class, selector, count and behaviour are unchanged, so what is proved here is unchanged too.
+  it('raises the collection control with a count of 1 once checked', () => {
     renderVetting({ PRE_DISPATCH: [withReadiness('READY')] });
 
     expect(dispatchSelectedButton()).toBeNull();
 
     fireEvent.click(checkboxFor('Fixture Worker A')!);
 
-    expect(dispatchSelectedButton()?.textContent).toContain('Dispatch Selected (1)');
+    expect(dispatchSelectedButton()?.textContent).toContain('Offer Job to Selected (1)');
   });
 
   it('counts only the checked worker, not the whole staged lane', () => {
@@ -414,7 +417,7 @@ describe('a cleared worker retains the existing Dispatch Selected behaviour', ()
 
     expect(selectionSummaryText()).toContain('1 selected');
     expect(selectionSummaryText()).toContain('2 staged');
-    expect(dispatchSelectedButton()?.textContent).toContain('Dispatch Selected (1)');
+    expect(dispatchSelectedButton()?.textContent).toContain('Offer Job to Selected (1)');
   });
 
   it('carries the checked worker into the existing Dispatch Workers modal', () => {
@@ -437,7 +440,7 @@ describe('a check cannot survive the worker losing clearance', () => {
     const { rerender } = renderVetting({ PRE_DISPATCH: [withReadiness('READY')] });
 
     fireEvent.click(checkboxFor('Fixture Worker A')!);
-    expect(dispatchSelectedButton()?.textContent).toContain('Dispatch Selected (1)');
+    expect(dispatchSelectedButton()?.textContent).toContain('Offer Job to Selected (1)');
 
     // The lane reloads and the authoritative verdict has changed underneath the check.
     setVettingData({ PRE_DISPATCH: [withReadiness('VERIFICATION_OUTSTANDING')] });
@@ -498,7 +501,7 @@ describe('a check cannot survive the worker losing clearance', () => {
 
     fireEvent.click(checkboxFor('Stays Cleared')!);
     fireEvent.click(checkboxFor('Loses Clearance')!);
-    expect(dispatchSelectedButton()?.textContent).toContain('Dispatch Selected (2)');
+    expect(dispatchSelectedButton()?.textContent).toContain('Offer Job to Selected (2)');
 
     setVettingData({
       PRE_DISPATCH: [
@@ -508,7 +511,7 @@ describe('a check cannot survive the worker losing clearance', () => {
     });
     rerender(<VettingPage />);
 
-    expect(dispatchSelectedButton()?.textContent).toContain('Dispatch Selected (1)');
+    expect(dispatchSelectedButton()?.textContent).toContain('Offer Job to Selected (1)');
     expect(checkboxFor('Stays Cleared')!.checked).toBe(true);
     expect(checkboxFor('Loses Clearance')).toBeNull();
   });
@@ -526,7 +529,7 @@ describe('a check cannot survive the worker losing clearance', () => {
     rerender(<VettingPage />);
 
     expect(checkboxFor('Fixture Worker A')!.checked).toBe(true);
-    expect(dispatchSelectedButton()?.textContent).toContain('Dispatch Selected (1)');
+    expect(dispatchSelectedButton()?.textContent).toContain('Offer Job to Selected (1)');
   });
 });
 

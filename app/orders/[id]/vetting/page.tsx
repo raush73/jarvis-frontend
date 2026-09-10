@@ -16,7 +16,12 @@ import {
   ToolSignalItem,
   OnboardingPreDispatchReadiness,
   PreDispatchWorkerRequestRead,
+  JobOfferHistoryRead,
 } from '@/data/mockRecruitingData';
+import {
+  extendJobOfferDeadline,
+  rescindJobOffer,
+} from '@/lib/recruiting/jobOfferLifecycleApi';
 import type { PreDispatchInterestResult } from '@/lib/recruiting/preDispatchWorkerRequestApi';
 import { BucketTradeSummary } from '@/components/BucketTradeSummary';
 import { useAuth } from "@/lib/auth/useAuth";
@@ -392,6 +397,247 @@ function workerRequestClass(tone: WorkerRequestTone): string {
   }
 }
 
+/* ==========================================================================
+   Gate JO-2C - the candidacy's JOB OFFER history on the PRE_DISPATCH card.
+
+   THE PROBLEM THIS SOLVES, IN THE OWNER'S OWN TERMS. MW4H offers John Smith a job. MW4H later
+   rescinds it. John stays in PRE_DISPATCH, because nothing about MW4H changing its mind says
+   anything about John. Weeks later more workers are needed, an operator opens this board, and
+   John's card is indistinguishable from the card of a worker nobody has ever contacted. The
+   operator cannot see that John was already selected, and cannot see that it was MW4H - not
+   John - who ended it. Both facts change who gets offered the job next.
+
+   A THIRD INDICATOR, KEPT APART FROM THE OTHER TWO BY CONSTRUCTION, exactly as S2 kept the
+   worker-request state apart from onboarding clearance:
+
+   - separate attachment on the candidate (`jobOffer`, not `preDispatchWorkerRequest`);
+   - separate mapper below, sharing no branch with either existing presenter;
+   - separate `jo-` class namespace, so no offer state can inherit `oc-cleared` green or
+     `pdr-closed` grey;
+   - separate wording, every string naming "Job Offer", so the subject is named in text.
+
+   IT IS NOT A GATE, AND MUST NEVER BECOME ONE. It feeds no checkbox, no selection decision and
+   no ranking. Only Onboarding clearance gates selection, and only through
+   `isOnboardingClearedForDispatchSelection`. Nothing here reorders, prioritises or scores a
+   candidate: a rescinded worker is not automatically offered first, and a lapsed one is not
+   pushed down.
+   ========================================================================== */
+
+/**
+ * How prominent an offer outcome is, and in what colour family.
+ *
+ * `RESCINDED` AND `LAPSED` ARE DELIBERATELY DIFFERENT TONES, because they are opposite kinds of fact
+ * and governance requires staff to tell them apart at a glance. A lapse is about the worker's silence;
+ * a rescission is about MW4H's own decision.
+ *
+ * AND NEITHER OF THEM IS RED. Red on this board already means "Onboarding Not Cleared" - a finding
+ * ABOUT THE WORKER. Governance forbids RESCINDED from visually implying worker fault or lack of
+ * qualification, and MW4H withdrawing its own offer is the clearest possible case of something that is
+ * not the worker's doing. `RESCINDED` is therefore given a distinct informational blue-violet that
+ * appears nowhere else on the card, and `LAPSED` a neutral amber that reads as "time ran out".
+ */
+type JobOfferTone =
+  | 'PENDING'
+  | 'ACCEPTED'
+  | 'DECLINED'
+  | 'LAPSED'
+  | 'RESCINDED'
+  | 'UNAVAILABLE';
+
+type JobOfferPresentation = {
+  /** Null when there is nothing to show at all - no offer was ever made, or the read failed. */
+  current: { tone: JobOfferTone; label: string; deadline: string | null; jobOfferId: string } | null;
+  /** The latest cycle that ENDED, where one exists. Shown even when a newer cycle is open. */
+  prior: { tone: JobOfferTone; label: string; when: string | null } | null;
+};
+
+const JOB_OFFER_NOTHING_TO_SHOW: JobOfferPresentation = { current: null, prior: null };
+
+/** A timestamp as local date and time, or null when the server sent nothing usable. */
+function jobOfferMoment(iso: string | null): string | null {
+  if (!iso) return null;
+  const when = new Date(iso);
+  return Number.isNaN(when.getTime())
+    ? null
+    : when.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+}
+
+/**
+ * Maps a candidacy's offer history to card wording.
+ *
+ * THE SERVER'S EFFECTIVE STATE IS CARRIED VERBATIM AND NEVER RECOMPUTED HERE. The backend already
+ * decides that a cycle past its deadline is LAPSED; a board that worked that out for itself from
+ * `respondByAt` and the browser clock would disagree with the server the moment a machine's clock was
+ * off, and would show an operator an outcome the database does not hold.
+ *
+ * AN UNREADABLE OR ABSENT HISTORY SHOWS NOTHING, NOT A GUESS. `undefined` (never asked), `FAILED`
+ * (asked, unanswerable) and a successful read of a candidacy with no offers all produce the same empty
+ * presentation. Inventing "No offer made" from a failed read would be worse than silence here: an
+ * operator would read it as a fact and decide staffing on it.
+ */
+function presentJobOffer(read: JobOfferHistoryRead | undefined): JobOfferPresentation {
+  if (!read || read.read !== 'SUCCEEDED' || !read.history) return JOB_OFFER_NOTHING_TO_SHOW;
+
+  const { current, latestTerminal } = read.history;
+
+  const currentView = current
+    ? {
+        tone: 'PENDING' as JobOfferTone,
+        label: 'Job Offer Pending',
+        deadline: jobOfferMoment(current.respondByAt),
+        jobOfferId: current.jobOfferId,
+      }
+    : null;
+
+  const priorView = latestTerminal
+    ? {
+        tone: latestTerminal.state as JobOfferTone,
+        // EVERY LABEL NAMES WHO ACTED. "MW4H Rescinded Offer" cannot be misread as the worker
+        // withdrawing, and "No Response by Deadline" cannot be misread as the worker declining.
+        // Colour is never the only carrier of the distinction.
+        label:
+          latestTerminal.state === 'RESCINDED'
+            ? 'MW4H Rescinded Offer'
+            : latestTerminal.state === 'LAPSED'
+              ? 'No Response by Deadline'
+              : latestTerminal.state === 'DECLINED'
+                ? 'Worker Declined Offer'
+                : 'Worker Accepted Offer',
+        when: jobOfferMoment(
+          latestTerminal.state === 'RESCINDED'
+            ? latestTerminal.rescindedAt
+            : latestTerminal.state === 'LAPSED'
+              ? latestTerminal.respondByAt
+              : latestTerminal.respondedAt,
+        ),
+      }
+    : null;
+
+  return { current: currentView, prior: priorView };
+}
+
+/**
+ * A `jo-` NAMESPACE, SHARING NO CLASS NAME WITH THE `oc-` CLEARANCE OR `pdr-` REQUEST STYLES. An offer
+ * outcome therefore cannot pick up the clearance gate's red or the request indicator's grey by accident,
+ * and the three indicators cannot be collapsed into one look by a single stylesheet edit.
+ */
+function jobOfferClass(tone: JobOfferTone): string {
+  switch (tone) {
+    case 'PENDING':
+      return 'jo-pending';
+    case 'ACCEPTED':
+      return 'jo-accepted';
+    case 'DECLINED':
+      return 'jo-declined';
+    case 'LAPSED':
+      return 'jo-lapsed';
+    case 'RESCINDED':
+      return 'jo-rescinded';
+    default:
+      return 'jo-unavailable';
+  }
+}
+
+/**
+ * Gate JO-2C. The prior-outcome filter over the PRE_DISPATCH pool.
+ *
+ * WHY A FILTER AT ALL. On an order with sixty PRE_DISPATCH candidacies, "which of these did we already
+ * offer and rescind" is not answerable by reading sixty cards. Governance requires staff to be able to
+ * narrow the pool by prior outcome, at minimum RESCINDED and LAPSED.
+ *
+ * IT FILTERS AND DOES NOT RANK. There is no scoring, no reordering and no automatic prioritisation:
+ * choosing this filter changes WHICH cards are visible and nothing about their order or emphasis. Who
+ * gets offered next remains entirely a human decision.
+ */
+type PriorOfferFilter = 'ALL' | 'RESCINDED' | 'LAPSED' | 'NONE';
+
+const PRIOR_OFFER_FILTERS: { id: PriorOfferFilter; label: string }[] = [
+  { id: 'ALL', label: 'All' },
+  { id: 'RESCINDED', label: 'MW4H Rescinded' },
+  { id: 'LAPSED', label: 'No Response' },
+  { id: 'NONE', label: 'Never Offered' },
+];
+
+/**
+ * Whether a candidate survives the prior-outcome filter.
+ *
+ * AN UNREADABLE HISTORY IS NEVER FILTERED OUT BY AN OUTCOME FILTER, and is never counted as "Never
+ * Offered" either. Hiding a worker because a status read failed would remove a real, available candidate
+ * from an operator's pool over a transport error, and claiming they were never offered anything would be
+ * asserting a fact nobody established.
+ */
+function matchesPriorOfferFilter(candidate: Candidate, filter: PriorOfferFilter): boolean {
+  if (filter === 'ALL') return true;
+
+  const read = candidate.jobOffer;
+  if (!read || read.read !== 'SUCCEEDED' || !read.history) return false;
+
+  if (filter === 'NONE') return read.history.totalCycles === 0;
+  return read.history.latestTerminal?.state === filter;
+}
+
+/* ==========================================================================
+   Gate JO-2C - choosing the Job Offer response deadline at issuance.
+   ========================================================================== */
+
+/**
+ * The response windows staff may pick from.
+ *
+ * THE PRESET IS NEVER WHAT GETS STORED. Each one is resolved to an absolute instant before the request is
+ * sent, and that instant is the durable fact - "this offer is due at 3:00 PM", not "somebody clicked 4
+ * hours". A stored duration would need an anchor, and the anchor becomes ambiguous the moment a
+ * replacement credential is issued for a still-pending offer.
+ *
+ * THERE IS DELIBERATELY NO "ASAP". "ASAP" is not a duration, cannot be compared to a clock and therefore
+ * could never be enforced - an offer marked ASAP would be an offer with no real deadline wearing the word
+ * "urgent". Urgency is expressed as `H1`, or as an explicit custom instant.
+ *
+ * THE LIST MIRRORS THE BACKEND'S `JOB_OFFER_DEADLINE_PRESET_HOURS`, but constrains nothing: the server
+ * accepts any future instant and validates only that it IS future, which is what makes CUSTOM possible.
+ */
+type DeadlinePreset = 'H1' | 'H4' | 'H8' | 'H24' | 'H48' | 'CUSTOM';
+
+const DEADLINE_PRESETS: { id: DeadlinePreset; label: string; hours: number | null }[] = [
+  { id: 'H1', label: '1 hour', hours: 1 },
+  { id: 'H4', label: '4 hours', hours: 4 },
+  { id: 'H8', label: '8 hours', hours: 8 },
+  { id: 'H24', label: '24 hours', hours: 24 },
+  { id: 'H48', label: '48 hours', hours: 48 },
+  { id: 'CUSTOM', label: 'Custom', hours: null },
+];
+
+/**
+ * Resolve the operator's choice to an absolute ISO instant, or null when there is no valid choice.
+ *
+ * NULL IS A REFUSAL, NOT A DEFAULT. Nothing here falls back to a "reasonable" window when the operator has
+ * chosen nothing or typed something unusable, because inventing a deadline would be inventing a business
+ * decision - and it would hide the omission rather than reporting it.
+ *
+ * A CUSTOM DEADLINE MUST BE IN THE FUTURE. `datetime-local` will happily hand back yesterday. An offer
+ * born past its deadline could never be accepted, declined or extended, so it is refused here and again on
+ * the server.
+ */
+function resolveRespondByAt(preset: DeadlinePreset | null, custom: string): string | null {
+  if (!preset) return null;
+
+  if (preset === 'CUSTOM') {
+    if (!custom) return null;
+    const chosen = new Date(custom);
+    if (Number.isNaN(chosen.getTime())) return null;
+    if (chosen.getTime() <= Date.now()) return null;
+    return chosen.toISOString();
+  }
+
+  const hours = DEADLINE_PRESETS.find(p => p.id === preset)?.hours;
+  if (!hours) return null;
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+}
+
 /**
  * The server's `generatedAt`, rendered as local time.
  *
@@ -669,13 +915,92 @@ export default function VettingPage() {
     }
   }, [selectedIds, clearBucketSelection, refetch]);
 
+  /**
+   * Gate JO-2C. The Job Offer response deadline chosen for this batch.
+   *
+   * TWO PIECES OF STATE, ONE ANSWER. The preset is what the operator clicked; `customDeadline` is only
+   * consulted when they chose CUSTOM. Keeping them separate means switching from a preset to Custom and
+   * back does not silently retain a half-typed timestamp as the live value.
+   *
+   * NO DEFAULT PRESET IS PRE-SELECTED, DELIBERATELY. A pre-filled "24 hours" would be this UI making a
+   * business decision on the operator's behalf and, worse, doing it invisibly - an operator who never
+   * looked at the control would still have set a deadline. Governance requires every offer to carry a
+   * deliberate one, so the batch cannot be sent until somebody chooses.
+   */
+  const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset | null>(null);
+  const [customDeadline, setCustomDeadline] = useState('');
+
   const dismissModal = useCallback(() => {
     setShowBulkDispatchModal(false);
     setBulkDispatchDate('');
     setBulkDispatchNote('');
     setBulkDispatchError(null);
     setWorkerOverrides({});
+    setDeadlinePreset(null);
+    setCustomDeadline('');
   }, []);
+
+  /**
+   * Gate JO-2C. Give a worker LONGER to respond.
+   *
+   * EXTENSION ONLY, AND THE SERVER IS THE JUDGE. This prompts for a new deadline and sends it; whether it
+   * is genuinely later than the deadline in force is decided by the backend against the DATABASE value,
+   * not against anything this page believes. A board showing a stale deadline therefore cannot talk the
+   * server into a shortening.
+   *
+   * A PROMPT RATHER THAN A NEW MODAL, deliberately. Extension is a rare correction, and governance
+   * authorizes the smallest clean control on the existing surface - not a new dashboard.
+   */
+  const handleExtendOffer = useCallback(async (jobOfferId: string) => {
+    const entered = window.prompt(
+      'Extend this job offer deadline to (date and time). The new deadline must be LATER than the current one.',
+    );
+    if (!entered) return;
+
+    const parsed = new Date(entered);
+    if (Number.isNaN(parsed.getTime())) {
+      window.alert('That is not a date and time we could read. Nothing was changed.');
+      return;
+    }
+
+    try {
+      await extendJobOfferDeadline({ jobOfferId, respondByAt: parsed.toISOString() });
+      refetch();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not extend the job offer deadline.');
+    }
+  }, [refetch]);
+
+  /**
+   * Gate JO-2C. Withdraw a still-open Job Offer.
+   *
+   * CONFIRMED FIRST, BECAUSE IT ENDS SOMETHING FOR A REAL PERSON. A rescission is terminal for that offer
+   * cycle and cannot be undone - the correct remedy is a NEW offer - so it is never a single misclick.
+   *
+   * THE REASON IS OPTIONAL AND INTERNAL. It is recorded for MW4H and is never disclosed to the worker,
+   * who is told only that the offer is no longer available.
+   *
+   * IT DOES NOT TOUCH THE CANDIDACY, AND THIS PAGE MAKES NO ATTEMPT TO. Nothing here closes the
+   * candidacy, clears its selection or moves it out of PRE_DISPATCH; the worker stays exactly where they
+   * are and may be offered again. The confirmation says so, because an operator hesitating over this
+   * button needs to know they are not removing the worker.
+   */
+  const handleRescindOffer = useCallback(async (jobOfferId: string) => {
+    const confirmed = window.confirm(
+      'Withdraw this job offer?\n\nThe worker will be told only that the offer is no longer available. ' +
+        'They stay in Pre-Dispatch and can be offered this job again later. This cannot be undone.',
+    );
+    if (!confirmed) return;
+
+    const reason = window.prompt('Internal reason (optional). The worker never sees this.') ?? undefined;
+
+    try {
+      await rescindJobOffer({ jobOfferId, reason: reason?.trim() || undefined });
+      refetch();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not withdraw the job offer.');
+    }
+  }, [refetch]);
 
   const preDispatchCheckedIds = selectedIds['PRE_DISPATCH'] || new Set<string>();
   // A check is local and survives a refetch; Onboarding clearance is authoritative and does
@@ -690,6 +1015,25 @@ export default function VettingPage() {
     if (vettingState.status !== 'ready') return;
     console.log('[DISPATCH CHAIN] Step 4: handleBulkDispatch called. orderId=', orderId, 'bulkDispatchDate=', bulkDispatchDate);
     if (!orderId || !bulkDispatchDate) { console.log('[DISPATCH CHAIN] Step 4: EARLY RETURN — orderId or bulkDispatchDate falsy'); return; }
+
+    /**
+     * GATE JO-2C. THE RESPONSE DEADLINE, RESOLVED TO AN ABSOLUTE INSTANT BEFORE ANYTHING IS SENT.
+     *
+     * A preset is a convenience and is never what gets stored; `respondByAt` below is the durable fact.
+     * Resolving it here, once, means every worker in this batch shares one deadline computed from one
+     * moment rather than each being measured from whenever their own row happened to be processed.
+     *
+     * AND THE BACKEND VALIDATES IT AGAIN. This guard exists so an operator gets an immediate, local
+     * error instead of a round trip - it is NOT the enforcement. `JobOfferService.assertIssuableDeadline`
+     * is the authority and refuses a missing or past deadline regardless of what this computed.
+     */
+    const respondByAt = resolveRespondByAt(deadlinePreset, customDeadline);
+    if (!respondByAt) {
+      setBulkDispatchError(
+        'Choose how long this worker has to respond, or enter a specific date and time in the future.',
+      );
+      return;
+    }
 
     const checkedIds = selectedIds['PRE_DISPATCH'] || new Set<string>();
     const selectedCandidates = dispatchModalCandidates.filter(c => checkedIds.has(c.id));
@@ -715,6 +1059,8 @@ export default function VettingPage() {
         body: JSON.stringify({
           orderId,
           defaultStartDate: bulkDispatchDate,
+          // Gate JO-2C. The Job Offer response deadline. REQUIRED by the server, which re-validates it.
+          defaultRespondByAt: respondByAt,
           defaultDispatchNote: bulkDispatchNote.trim() || undefined,
           workers: selectedCandidates.map(c => {
             const ov = workerOverrides[c.id];
@@ -755,6 +1101,10 @@ export default function VettingPage() {
       onDateChange={setBulkDispatchDate}
       dispatchNote={bulkDispatchNote}
       onNoteChange={setBulkDispatchNote}
+      deadlinePreset={deadlinePreset}
+      onDeadlinePresetChange={setDeadlinePreset}
+      customDeadline={customDeadline}
+      onCustomDeadlineChange={setCustomDeadline}
       workerOverrides={workerOverrides}
       onWorkerOverrideChange={(id: string, field: 'startDate' | 'dispatchNote', value: string) => {
         setWorkerOverrides(prev => ({
@@ -1087,6 +1437,8 @@ export default function VettingPage() {
                   onBulkDispatch={handleBulkDispatch}
                   bulkDispatchLoading={bulkDispatchLoading}
                   onOpenDispatchModal={() => { console.log('[DISPATCH CHAIN] Step 1: instance=' + pageInstanceId.current + ' setting showBulkDispatchModal=true'); setShowBulkDispatchModal(true); }}
+                  onExtendOffer={handleExtendOffer}
+                  onRescindOffer={handleRescindOffer}
                 />
               ))}
               
@@ -1665,6 +2017,8 @@ function LaneColumn({
   onBulkDispatch,
   bulkDispatchLoading,
   onOpenDispatchModal,
+  onExtendOffer,
+  onRescindOffer,
 }: {
   bucket: Bucket;
   trades: Trade[];
@@ -1686,6 +2040,9 @@ function LaneColumn({
   onBulkDispatch?: () => void;
   bulkDispatchLoading?: boolean;
   onOpenDispatchModal?: () => void;
+  /** Gate JO-2C. The two staff Job Offer lifecycle actions, PRE_DISPATCH only. */
+  onExtendOffer?: (jobOfferId: string) => void;
+  onRescindOffer?: (jobOfferId: string) => void;
 }) {
   const tradeBreakdown = getBucketTradeBreakdown(bucket, trades).map(tb => ({
     ...tb,
@@ -1717,6 +2074,22 @@ function LaneColumn({
 
   const accentColor = laneColors[bucket.id] || '#6366f1';
 
+  /**
+   * Gate JO-2C. The prior-outcome filter over this lane's pool.
+   *
+   * LOCAL TO THE LANE, AND PRE_DISPATCH ONLY. It answers a PRE_DISPATCH question - "which of these did we
+   * already offer, and what happened" - so it lives with the lane it filters rather than becoming a
+   * board-wide control that would need a meaning in every other lane.
+   *
+   * IT FILTERS AND DOES NOT RANK. Cards keep their existing order; only which of them are visible changes.
+   * No score, no reordering and no automatic prioritisation is introduced, because who gets offered next
+   * must stay a human decision.
+   */
+  const [priorOfferFilter, setPriorOfferFilter] = useState<PriorOfferFilter>('ALL');
+  const visibleCandidates = isPreDispatchBucket
+    ? bucket.candidates.filter(c => matchesPriorOfferFilter(c, priorOfferFilter))
+    : bucket.candidates;
+
   return (
     <div className="lane-column">
       <div className="lane-header" style={{ borderColor: accentColor }}>
@@ -1735,13 +2108,45 @@ function LaneColumn({
           </div>
         )}
         <BucketTradeSummary tradeCounts={tradeBreakdown} />
+
+        {/*
+          GATE JO-2C - narrow the pool by what happened to the LAST offer.
+
+          THE ONE THING SIXTY CARDS CANNOT TELL YOU. "Which of these did we offer and then rescind" is
+          the question staff have when more workers are needed later, and it is not answerable by
+          reading a lane. "Never Offered" is included because its complement is just as operational:
+          the workers nobody has approached yet.
+
+          RENDERED ONLY WHEN THERE IS A POOL TO NARROW, so an empty or single-candidate lane is not
+          given a control with nothing to do.
+        */}
+        {isPreDispatchBucket && totalInLane > 1 && (
+          <div className="jo-filter" role="group" aria-label="Filter by previous job offer outcome">
+            {PRIOR_OFFER_FILTERS.map(option => (
+              <button
+                key={option.id}
+                type="button"
+                className={`jo-filter-btn${priorOfferFilter === option.id ? ' jo-filter-active' : ''}`}
+                onClick={() => setPriorOfferFilter(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="lane-candidates">
-        {bucket.candidates.length === 0 ? (
-          <div className="empty-state">No candidates</div>
+        {visibleCandidates.length === 0 ? (
+          <div className="empty-state">
+            {/* An empty lane and an empty FILTER are different situations, and an operator who has
+                just narrowed the pool needs to know which one they are looking at. */}
+            {isPreDispatchBucket && priorOfferFilter !== 'ALL' && totalInLane > 0
+              ? 'No candidates match this job offer filter'
+              : 'No candidates'}
+          </div>
         ) : (
-          bucket.candidates.map(candidate => (
+          visibleCandidates.map(candidate => (
             isDispatchedBucket ? (
               <DispatchedCard key={candidate.id} candidate={candidate} />
             ) : (
@@ -1752,6 +2157,9 @@ function LaneColumn({
                 showSelectionControl={isPreDispatchBucket}
                 showOnboardingClearance={isPreDispatchBucket}
                 showWorkerRequest={isPreDispatchBucket}
+                showJobOffer={isPreDispatchBucket}
+                onExtendOffer={isPreDispatchBucket ? onExtendOffer : undefined}
+                onRescindOffer={isPreDispatchBucket ? onRescindOffer : undefined}
                 onClick={() => onCardClick(candidate)}
                 onApprovalChange={(status) => onApprovalChange(candidate.id, status)}
                 onSelectToggle={isPreDispatchBucket && onSelectToggle ? () => onSelectToggle(candidate) : undefined}
@@ -1787,10 +2195,17 @@ function LaneColumn({
           <button
             className="action-btn action-btn-dispatch-bulk"
             disabled={!isAuthenticated || !!bulkDispatchLoading}
-            title={!isAuthenticated ? demoTitle : `Dispatch ${bucketSelectedCount} selected workers`}
+            title={
+              !isAuthenticated
+                ? demoTitle
+                : `Issue a job offer to ${bucketSelectedCount} selected workers`
+            }
             onClick={(e) => { e.stopPropagation(); console.log('[DISPATCH CHAIN] Step 0: Dispatch Selected button clicked, bucketSelectedCount=', bucketSelectedCount); if (onOpenDispatchModal) onOpenDispatchModal(); }}
           >
-            {bulkDispatchLoading ? 'Dispatching...' : `Dispatch Selected (${bucketSelectedCount})`}
+            {/* GATE JO-2C. The one control that OPENS the corrected modal, and therefore the one whose
+                label would otherwise promise dispatch and deliver a job offer with a response deadline.
+                The class name is deliberately unchanged, so no styling or existing selector moves. */}
+            {bulkDispatchLoading ? 'Issuing...' : `Offer Job to Selected (${bucketSelectedCount})`}
           </button>
         </div>
       )}
@@ -1863,6 +2278,30 @@ function LaneColumn({
         }
         .selection-total {
           color: #6b7280;
+        }
+
+        /* GATE JO-2C - the prior-outcome filter. Quiet chips: narrowing a pool is a lens, not a
+           lane action, and must not compete with the lane's primary controls. */
+        .jo-filter {
+          display: flex;
+          gap: 4px;
+          margin-top: 8px;
+          flex-wrap: wrap;
+        }
+        .jo-filter-btn {
+          padding: 2px 6px;
+          border: 1px solid #e5e7eb;
+          border-radius: 3px;
+          background: #ffffff;
+          color: #6b7280;
+          font-size: 9px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .jo-filter-btn.jo-filter-active {
+          border-color: #c7d2fe;
+          background: #eef2ff;
+          color: #3730a3;
         }
 
         .lane-candidates {
@@ -2086,6 +2525,9 @@ function VettingCandidateCard({
   showSelectionControl,
   showOnboardingClearance,
   showWorkerRequest,
+  showJobOffer,
+  onExtendOffer,
+  onRescindOffer,
   onClick,
   onApprovalChange,
   onSelectToggle,
@@ -2107,6 +2549,17 @@ function VettingCandidateCard({
    * today, so that showing one status never implies showing the other.
    */
   showWorkerRequest?: boolean;
+  /**
+   * Gate JO-2C. Whether to show the Job Offer state, history and lifecycle actions.
+   *
+   * A THIRD INDEPENDENT FLAG, not folded into `showWorkerRequest`. The two answer different questions
+   * and are authorized for the PRE_DISPATCH lane separately, so one lane could legitimately want one and
+   * not the other - and a single shared flag would make that impossible to express.
+   */
+  showJobOffer?: boolean;
+  /** Gate JO-2C. Absent when the surface is not authorized to act, which withholds both controls. */
+  onExtendOffer?: (jobOfferId: string) => void;
+  onRescindOffer?: (jobOfferId: string) => void;
   onClick: () => void;
   onApprovalChange: (status: CustomerApprovalStatusType) => void;
   onSelectToggle?: () => void;
@@ -2129,6 +2582,7 @@ function VettingCandidateCard({
   const isSelected = candidate.selectedForDispatch === true;
   const clearance = presentOnboardingClearance(candidate.onboardingPreDispatch);
   const workerRequest = presentWorkerRequest(candidate.preDispatchWorkerRequest);
+  const jobOffer = presentJobOffer(candidate.jobOffer);
 
   return (
     <div
@@ -2201,6 +2655,83 @@ function VettingCandidateCard({
         <div className={`worker-request ${workerRequestClass(workerRequest.tone)}`}>
           <span className="pdr-dot" aria-hidden="true" />
           <span className="pdr-label">{workerRequest.label}</span>
+        </div>
+      )}
+
+      {/*
+        GATE JO-2C - the candidacy's JOB OFFER state and history.
+
+        A THIRD ROW, AND NOT A THIRD OPINION ABOUT THE OTHER TWO. Clearance is the dispatch gate;
+        the worker request is about asking the worker to act; this is about whether MW4H has
+        OFFERED THIS WORKER THIS JOB, and what became of it. Its own row, its own `jo-` class
+        namespace and its own wording, so it cannot be read as a variant of either.
+
+        BOTH LINES CAN APPEAR AT ONCE, DELIBERATELY. A candidacy that lapsed and was then
+        re-offered has an open current cycle AND a prior terminal outcome, and an operator needs
+        both: "there is an offer out right now" and "the last one ran out of time". Collapsing
+        them into one line would force the board to hide one of the two.
+
+        THE PRIOR-OUTCOME LINE NAMES THE ACTOR IN TEXT. "MW4H Rescinded Offer" and "No Response
+        by Deadline" cannot be confused with each other, or with a worker declining, in greyscale
+        or by a colour-blind operator. Neither is rendered in the red this card uses for
+        "Onboarding Not Cleared", because neither is a finding about the worker's qualification.
+      */}
+      {showJobOffer && jobOffer.current && (
+        <div className={`job-offer-state ${jobOfferClass(jobOffer.current.tone)}`}>
+          <span className="jo-dot" aria-hidden="true" />
+          <span className="jo-label">{jobOffer.current.label}</span>
+          {jobOffer.current.deadline && (
+            <span className="jo-deadline">Respond by {jobOffer.current.deadline}</span>
+          )}
+        </div>
+      )}
+
+      {showJobOffer && jobOffer.prior && (
+        <div className={`job-offer-prior ${jobOfferClass(jobOffer.prior.tone)}`}>
+          <span className="jo-dot" aria-hidden="true" />
+          <span className="jo-label">
+            {jobOffer.current ? `Previously: ${jobOffer.prior.label}` : jobOffer.prior.label}
+          </span>
+          {jobOffer.prior.when && <span className="jo-when">{jobOffer.prior.when}</span>}
+        </div>
+      )}
+
+      {/*
+        GATE JO-2C - the two staff lifecycle actions, on the open offer only.
+
+        ON THE EXISTING CARD RATHER THAN A NEW SURFACE, because this is where an operator is
+        already looking at this worker's offer. No new dashboard is introduced.
+
+        EXTEND AND RESCIND, AND NO "SHORTEN". Shortening a deadline is not offered because it is
+        forbidden: a worker may already have rearranged their life around the time they were
+        promised. The honest way to end an offer early is to rescind it, which records who did it
+        and when - so the destructive action is the visible one, not the quiet one.
+
+        ONLY WHILE AN OFFER IS GENUINELY OPEN. Both controls are rendered from
+        `jobOffer.current`, which the server populates only for a cycle that is PENDING and still
+        within its deadline, so a terminal cycle offers neither. The server re-checks both rules
+        regardless of what this card decided to render.
+      */}
+      {showJobOffer && jobOffer.current && onExtendOffer && onRescindOffer && (
+        <div className="jo-actions" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className="jo-action jo-action-extend"
+            disabled={!isAuthenticated}
+            title={!isAuthenticated ? demoTitle : 'Give this worker longer to respond'}
+            onClick={() => onExtendOffer(jobOffer.current!.jobOfferId)}
+          >
+            Extend Deadline
+          </button>
+          <button
+            type="button"
+            className="jo-action jo-action-rescind"
+            disabled={!isAuthenticated}
+            title={!isAuthenticated ? demoTitle : 'Withdraw this job offer'}
+            onClick={() => onRescindOffer(jobOffer.current!.jobOfferId)}
+          >
+            Rescind Offer
+          </button>
         </div>
       )}
 
@@ -2406,6 +2937,146 @@ function VettingCandidateCard({
           height: 6px;
           border-radius: 50%;
           flex: 0 0 auto;
+        }
+
+        /* ==================================================================
+           GATE JO-2C - the Job Offer state and history rows.
+
+           A "jo-" NAMESPACE THAT SHARES NO CLASS NAME with the "oc-" clearance or "pdr-" request
+           styles, so no offer outcome can inherit the clearance gate's red or the request
+           indicator's grey, and no single stylesheet edit can collapse the three indicators
+           into one look.
+           ================================================================== */
+        .job-offer-state,
+        .job-offer-prior {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+          margin-top: 4px;
+          padding: 2px 6px;
+          border-radius: 3px;
+          font-size: 10px;
+          font-weight: 500;
+          line-height: 1.4;
+          white-space: normal;
+        }
+
+        .jo-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          flex: 0 0 auto;
+        }
+
+        .jo-deadline,
+        .jo-when {
+          opacity: 0.8;
+          font-weight: 400;
+        }
+
+        /* An open offer: informational, and NOT green. Green on this card means a gate has been
+           passed; a pending offer is a question nobody has answered yet. */
+        .job-offer-state.jo-pending {
+          background: #eef2ff;
+          color: #3730a3;
+        }
+        .job-offer-state.jo-pending .jo-dot {
+          background: #4f46e5;
+        }
+
+        .job-offer-prior.jo-accepted {
+          background: #f0fdf4;
+          color: #15803d;
+        }
+        .job-offer-prior.jo-accepted .jo-dot {
+          background: #16a34a;
+        }
+
+        /* The worker's own decision. Neutral grey: declining is a legitimate answer, not a fault. */
+        .job-offer-prior.jo-declined {
+          background: #f3f4f6;
+          color: #4b5563;
+        }
+        .job-offer-prior.jo-declined .jo-dot {
+          background: #6b7280;
+        }
+
+        /*
+          LAPSED - the deadline ran out. Amber, reading as "time", and deliberately NOT the red
+          that means "Onboarding Not Cleared": no delivery system exists, so Jarvis cannot even
+          establish this worker was reached, and presenting silence as a failing would attribute a
+          choice to them that they may never have had a chance to make.
+        */
+        .job-offer-prior.jo-lapsed {
+          background: #fffbeb;
+          color: #92400e;
+        }
+        .job-offer-prior.jo-lapsed .jo-dot {
+          background: #d97706;
+        }
+
+        /*
+          RESCINDED - MW4H withdrew its own offer.
+
+          VISUALLY DISTINCT FROM LAPSED, WHICH GOVERNANCE REQUIRES: an operator must be able to
+          tell "the worker went quiet" from "we changed our mind" at a glance, so this violet
+          appears nowhere else on the card and cannot be confused with the amber above.
+
+          AND EMPHATICALLY NOT RED, NOT A WARNING, AND NOT AN ALERT. This is the one outcome on
+          this list that is entirely MW4H's doing. Styling it as a problem with the worker would
+          quietly turn MW4H's own decision into a mark against the person it was made about -
+          which is exactly what governance forbids. The left rule gives it presence without
+          giving it blame.
+        */
+        .job-offer-prior.jo-rescinded {
+          background: #f5f3ff;
+          color: #5b21b6;
+          border-left: 2px solid #7c3aed;
+        }
+        .job-offer-prior.jo-rescinded .jo-dot {
+          background: #7c3aed;
+        }
+
+        .job-offer-state.jo-unavailable,
+        .job-offer-prior.jo-unavailable {
+          background: #f9fafb;
+          color: #6b7280;
+        }
+        .job-offer-state.jo-unavailable .jo-dot,
+        .job-offer-prior.jo-unavailable .jo-dot {
+          background: #9ca3af;
+        }
+
+        /* The two lifecycle actions. Deliberately quiet: they are exceptions, not routine steps,
+           and must not compete with the lane's primary controls. */
+        .jo-actions {
+          display: flex;
+          gap: 6px;
+          margin-top: 6px;
+        }
+        .jo-action {
+          flex: 1;
+          padding: 3px 6px;
+          border-radius: 3px;
+          font-size: 10px;
+          font-weight: 600;
+          cursor: pointer;
+          background: #ffffff;
+        }
+        .jo-action:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .jo-action-extend {
+          border: 1px solid #c7d2fe;
+          color: #3730a3;
+        }
+        /* Rescission ends a worker's offer, so its control looks like what it is - without
+           borrowing the red that this board uses for findings about the worker. */
+        .jo-action-rescind {
+          border: 1px solid #ddd6fe;
+          color: #5b21b6;
         }
 
         /*
@@ -4602,6 +5273,10 @@ function BulkDispatchModal({
   onDateChange,
   dispatchNote,
   onNoteChange,
+  deadlinePreset,
+  onDeadlinePresetChange,
+  customDeadline,
+  onCustomDeadlineChange,
   workerOverrides,
   onWorkerOverrideChange,
   onClose,
@@ -4617,6 +5292,11 @@ function BulkDispatchModal({
   onDateChange: (date: string) => void;
   dispatchNote: string;
   onNoteChange: (note: string) => void;
+  /** Gate JO-2C. The chosen response window, or null while nothing has been chosen. */
+  deadlinePreset: DeadlinePreset | null;
+  onDeadlinePresetChange: (preset: DeadlinePreset) => void;
+  customDeadline: string;
+  onCustomDeadlineChange: (value: string) => void;
   workerOverrides: Record<string, { startDate?: string; dispatchNote?: string }>;
   onWorkerOverrideChange: (id: string, field: 'startDate' | 'dispatchNote', value: string) => void;
   onClose: () => void;
@@ -4627,7 +5307,29 @@ function BulkDispatchModal({
   demoTitle: string;
 }) {
   const [showOverrides, setShowOverrides] = useState(false);
-  const canConfirm = dispatchDate.length > 0 && !loading && candidateCount > 0;
+
+  /**
+   * Gate JO-2C. The deadline the current choice actually resolves to.
+   *
+   * Computed for BOTH the echo line and the confirm gate from the SAME resolver the submit path uses, so
+   * the button cannot be enabled by one rule and the request built by another. A null means the choice is
+   * incomplete or in the past, and the batch is not sendable.
+   */
+  const resolvedRespondByAt = resolveRespondByAt(deadlinePreset, customDeadline);
+  const resolvedDeadlineLabel = resolvedRespondByAt
+    ? new Date(resolvedRespondByAt).toLocaleString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : null;
+
+  // GATE JO-2C ADDED THE DEADLINE TO THE CONFIRM GATE. A batch with no valid future deadline cannot be
+  // sent from here - and the server refuses it independently, so this is convenience rather than the rule.
+  const canConfirm =
+    dispatchDate.length > 0 && resolvedRespondByAt !== null && !loading && candidateCount > 0;
   const overrideCount = Object.values(workerOverrides).filter(
     ov => (ov.startDate && ov.startDate.length > 0) || (ov.dispatchNote && ov.dispatchNote.trim().length > 0)
   ).length;
@@ -4665,15 +5367,28 @@ function BulkDispatchModal({
           flexDirection: 'column',
         }}
       >
+        {/*
+          GATE JO-2C WORDING CORRECTION - THE NARROWEST ONE THAT KEEPS THIS MODAL HONEST.
+
+          The historical "Dispatch Selected" terminology cleanup is explicitly NOT in this gate's scope,
+          and is not attempted. But this modal is a control JO-2C changed: it now asks an operator to set
+          a JOB OFFER RESPONSE DEADLINE, and what it produces is a pending Job Offer the worker may
+          decline. Leaving it titled "Dispatch Workers" would tell an operator that pressing the button
+          puts people on a job site, when it asks them a question they can answer either way - and it
+          would make the deadline field beside it incomprehensible.
+
+          THREE STRINGS ARE CORRECTED AND NO MORE: this title, the summary line under it, and the confirm
+          button. Every other "dispatch" word on this screen is left exactly as it was.
+        */}
         <div className="dm-header">
-          <h2 className="dm-title">Dispatch Workers</h2>
+          <h2 className="dm-title">Issue Job Offers</h2>
           <button className="dm-close" onClick={onClose}>×</button>
         </div>
 
         <div className="dm-body">
           <div className="dm-summary">
             <span className="dm-count">{candidateCount}</span>
-            <span className="dm-label">workers selected for dispatch</span>
+            <span className="dm-label">workers to receive a job offer</span>
           </div>
 
           <div className="dm-field">
@@ -4689,6 +5404,63 @@ function BulkDispatchModal({
               onChange={e => onDateChange(e.target.value)}
               min={new Date().toISOString().split('T')[0]}
             />
+          </div>
+
+          {/*
+            GATE JO-2C - HOW LONG THE WORKER HAS TO RESPOND. REQUIRED.
+
+            THE SMALLEST CLEAN CONTROL ON THE EXISTING SURFACE, per governance: presets for the windows
+            staff actually use, plus an explicit custom instant. No new modal, no new dashboard, no
+            second step.
+
+            WHAT IS SENT IS AN ABSOLUTE INSTANT. The preset is only how the operator expresses it; a
+            duration is resolved to a timestamp before anything leaves this page, so the durable fact
+            is "due at 3:00 PM" rather than "somebody clicked 4 hours".
+
+            NO "ASAP" OPTION, DELIBERATELY. It is not a duration, could never be compared to a clock,
+            and would therefore be an offer with no real deadline wearing an urgent word. Urgency is
+            1 hour, or a custom instant.
+
+            NOTHING IS PRE-SELECTED, so the batch cannot be sent until somebody actually chooses. A
+            default would be this modal quietly making a business decision for an operator who never
+            looked at the control.
+          */}
+          <div className="dm-field">
+            <label className="dm-field-label">
+              Job Offer Response Deadline <span style={{ color: '#dc2626' }}>*</span>
+            </label>
+            <div className="dm-deadline-presets">
+              {DEADLINE_PRESETS.map(preset => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={`dm-deadline-btn${deadlinePreset === preset.id ? ' dm-deadline-active' : ''}`}
+                  disabled={!isAuthenticated}
+                  title={!isAuthenticated ? demoTitle : undefined}
+                  onClick={() => onDeadlinePresetChange(preset.id)}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            {deadlinePreset === 'CUSTOM' && (
+              <input
+                type="datetime-local"
+                className="dm-input"
+                style={{ marginTop: 8 }}
+                disabled={!isAuthenticated}
+                value={customDeadline}
+                onChange={e => onCustomDeadlineChange(e.target.value)}
+              />
+            )}
+
+            {/* The resolved deadline, echoed back in the operator's own local time. An operator who
+                clicked "4 hours" should be able to see what wall-clock moment that actually is before
+                committing a real person to it. */}
+            {resolvedDeadlineLabel && (
+              <p className="dm-deadline-echo">Workers must respond by {resolvedDeadlineLabel}.</p>
+            )}
           </div>
 
           <div className="dm-field">
@@ -4762,7 +5534,8 @@ function BulkDispatchModal({
             onClick={onConfirm}
             disabled={!canConfirm}
           >
-            {loading ? 'Dispatching...' : `Dispatch ${candidateCount} Workers`}
+            {/* NOT "Send". Jarvis implements no delivery, and this button does not send anything. */}
+            {loading ? 'Issuing...' : `Issue ${candidateCount} Job Offers`}
           </button>
         </div>
 
@@ -4804,6 +5577,24 @@ function BulkDispatchModal({
             width: 100%; padding: 9px 11px; background: #fff; border: 1px solid #d1d5db;
             border-radius: 6px; color: #111827; font-size: 13px; outline: none;
             font-family: inherit; box-sizing: border-box;
+          }
+
+          /* GATE JO-2C - the response-deadline presets. */
+          .dm-deadline-presets {
+            display: flex; gap: 6px; flex-wrap: wrap;
+          }
+          .dm-deadline-btn {
+            padding: 7px 12px; background: #fff; border: 1px solid #d1d5db; border-radius: 6px;
+            color: #374151; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+          }
+          .dm-deadline-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+          .dm-deadline-active {
+            border-color: #4f46e5; background: #eef2ff; color: #3730a3;
+          }
+          /* The resolved wall-clock deadline. An operator committing a real person to a deadline
+             should see the moment, not just the duration they clicked. */
+          .dm-deadline-echo {
+            margin: 8px 0 0; font-size: 12px; color: #3730a3; font-weight: 600;
           }
           .dm-input:focus { border-color: #16a34a; box-shadow: 0 0 0 2px rgba(22,163,74,0.12); }
           .dm-textarea { resize: vertical; min-height: 40px; }
