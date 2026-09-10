@@ -7,6 +7,7 @@ import {
   Bucket,
   BucketId,
   Candidate,
+  ClosedDisposition,
   Trade,
   getBucketTradeBreakdown,
   CustomerApprovalStatusType,
@@ -394,6 +395,42 @@ function workerRequestClass(tone: WorkerRequestTone): string {
       return 'pdr-pending';
     default:
       return 'pdr-unavailable';
+  }
+}
+
+/**
+ * Phase 17 S4, Ruling C - WHY a closed candidacy is closed, in staff-facing words.
+ *
+ * THE THREE REASONS ARE NOT INTERCHANGEABLE, AND THAT IS THE WHOLE POINT. "Not Selected" is a
+ * staffing outcome, "Rejected" is a decision about the worker, and "Worker Withdrew" is the WORKER's
+ * own choice and says nothing against them. Before S4 the board showed no reason at all on the
+ * closed card, so a worker who asked to come off one job looked identical to a worker who had been
+ * turned down - and the next operator to open the order had no way to tell.
+ *
+ * THE LABEL CARRIES THE MEANING IN TEXT, following this card's existing rule for every other status
+ * row: the words say who decided, so the distinction survives greyscale and a colour-blind operator
+ * rather than living in a badge colour.
+ *
+ * NO NEW SURFACE, DELIBERATELY. Ruling C asks for "the smallest live-surface change necessary for
+ * staff to see the reason on the actual closed candidacy card they use". This is a row on that card.
+ * (Note that the `ClosedLane` component further down this file is defined but never rendered, so
+ * adding the reason there would have shipped nothing.)
+ */
+const CLOSED_DISPOSITION_LABELS: Record<ClosedDisposition, string> = {
+  NOT_SELECTED: 'Not Selected',
+  REJECTED: 'Rejected',
+  WORKER_WITHDREW: 'Worker Withdrew',
+};
+
+/** A `cd-` namespace, sharing no class name with the clearance, request or offer rows. */
+function closedDispositionClass(disposition: ClosedDisposition): string {
+  switch (disposition) {
+    case 'REJECTED':
+      return 'cd-rejected';
+    case 'WORKER_WITHDREW':
+      return 'cd-withdrew';
+    default:
+      return 'cd-not-selected';
   }
 }
 
@@ -2616,6 +2653,28 @@ function VettingCandidateCard({
       </div>
 
       {/*
+        PHASE 17 S4, RULING C - WHY this candidacy is closed.
+
+        NO FLAG GATES IT, AND THAT IS CORRECT RATHER THAN LAZY. Every other status row on this card
+        is lane-gated because clearance, worker requests and job offers are only meaningful in
+        PRE_DISPATCH. A closure reason is different: `closedDisposition` exists if and only if the
+        candidacy is closed, so the data is its own gate and a flag would only add a way to forget
+        to pass it. An open candidacy has nothing here to render.
+
+        FIRST OF THE STATUS ROWS, BECAUSE FOR A CLOSED CARD IT IS THE HEADLINE. An operator looking
+        at the Closed lane is asking exactly one question about each card, and this answers it
+        without a click into the drill-down.
+      */}
+      {candidate.closedDisposition && (
+        <div className={`closed-disposition ${closedDispositionClass(candidate.closedDisposition)}`}>
+          <span className="cd-dot" aria-hidden="true" />
+          <span className="cd-label">
+            {CLOSED_DISPOSITION_LABELS[candidate.closedDisposition]}
+          </span>
+        </div>
+      )}
+
+      {/*
         Gate 10C-E4 - the authoritative Onboarding clearance verdict.
 
         DELIBERATELY ITS OWN ROW, AND DELIBERATELY NOT THE SELECTION INDICATOR. The header's
@@ -2937,6 +2996,62 @@ function VettingCandidateCard({
           height: 6px;
           border-radius: 50%;
           flex: 0 0 auto;
+        }
+
+        /* ==================================================================
+           PHASE 17 S4, RULING C - why a closed candidacy is closed.
+
+           A "cd-" NAMESPACE SHARING NO SELECTOR with "oc-", "pdr-" or "jo-", for the same reason
+           those three share none with each other: a closure reason must not be able to inherit the
+           clearance gate's red or the request row's grey through one stylesheet edit.
+
+           NONE OF THE THREE IS GREEN, AND WORKER WITHDREW IS NOT RED. A closed candidacy is not a
+           success, so nothing here is green; and a worker exercising their own choice is not a
+           finding against them, so it is not given the red this card uses for rejection. It is
+           neutral blue-grey, distinct from both at a glance and distinct in its words regardless.
+           ------------------------------------------------------------------ */
+        .closed-disposition {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 4px;
+          padding: 2px 6px;
+          border-radius: 3px;
+          font-size: 10px;
+          font-weight: 600;
+          line-height: 1.4;
+          white-space: normal;
+        }
+
+        .cd-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          flex: 0 0 auto;
+        }
+
+        .cd-not-selected {
+          background: #f3f4f6;
+          color: #4b5563;
+        }
+        .cd-not-selected .cd-dot {
+          background: #9ca3af;
+        }
+
+        .cd-rejected {
+          background: #fee2e2;
+          color: #991b1b;
+        }
+        .cd-rejected .cd-dot {
+          background: #dc2626;
+        }
+
+        .cd-withdrew {
+          background: #e8eefb;
+          color: #1e4487;
+        }
+        .cd-withdrew .cd-dot {
+          background: #3b6bc4;
         }
 
         /* ==================================================================
@@ -3592,9 +3707,17 @@ function ClosedLane({
             <div key={candidate.id} className="closed-card" onClick={() => onCardClick(candidate)}>
               <div className="card-header">
                 <span className="candidate-name closed-name">{candidate.name}</span>
+                {/*
+                  PHASE 17 S4: LABELLED FROM THE SHARED MAP, NOT FROM A LOCAL TWO-WAY TEST. This
+                  component is not rendered anywhere - the live closed lane is `LaneColumn` with
+                  `VettingCandidateCard` - and S4 deliberately does not activate it. But the old
+                  `=== 'REJECTED' ? ... : 'Not Selected'` test would silently label a worker's own
+                  withdrawal as "Not Selected" the moment anyone did wire it up, so it now reads the
+                  same labels as the live card. No behaviour changes; a latent mislabel is removed.
+                */}
                 {candidate.closedDisposition && (
                   <span className={`disposition-badge ${candidate.closedDisposition === 'REJECTED' ? 'rejected' : 'not-selected'}`}>
-                    {candidate.closedDisposition === 'REJECTED' ? 'Rejected' : 'Not Selected'}
+                    {CLOSED_DISPOSITION_LABELS[candidate.closedDisposition]}
                   </span>
                 )}
               </div>

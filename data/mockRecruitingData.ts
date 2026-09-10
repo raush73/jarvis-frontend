@@ -24,7 +24,16 @@ export type Certification = {
   verified: boolean;
 };
 
-export type ClosedDisposition = 'NOT_SELECTED' | 'REJECTED';
+/**
+ * Why a candidacy is closed, mirroring the backend `ClosedDisposition` enum exactly.
+ *
+ * `WORKER_WITHDREW` IS THE WORKER'S OWN DECISION AND MUST READ AS SUCH (Phase 17 S4, Ruling C).
+ * Staff need to distinguish "we did not pick them" from "they rejected the packet" from "they asked
+ * to come off this job", because the third is not a judgement about the worker at all and should not
+ * count against them when the next order comes up. Collapsing it into either of the others would
+ * misattribute a worker's choice to a staff decision.
+ */
+export type ClosedDisposition = 'NOT_SELECTED' | 'REJECTED' | 'WORKER_WITHDREW';
 
 export type AltTradeInfo = {
   tradeName: string;

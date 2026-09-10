@@ -88,6 +88,24 @@ function prompt(over: Record<string, unknown> = {}) {
     expirationNotice: "This secure link expires 24 hours after it was sent.",
     recordedAnswer: null,
     actionable: true,
+    /**
+     * PHASE 17 S4. A WORKER WITH NO OTHER OPEN INTERESTS, which is what keeps these S3 assertions
+     * meaningful: they describe the page a worker sees when this job is the only one, and S4 must
+     * not have changed it. The S4 behaviour is covered in `workerJobInterestOtherJobs.test.tsx`.
+     */
+    otherInterests: [],
+    otherInterestsCopy: {
+      heading: "Your other job interests",
+      notice:
+        "You'll stay under consideration for these unless you ask to be removed.",
+      removeLabel: "Remove me from this job posting",
+      undoRemoveLabel: "Keep me interested",
+      pendingJobOfferLabel: "Pending Job Offer",
+      pendingJobOfferNotice:
+        "You have a job offer waiting on this one. Open it to accept or decline.",
+      reviewJobOfferLabel: "Review Job Offer",
+      confirmationHeading: "Please confirm before we save this",
+    },
     ...over,
   };
 }
@@ -466,15 +484,31 @@ describe("S3 worker page - NO", () => {
     ).toBeTruthy();
   });
 
-  it("offers no control over the worker's other jobs", async () => {
+  /**
+   * S4 IS NOW THE AUTHORIZED GATE FOR OTHER INTERESTS, so this no longer asserts that the page has
+   * no concept of them. What it still proves is the part S4 did not change: a worker whose only open
+   * interest is THIS job sees the S3 page exactly - two buttons, no extra section, nothing to
+   * dismiss. The section is driven by the server's list, so an empty list renders nothing at all
+   * rather than an empty container with a heading.
+   *
+   * THE PROHIBITIONS THAT SURVIVE ARE STILL ASSERTED. S4 authorized Keep/Remove; it authorized no
+   * ranking, no preference, no job board and no durable Keep, and those remain forbidden here.
+   */
+  it("shows exactly the S3 page when this job is the worker's only open interest", async () => {
     stubFetch();
     render(<WorkforceJobInterestPage />);
 
     await screen.findByText("Are you still interested in this job?");
 
-    // Exactly two buttons: the two governed answers. Multi-job management is a later slice.
+    // Exactly two buttons: the two governed answers, and no other-interests controls beside them.
     expect(screen.getAllByRole("button")).toHaveLength(2);
-    expect(PAGE_SOURCE).not.toMatch(/otherJobs|otherInterests|candidacyIds|ranking/i);
+    expect(screen.queryByText("Your other job interests")).toBeNull();
+
+    // S4 RANKS NOTHING AND PREFERS NOTHING. No score, no ordering control, no starred or preferred
+    // job, and no durable Keep - because Keep is the default and persists no state.
+    expect(PAGE_SOURCE).not.toMatch(
+      /ranking|rankJob|preferred|priority|sortBy|reorder|jobBoard|browseJobs|recordKeep|keepJob\(/i,
+    );
   });
 
   it("reflects the SERVER's recorded outcome rather than the button pressed", async () => {

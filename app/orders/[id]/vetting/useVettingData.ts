@@ -173,8 +173,24 @@ function mapBackendCandidateToShell(bc: BackendCandidate): Candidate {
   const tradeName = bc.originalTrade?.tradeName ?? '';
   const tradeId = bc.originalTrade?.tradeId ?? '';
 
+  /**
+   * The closure reason, narrowed from the backend's raw string to the dispositions the shell knows.
+   *
+   * IT STAYS AN ALLOWLIST RATHER THAN A CAST. An unrecognised value becomes `undefined` and the card
+   * simply shows no reason, which is the safe outcome: a future backend disposition would render as
+   * nothing rather than as a wrong label or a raw enum name in front of staff.
+   *
+   * PHASE 17 S4 ADDED `WORKER_WITHDREW`, WHICH THE BACKEND HAS ALWAYS SENT. S3 introduced the
+   * disposition and the API returned it from the start, but this narrowing dropped it, so a worker's
+   * own withdrawal arrived and was discarded. Admitting it here is the whole of the data change
+   * Ruling C needs.
+   */
   let closedDisposition: ClosedDisposition | undefined;
-  if (bc.closed?.disposition === 'NOT_SELECTED' || bc.closed?.disposition === 'REJECTED') {
+  if (
+    bc.closed?.disposition === 'NOT_SELECTED' ||
+    bc.closed?.disposition === 'REJECTED' ||
+    bc.closed?.disposition === 'WORKER_WITHDREW'
+  ) {
     closedDisposition = bc.closed.disposition;
   }
 
