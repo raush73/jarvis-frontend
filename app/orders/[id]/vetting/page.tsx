@@ -24,6 +24,7 @@ import {
   rescindJobOffer,
 } from '@/lib/recruiting/jobOfferLifecycleApi';
 import type { PreDispatchInterestResult } from '@/lib/recruiting/preDispatchWorkerRequestApi';
+import { sendInitialPreDispatchCommunication } from '@/lib/recruiting/preDispatchWorkerRequestApi';
 import { BucketTradeSummary } from '@/components/BucketTradeSummary';
 import { useAuth } from "@/lib/auth/useAuth";
 import { EventSpineTimelineSnapshot } from "@/components/EventSpineTimelineSnapshot";
@@ -251,7 +252,17 @@ function isOnboardingClearedForDispatchSelection(candidate: Candidate): boolean 
  * refused. `CLEARED` is the only tone permitted anything green, and only because the persisted
  * state genuinely says CLEARED.
  */
-type WorkerRequestTone = 'PENDING' | 'WAITING' | 'RESPONDED' | 'CLEARED' | 'CLOSED' | 'UNAVAILABLE';
+type WorkerRequestTone =
+  | 'PENDING'
+  | 'WAITING'
+  | 'RESPONDED'
+  | 'CLEARED'
+  | 'CLOSED'
+  | 'UNAVAILABLE'
+  // Initial PRE_DISPATCH Communication. A delivery attempt of OURS failed. Its own tone rather than
+  // a variant of PENDING, because an operator scanning a lane needs to see that something is wrong
+  // - and its own tone rather than the clearance red, because it is not a finding about the worker.
+  | 'FAILED';
 
 type WorkerRequestPresentation = {
   tone: WorkerRequestTone;
@@ -318,6 +329,26 @@ function presentWorkerRequest(
 
   switch (request.state) {
     case 'PENDING_INITIAL_COMMUNICATION':
+      /*
+        A DURABLE DELIVERY FAILURE IS STILL AN UNSENT REQUEST, and the wording says so. The state
+        has not moved and the worker has done nothing, so this is worded as a failure of OUR
+        delivery rather than as anything about them - and it replaces the "Not Sent" wording rather
+        than sitting beside it, because two operational lines about the same unsent request would
+        read as two problems.
+
+        NO TECHNICAL DETAIL, BY CONSTRUCTION AS WELL AS BY CHOICE. The server sends only a
+        normalized status; the provider's own words, the endpoint and the credential are not on the
+        wire, so there is nothing here to leak even if this wording were later expanded.
+      */
+      if (request.communicationStatus === 'DELIVERY_FAILED') {
+        return {
+          tone: 'FAILED',
+          label: 'Communication delivery failed',
+          statusWord: 'Delivery Failed',
+          detail: 'The last attempt to reach this worker did not go through; it can be tried again',
+          cycleSequence,
+        };
+      }
       return {
         tone: 'PENDING',
         label: 'Worker Request Not Sent',
@@ -393,6 +424,8 @@ function workerRequestClass(tone: WorkerRequestTone): string {
     case 'PENDING':
     case 'WAITING':
       return 'pdr-pending';
+    case 'FAILED':
+      return 'pdr-failed';
     default:
       return 'pdr-unavailable';
   }
@@ -869,6 +902,13 @@ export default function VettingPage() {
   
   // State for split-view panel (card click drill-down)
   const [splitViewCandidate, setSplitViewCandidate] = useState<Candidate | null>(null);
+  /**
+   * Which candidacy's initial worker request is currently in flight, if any.
+   *
+   * Held as the candidacy id rather than a boolean so the disabled control is the one that was
+   * clicked, and a second candidacy is not silently locked out by an unrelated request.
+   */
+  const [sendingInitialRequestFor, setSendingInitialRequestFor] = useState<string | null>(null);
   
   // State for No-Show candidates (UI-only mock)
   const [noShowCandidates, setNoShowCandidates] = useState<Candidate[]>(MOCK_NO_SHOWS);
@@ -988,6 +1028,45 @@ export default function VettingPage() {
    * A PROMPT RATHER THAN A NEW MODAL, deliberately. Extension is a rare correction, and governance
    * authorizes the smallest clean control on the existing surface - not a new dashboard.
    */
+  /**
+   * Initial PRE_DISPATCH Communication - ask ONE worker whether they are still interested.
+   *
+   * THE DELIBERATE STAFF ACTION, AND NOTHING ELSE TRIGGERS IT. Governance places communication
+   * delivery at a deliberate send action rather than at a read or at lane entry, so this exists only
+   * as a click: nothing on this page sends on mount, on refetch, or on a state change.
+   *
+   * IN-FLIGHT IS TRACKED PER CANDIDACY, so the control can be disabled while the request is
+   * outstanding. That is the front half of the duplicate protection; the server holds the real
+   * guard, and re-checks every precondition regardless of what this board decided to render.
+   *
+   * IT NEVER OPTIMISTICALLY CLAIMS SUCCESS, WHICH IS THE WHOLE POINT OF THE REPORTING BELOW. A
+   * resolved promise means the server processed the action, not that a worker was reached; the only
+   * honest signal is `handedToRealProvider`, and while transport is a logging stub it is always
+   * false. So an unsent outcome is stated plainly and the board is refetched to show the server's
+   * own state rather than a hopeful one.
+   */
+  const handleSendInitialWorkerRequest = useCallback(async (orderCandidateId: string) => {
+    setSendingInitialRequestFor(orderCandidateId);
+    try {
+      const result = await sendInitialPreDispatchCommunication(orderCandidateId);
+
+      if (!result.handedToRealProvider) {
+        window.alert(
+          result.communicationStatus === 'NOT_CONFIGURED'
+            ? 'Nothing was sent: worker text messaging is not configured yet. This request is still unsent.'
+            : 'Communication delivery failed. This request is still unsent and can be tried again.',
+        );
+      }
+      refetch();
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : 'Could not send the initial worker request.',
+      );
+    } finally {
+      setSendingInitialRequestFor(null);
+    }
+  }, [refetch]);
+
   const handleExtendOffer = useCallback(async (jobOfferId: string) => {
     const entered = window.prompt(
       'Extend this job offer deadline to (date and time). The new deadline must be LATER than the current one.',
@@ -1532,6 +1611,16 @@ export default function VettingPage() {
             onboardingReadiness={preDispatchInDrillDown?.onboardingPreDispatch}
             showWorkerRequest={!!preDispatchInDrillDown}
             workerRequestRead={preDispatchInDrillDown?.preDispatchWorkerRequest}
+            /* PRE_DISPATCH only. A candidacy outside the lane gets no control, and the server
+               refuses the action for one anyway. */
+            onSendInitialWorkerRequest={
+              preDispatchInDrillDown ? handleSendInitialWorkerRequest : undefined
+            }
+            sendingInitialWorkerRequest={
+              sendingInitialRequestFor === splitViewCandidate.id
+            }
+            isAuthenticated={isAuthenticated}
+            demoTitle={demoTitle}
             onClose={() => setSplitViewCandidate(null)}
           />
         </section>
@@ -3241,6 +3330,24 @@ function VettingCandidateCard({
           background: #64748b;
         }
 
+        /*
+          Initial PRE_DISPATCH Communication - OUR delivery failed.
+
+          A STRONGER ORANGE THAN pdr-pending, AND A BORDER, so it separates from the flat amber of
+          "not sent yet" at a glance: both are unsent requests, but one of them needs an operator to
+          do something. Deliberately NOT the red that means "Onboarding Not Cleared" - that red is a
+          finding about the worker's qualification, and this is a fact about our own transport.
+        */
+        .pdr-failed {
+          background: #fff7ed;
+          color: #9a3412;
+          border-left: 3px solid #ea580c;
+        }
+
+        .pdr-failed .pdr-dot {
+          background: #ea580c;
+        }
+
         /* Unread and no-request-on-file: neutral, and never mistakable for an answer. */
         .pdr-unavailable {
           background: #f8fafc;
@@ -4721,6 +4828,10 @@ function SplitViewPanel({
   onboardingReadiness,
   showWorkerRequest,
   workerRequestRead,
+  onSendInitialWorkerRequest,
+  sendingInitialWorkerRequest,
+  isAuthenticated,
+  demoTitle,
   onClose,
 }: {
   candidate: Candidate;
@@ -4730,6 +4841,14 @@ function SplitViewPanel({
   /** Phase 17 S2. PRE_DISPATCH only, decided by the page against the live lane. */
   showWorkerRequest?: boolean;
   workerRequestRead?: PreDispatchWorkerRequestRead;
+  /**
+   * Initial PRE_DISPATCH Communication. Absent means the action is not available here, so the panel
+   * renders no control at all rather than a disabled one that implies a missing permission.
+   */
+  onSendInitialWorkerRequest?: (orderCandidateId: string) => void;
+  sendingInitialWorkerRequest?: boolean;
+  isAuthenticated?: boolean;
+  demoTitle?: string;
   onClose: () => void;
 }) {
   const certItems: CertSignalItem[] = candidate.signals?.hardGates?.certifications?.items ?? [];
@@ -4832,6 +4951,43 @@ function SplitViewPanel({
                   </div>
                 )}
               </div>
+
+              {/*
+                Initial PRE_DISPATCH Communication - THE DELIBERATE SEND ACTION.
+
+                RENDERED ONLY WHILE THE REQUEST IS GENUINELY UNSENT, from the server's own
+                authoritative state. A request that has moved on offers no control, so the operator
+                is never invited to ask a worker something they have already been asked - and the
+                server re-checks the state regardless of what this panel decided to render.
+
+                IT APPEARS FOR A FAILED ATTEMPT TOO, BECAUSE THAT REQUEST IS STILL UNSENT. Trying
+                again is this same authorized action finding the same unchanged facts; it is not a
+                resend, which applies to a request that HAS been sent and is separately governed.
+
+                DISABLED WHILE IN FLIGHT, so a second click cannot start a second attempt. The
+                wording stays "Send Initial Request" - not "Sent" - because pressing it does not
+                establish that anything reached the worker.
+              */}
+              {onSendInitialWorkerRequest &&
+                workerRequestRead?.read === 'SUCCEEDED' &&
+                workerRequestRead.status.present &&
+                workerRequestRead.status.request.state === 'PENDING_INITIAL_COMMUNICATION' && (
+                  <div className="pdr-actions">
+                    <button
+                      type="button"
+                      className="pdr-action"
+                      disabled={!isAuthenticated || !!sendingInitialWorkerRequest}
+                      title={
+                        !isAuthenticated
+                          ? demoTitle
+                          : 'Text this worker a secure link asking whether they are still interested'
+                      }
+                      onClick={() => onSendInitialWorkerRequest(candidate.id)}
+                    >
+                      {sendingInitialWorkerRequest ? 'Sending…' : 'Send Initial Request'}
+                    </button>
+                  </div>
+                )}
             </div>
           )}
 
@@ -5226,6 +5382,29 @@ function SplitViewPanel({
 
         .pdr-detail-value {
           font-weight: 700;
+        }
+
+        /* Initial PRE_DISPATCH Communication - the deliberate send action. */
+        .pdr-actions {
+          display: flex;
+          margin-top: 6px;
+        }
+
+        .pdr-action {
+          flex: 1;
+          padding: 4px 8px;
+          border: 1px solid #cbd5e1;
+          border-radius: 3px;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+          background: #ffffff;
+          color: #334155;
+        }
+
+        .pdr-action:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .placeholder-content {

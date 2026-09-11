@@ -126,6 +126,8 @@ function requestView(
     clearedAt: null,
     closedAt: null,
     closeReason: null,
+    // Initial PRE_DISPATCH Communication. The ordinary condition: no delivery failure on file.
+    communicationStatus: 'NONE',
     ...overrides,
   };
 }
@@ -741,8 +743,21 @@ describe('S2 changes no selection or dispatch control', () => {
 
   it('the request state is not wired into any checkbox, select or dispatch prop', () => {
     expect(PAGE_SOURCE).not.toMatch(/showCheckbox=\{[^}]*[Ww]orkerRequest/);
-    expect(PAGE_SOURCE).not.toMatch(/disabled=\{[^}]*[Ww]orkerRequest/);
     expect(PAGE_SOURCE).not.toMatch(/onSelectToggle=\{[^}]*[Ww]orkerRequest/);
+
+    /*
+      NARROWED, NOT RELAXED. Initial PRE_DISPATCH Communication disables its OWN send button while an
+      attempt is outstanding, which is required duplicate protection, and the flag it reads mentions
+      the worker request by name. That flag is an IN-FLIGHT marker, not a request state.
+
+      So the assertion pins the complete set of `disabled=` expressions that mention the worker
+      request instead of forbidding the words. Any other one - a request STATE disabling a control -
+      is still a failure, which is what this test exists to catch.
+    */
+    const disabledProps = [
+      ...PAGE_SOURCE.matchAll(/disabled=\{([^}]*[Ww]orkerRequest[^}]*)\}/g),
+    ].map(m => m[1].trim());
+    expect(disabledProps).toEqual(['!isAuthenticated || !!sendingInitialWorkerRequest']);
   });
 });
 
@@ -917,20 +932,41 @@ describe('S2 rendering triggers no communication and no backend authority', () =
     expect(requestEndpointCalls()).toEqual([]);
   });
 
-  it('the client module exposes only a read - no send, resend, create or MagicLink', () => {
+  it('the client module exposes a read and exactly ONE authorized send - nothing else', () => {
+    /*
+      NARROWED, NOT RETIRED. S2 asserted this module was read-only, which was correct while the
+      deliberate send action was unauthorized. The Owner has since authorized exactly one: the
+      initial PRE_DISPATCH communication. So the question changed from "is there a writer" to "is
+      there exactly the one authorized writer".
+
+      A THIRD EXPORT IS STILL A FINDING. Resend, reminders and credential issuance remain separately
+      governed and do not exist, and none of them may arrive here by widening this list.
+    */
     expect(CLIENT_SOURCE).toMatch(/export async function getPreDispatchWorkerRequest/);
     const exports = [...CLIENT_SOURCE.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)].map(
       m => m[1],
     );
-    expect(exports).toEqual(['getPreDispatchWorkerRequest']);
-    expect(CLIENT_SOURCE).not.toMatch(/magicLink|MagicLink/);
-    expect(CLIENT_SOURCE).not.toMatch(/method:\s*['"](POST|PATCH|PUT|DELETE)/);
+    expect(exports).toEqual([
+      'getPreDispatchWorkerRequest',
+      'sendInitialPreDispatchCommunication',
+    ]);
 
-    // No send/resend/remind ACTION. Matched as a call or a declaration, not as a substring:
-    // `manualResendCount` and `reminderCount` are read-only projection fields the operator is
-    // entitled to see, and forbidding the letters would forbid displaying them.
-    expect(CLIENT_SOURCE).not.toMatch(/\b(send|resend|remind|notify|create)[A-Za-z]*\s*\(/i);
-    expect(CLIENT_SOURCE).not.toMatch(/function\s+\w*(send|resend|remind|create)\w*/i);
+    // Credential issuance is still not this layer's business.
+    expect(CLIENT_SOURCE).not.toMatch(/magicLink|MagicLink/);
+
+    // Exactly one write verb in the whole module, and it is the send action's POST.
+    expect([...CLIENT_SOURCE.matchAll(/method:\s*['"](\w+)/g)].map(m => m[1])).toEqual(['POST']);
+
+    // No resend, remind, notify or create ACTION. Matched as a call or a declaration, not as a
+    // substring: `manualResendCount` and `reminderCount` are read-only projection fields the
+    // operator is entitled to see, and forbidding the letters would forbid displaying them.
+    expect(CLIENT_SOURCE).not.toMatch(/\b(resend|remind|notify|create)[A-Za-z]*\s*\(/i);
+    expect(CLIENT_SOURCE).not.toMatch(/function\s+\w*(resend|remind|create)\w*/i);
+
+    // And the only sender is the initial one. A second `send*` function is a finding.
+    expect([...CLIENT_SOURCE.matchAll(/function\s+(\w*[Ss]end\w*)/g)].map(m => m[1])).toEqual([
+      'sendInitialPreDispatchCommunication',
+    ]);
   });
 
   it('the loader introduces no polling, timer or revalidation loop', () => {
