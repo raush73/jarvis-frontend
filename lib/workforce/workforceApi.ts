@@ -688,12 +688,21 @@ export type MilitaryBranch = (typeof MILITARY_BRANCHES)[number]["value"];
 export type MilitaryServiceComponent =
   (typeof MILITARY_SERVICE_COMPONENTS)[number]["value"];
 
+export type AcknowledgmentLinkView = {
+  label: string;
+  href: string;
+};
+
 export type AcknowledgmentView = {
   key: string;
   version: string;
   text: string;
   accepted: boolean;
   acceptedAt: string | null;
+  /** Whether the worker must accept this one to go on. Optional entries are a real choice. */
+  required: boolean;
+  /** Compliance documents to present as anchors. Empty when the acknowledgment needs none. */
+  links: AcknowledgmentLinkView[];
 };
 
 export type LegalStageView = {
