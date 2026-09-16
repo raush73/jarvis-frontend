@@ -272,6 +272,10 @@ export default function EmployeeDetailPage() {
   const [tcLoading, setTcLoading] = useState(false);
   const [tcSpecTradeFilter, setTcSpecTradeFilter] = useState<string>("");
 
+  // SMS opt-out control state
+  const [smsSaving, setSmsSaving] = useState(false);
+  const [smsError, setSmsError] = useState<string | null>(null);
+
   /* ---------- Load employee ---------- */
   useEffect(() => {
     let alive = true;
@@ -400,6 +404,37 @@ export default function EmployeeDetailPage() {
       setEmployee(data);
     } catch { /* silent — employee already loaded */ }
   }, [id]);
+
+  /* ---------- SMS opt-out status ---------- */
+  /**
+   * Mark this worker opted out of texts, or clear it, when he asks MW4H to stop or resume.
+   *
+   * WHAT IS DISPLAYED AFTERWARDS COMES BACK FROM THE SERVER. Nothing is set optimistically, so a save
+   * that fails cannot leave the profile showing a status the database does not hold - the worker's
+   * stated preference is exactly the wrong thing to guess about. The reload is awaited so the row and
+   * the button settle together.
+   *
+   * The write goes to `/candidates/:id/sms-opt-out`, which requires `candidates.write`, while the read
+   * stays on the employee detail this screen already loads.
+   */
+  async function setSmsOptedOut(next: boolean) {
+    // Double-submit protection. The button is disabled while saving; this closes the gap for a
+    // keyboard repeat or a second click that lands before React re-renders.
+    if (smsSaving) return;
+    setSmsSaving(true);
+    setSmsError(null);
+    try {
+      await apiFetch(`/candidates/${id}/sms-opt-out`, {
+        method: "PATCH",
+        body: JSON.stringify({ optedOut: next }),
+      });
+      await reloadEmployee();
+    } catch (e: any) {
+      setSmsError(e?.message ?? "Could not update SMS status.");
+    } finally {
+      setSmsSaving(false);
+    }
+  }
 
   /* ---------- TC (Trades & Capabilities) CRUD ---------- */
   async function openTcModal(type: "trades" | "specializations" | "capabilities") {
@@ -609,13 +644,44 @@ export default function EmployeeDetailPage() {
                 </div>
                 {/*
                   Beside the phone number, because that is the question it qualifies: staff looking
-                  at how to reach this worker need to see that he has asked not to be texted. Plain
-                  Yes/No and read-only - changing it is a governed mutation that does not exist yet.
+                  at how to reach this worker need to see whether he has asked not to be texted, and
+                  be able to change it when he telephones and says so.
+
+                  THE BUTTON SAYS WHAT IT WILL DO, NOT WHAT THE STATE IS. "Mark opted out" and "Clear
+                  opt-out" are unambiguous about the outcome, which a toggle or a checkbox beside a
+                  Yes/No would not be. And "No" is deliberately never dressed up as consent: it means
+                  no opt-out is recorded, nothing more.
                 */}
                 <div style={OV_ROW}>
                   <div style={OV_LBL}>SMS Opted Out</div>
-                  <div style={OV_VAL}>{emp.smsOptedOut ? "Yes" : "No"}</div>
+                  <div style={{ ...OV_VAL, display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                    <span>{emp.smsOptedOut ? "Yes" : "No"}</span>
+                    <button
+                      type="button"
+                      onClick={() => void setSmsOptedOut(!emp.smsOptedOut)}
+                      disabled={smsSaving}
+                      style={{
+                        padding: "4px 10px", fontSize: "12px", fontWeight: 600,
+                        borderRadius: "6px", border: "1px solid #d1d5db",
+                        background: smsSaving ? "#f3f4f6" : "#ffffff",
+                        color: smsSaving ? "#9ca3af" : "#374151",
+                        cursor: smsSaving ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {smsSaving
+                        ? "Saving…"
+                        : emp.smsOptedOut
+                          ? "Clear opt-out"
+                          : "Mark opted out"}
+                    </button>
+                  </div>
                 </div>
+                {smsError && (
+                  <div style={OV_ROW}>
+                    <div style={OV_LBL} />
+                    <div style={{ ...OV_VAL, color: "#b91c1c", fontSize: "12px" }}>{smsError}</div>
+                  </div>
+                )}
                 <div style={OV_ROW_LAST}>
                   <div style={OV_LBL}>Status</div>
                   <div style={OV_VAL}><StatusBadge status={emp.status} /></div>
