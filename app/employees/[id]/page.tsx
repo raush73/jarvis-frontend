@@ -92,6 +92,11 @@ type EmployeeDetail = {
   emergencyContactName: string | null;
   emergencyContactPhone: string | null;
   emergencyContactRelationship: string | null;
+  /**
+   * Whether this worker has told MW4H not to text him. Read-only here: changing it is a governed
+   * mutation that does not exist yet. It is not a statement that he MAY be texted.
+   */
+  smsOptedOut: boolean;
   createdAt: string;
   updatedAt: string;
   trades: TradeRow[];
@@ -601,6 +606,15 @@ export default function EmployeeDetailPage() {
                 <div style={OV_ROW}>
                   <div style={OV_LBL}>Phone</div>
                   <div style={OV_VAL}>{emp.phone || "\u2014"}</div>
+                </div>
+                {/*
+                  Beside the phone number, because that is the question it qualifies: staff looking
+                  at how to reach this worker need to see that he has asked not to be texted. Plain
+                  Yes/No and read-only - changing it is a governed mutation that does not exist yet.
+                */}
+                <div style={OV_ROW}>
+                  <div style={OV_LBL}>SMS Opted Out</div>
+                  <div style={OV_VAL}>{emp.smsOptedOut ? "Yes" : "No"}</div>
                 </div>
                 <div style={OV_ROW_LAST}>
                   <div style={OV_LBL}>Status</div>
