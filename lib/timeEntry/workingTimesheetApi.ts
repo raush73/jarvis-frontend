@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import type { SaveDraftPayload } from "@/lib/timeEntry/buildDraftPayload";
 
 /**
  * TE-S1 Working Timesheet Hub contract.
@@ -109,5 +110,37 @@ export async function fetchWorkingTimesheetDetail(
 ): Promise<WorkingTimesheetDetail> {
   return apiFetch<WorkingTimesheetDetail>(
     `/time-entry/working-timesheets/${encodeURIComponent(id)}`,
+  );
+}
+
+export interface SaveWorkingTimesheetDraftResult {
+  workingTimesheetId: string;
+  orderId: string;
+  weekStart: string;
+  entryMode: "DAILY" | "WEEKLY";
+  /** Workers whose facts were persisted. Untouched roster workers are absent by design. */
+  savedCandidateIds: string[];
+  /** Submitted workers skipped because they carried no actual Time Entry fact. */
+  skippedEmptyCandidateIds: string[];
+}
+
+/**
+ * Save the Working Timesheet draft.
+ *
+ * PUT because the operation is a full, idempotent replacement of the submitted worker facts:
+ * sending the same payload twice leaves exactly the same persisted state. Writes only mutable
+ * OPEN draft state - it never approves, snapshots, or reaches payroll or invoicing.
+ */
+export async function saveWorkingTimesheetDraft(
+  id: string,
+  payload: SaveDraftPayload,
+): Promise<SaveWorkingTimesheetDraftResult> {
+  return apiFetch<SaveWorkingTimesheetDraftResult>(
+    `/time-entry/working-timesheets/${encodeURIComponent(id)}/draft`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
   );
 }

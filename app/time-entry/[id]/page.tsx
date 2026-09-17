@@ -5,8 +5,10 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   fetchWorkingTimesheetDetail,
+  saveWorkingTimesheetDraft,
   type WorkingTimesheetDetail,
 } from "@/lib/timeEntry/workingTimesheetApi";
+import { buildDraftPayload } from "@/lib/timeEntry/buildDraftPayload";
 
 // =============================================================================
 // JOB-LEVEL SD GATE (MOCK)
@@ -451,6 +453,15 @@ export default function TimeEntryPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
+  // Crew-week Monday, used to turn day indexes into real work dates when saving. Held in
+  // state rather than parsed out of the route so the server value stays authoritative.
+  const [weekStart, setWeekStart] = useState("");
+
+  // Save Draft status, using this page's existing plain-text conventions.
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
+
   // Entry mode state
   const [entryMode, setEntryMode] = useState<EntryMode>("daily");
 
@@ -533,6 +544,7 @@ export default function TimeEntryPage() {
         weekEnding: detail.weekEnding,
         status: detail.status,
       });
+      setWeekStart(detail.weekStart);
       setJobOptions([{ id: detail.orderId, name: detail.orderRef }]);
       setEmployees(toEmployees(detail));
     } catch (e: any) {
@@ -731,6 +743,75 @@ export default function TimeEntryPage() {
         };
       })
     );
+  };
+
+  /**
+   * Save Draft.
+   *
+   * The GOLD engines are READ here and nothing more: their output is collected as the governed
+   * classification the backend persists. No calculation is duplicated, and no source fact is
+   * invented - the payload builder sends only the granularity the current mode actually holds.
+   */
+  const handleSaveDraft = async () => {
+    if (!workingTimesheetId || saving) return;
+
+    setSaving(true);
+    setSaveError("");
+    setSaveMessage("");
+
+    try {
+      const totalsByEmployeeId: Record<
+        string,
+        { totalHours: number; reg: number; ot: number; dt: number }
+      > = {};
+      const sdOverlayByEmployeeId: Record<
+        string,
+        { regSdHours: number; otSdHours: number; dtSdHours: number }
+      > = {};
+
+      for (const employee of employees) {
+        const totals =
+          entryMode === "daily"
+            ? computeEmployeeTotals(employee.jobRows)
+            : computeWeeklyTotals(employee.jobRows);
+        totalsByEmployeeId[employee.id] = {
+          totalHours: totals.totalHours,
+          reg: totals.reg,
+          ot: totals.ot,
+          dt: totals.dt,
+        };
+
+        // SD classification is only truthful when the worker is actually SD-enabled, and SD
+        // itself is Daily-only.
+        const sdEnabled = JOB_HAS_SHIFT_DIFF && (workerSdEnabled[employee.id] ?? false);
+        if (entryMode === "daily" && sdEnabled) {
+          const cellBreakdown = computeAllocatorCellBreakdownDaily(employee.jobRows);
+          sdOverlayByEmployeeId[employee.id] = computeShiftDiffOverlayDaily({
+            jobRows: employee.jobRows,
+            cellBreakdown: cellBreakdown.cell,
+            rowSdFlagsForEmployee: rowSdFlags[employee.id] ?? {},
+          });
+        }
+      }
+
+      const payload = buildDraftPayload({
+        entryMode,
+        employees,
+        weekStart,
+        workerSdEnabled,
+        rowSdFlags,
+        totalsByEmployeeId,
+        sdOverlayByEmployeeId,
+      });
+
+      const result = await saveWorkingTimesheetDraft(workingTimesheetId, payload);
+      setSaveMessage(`Draft saved — ${result.savedCandidateIds.length} worker(s).`);
+    } catch (e: any) {
+      // A failed request must never read as success.
+      setSaveError(e?.message ?? "Failed to save draft.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Get job name by id
@@ -1520,8 +1601,13 @@ export default function TimeEntryPage() {
       )}
       <div className="flex gap-3 mb-6">
         <button
-          disabled
-          className="px-5 py-2 text-sm font-medium bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
+          onClick={() => void handleSaveDraft()}
+          disabled={saving}
+          className={
+            saving
+              ? "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
+              : "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-200 border border-slate-600 rounded hover:text-slate-100"
+          }
         >
           Save Draft
         </button>
@@ -1538,6 +1624,13 @@ export default function TimeEntryPage() {
           Mark Ready for Payroll
         </button>
       </div>
+
+      {/* Save Draft status, using this page's existing plain-text conventions */}
+      {saving && <div className="text-sm text-slate-400 mb-6">Saving draft…</div>}
+      {!saving && saveError && <div className="text-sm text-red-400 mb-6">{saveError}</div>}
+      {!saving && !saveError && saveMessage && (
+        <div className="text-sm text-emerald-400 mb-6">{saveMessage}</div>
+      )}
       <p className="text-xs text-slate-500 mb-6">UI shell</p>
 
       {/* Navigation */}

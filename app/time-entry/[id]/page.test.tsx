@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const fetchWorkingTimesheetDetail = vi.fn();
+const saveWorkingTimesheetDraft = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "order-a__2026-09-07" }),
@@ -21,6 +22,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/timeEntry/workingTimesheetApi", () => ({
   fetchWorkingTimesheetDetail: (...args: unknown[]) => fetchWorkingTimesheetDetail(...args),
+  saveWorkingTimesheetDraft: (...args: unknown[]) => saveWorkingTimesheetDraft(...args),
 }));
 
 import WorkingTimesheetPage from "./page";
@@ -79,6 +81,7 @@ const DETAIL = {
 afterEach(() => {
   cleanup();
   fetchWorkingTimesheetDetail.mockReset();
+  saveWorkingTimesheetDraft.mockReset();
 });
 
 describe("Working Timesheet detail page", () => {
@@ -254,13 +257,18 @@ describe("Owner-approved Working Timesheet UI is unchanged", () => {
     expect(screen.getByText("← Back to Time Entry")).toBeTruthy();
   });
 
-  it("leaves Save Draft disabled - TE-S2A introduces no write", async () => {
+  it("enables only Save Draft, leaving the approval actions disabled", async () => {
     fetchWorkingTimesheetDetail.mockResolvedValue(DETAIL);
 
     render(<WorkingTimesheetPage />);
     await waitFor(() => expect(screen.getByText("John Martinez")).toBeTruthy());
 
-    for (const label of ["Save Draft", "Generate Snapshot", "Mark Ready for Payroll"]) {
+    // TE-S2B5 wired Save Draft, so it is now actionable.
+    const saveDraft = screen.getByText("Save Draft").closest("button")!;
+    expect(saveDraft.hasAttribute("disabled")).toBe(false);
+
+    // The approval boundary is untouched: neither of these was wired.
+    for (const label of ["Generate Snapshot", "Mark Ready for Payroll"]) {
       const button = screen.getByText(label).closest("button")!;
       expect(button.hasAttribute("disabled")).toBe(true);
     }
@@ -402,5 +410,154 @@ describe("manual DT designation through the Working Timesheet", () => {
     // Weekly view: 2 workers x (weekly total + DT + PD). The 7-day DT row is gone, because a
     // weekly designation has no day dimension.
     expect(screen.getAllByRole("textbox")).toHaveLength(6);
+  });
+});
+
+/**
+ * TE-S2B5 - the existing Save Draft button writes through the authoritative API.
+ */
+describe("Save Draft wiring", () => {
+  const CELLS_PER_WORKER_DAILY = 15;
+
+  function dayInput(workerIdx: number, dayIdx: number) {
+    const all = screen.getAllByRole("textbox") as HTMLInputElement[];
+    return all[workerIdx * CELLS_PER_WORKER_DAILY + dayIdx];
+  }
+
+  async function renderDetail() {
+    fetchWorkingTimesheetDetail.mockResolvedValue(DETAIL);
+    render(<WorkingTimesheetPage />);
+    await waitFor(() => expect(screen.getByText("John Martinez")).toBeTruthy());
+  }
+
+  it("sends the Working Timesheet identity and the entered Daily facts", async () => {
+    saveWorkingTimesheetDraft.mockResolvedValue({
+      workingTimesheetId: "order-a__2026-09-07",
+      orderId: "order-a",
+      weekStart: "2026-09-07",
+      entryMode: "DAILY",
+      savedCandidateIds: ["cand-1"],
+      skippedEmptyCandidateIds: [],
+    });
+
+    await renderDetail();
+    fireEvent.change(dayInput(0, 0), { target: { value: "8" } });
+    fireEvent.click(screen.getByText("Save Draft"));
+
+    await waitFor(() => expect(saveWorkingTimesheetDraft).toHaveBeenCalledTimes(1));
+    const [id, payload] = saveWorkingTimesheetDraft.mock.calls[0];
+    expect(id).toBe("order-a__2026-09-07");
+    expect(payload.entryMode).toBe("DAILY");
+
+    // Only John carries a fact; Sarah is untouched and therefore absent.
+    expect(payload.workers.map((w: any) => w.candidateId)).toEqual(["cand-1"]);
+    expect(payload.workers[0].jobRows[0].dailyHours).toEqual([
+      { workDate: "2026-09-07", quantity: 8 },
+    ]);
+    // Real dates, not day indexes, and no weekly value invented.
+    expect(payload.workers[0].jobRows[0].weeklyHours).toBeUndefined();
+  });
+
+  it("FE5-11: a successful save uses the existing plain-text success convention", async () => {
+    saveWorkingTimesheetDraft.mockResolvedValue({
+      workingTimesheetId: "order-a__2026-09-07",
+      orderId: "order-a",
+      weekStart: "2026-09-07",
+      entryMode: "DAILY",
+      savedCandidateIds: ["cand-1"],
+      skippedEmptyCandidateIds: [],
+    });
+
+    await renderDetail();
+    fireEvent.change(dayInput(0, 0), { target: { value: "8" } });
+    fireEvent.click(screen.getByText("Save Draft"));
+
+    await waitFor(() => expect(screen.getByText(/Draft saved/)).toBeTruthy());
+    expect(screen.getByText(/1 worker\(s\)/)).toBeTruthy();
+  });
+
+  it("FE5-10: a failed save never displays success", async () => {
+    saveWorkingTimesheetDraft.mockRejectedValue(new Error("Backend refused the draft"));
+
+    await renderDetail();
+    fireEvent.change(dayInput(0, 0), { target: { value: "8" } });
+    fireEvent.click(screen.getByText("Save Draft"));
+
+    await waitFor(() => expect(screen.getByText("Backend refused the draft")).toBeTruthy());
+    // The decisive assertion: no success message anywhere.
+    expect(screen.queryByText(/Draft saved/)).toBeNull();
+  });
+
+  it("FE5-10b: a later success clears the earlier failure message", async () => {
+    saveWorkingTimesheetDraft.mockRejectedValueOnce(new Error("Transient failure"));
+    saveWorkingTimesheetDraft.mockResolvedValue({
+      workingTimesheetId: "order-a__2026-09-07",
+      orderId: "order-a",
+      weekStart: "2026-09-07",
+      entryMode: "DAILY",
+      savedCandidateIds: ["cand-1"],
+      skippedEmptyCandidateIds: [],
+    });
+
+    await renderDetail();
+    fireEvent.change(dayInput(0, 0), { target: { value: "8" } });
+
+    fireEvent.click(screen.getByText("Save Draft"));
+    await waitFor(() => expect(screen.getByText("Transient failure")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Save Draft"));
+    await waitFor(() => expect(screen.getByText(/Draft saved/)).toBeTruthy());
+    expect(screen.queryByText("Transient failure")).toBeNull();
+  });
+
+  it("sends WEEKLY mode with no fabricated Daily facts", async () => {
+    saveWorkingTimesheetDraft.mockResolvedValue({
+      workingTimesheetId: "order-a__2026-09-07",
+      orderId: "order-a",
+      weekStart: "2026-09-07",
+      entryMode: "WEEKLY",
+      savedCandidateIds: ["cand-1"],
+      skippedEmptyCandidateIds: [],
+    });
+
+    await renderDetail();
+    // Enter Daily hours FIRST, then switch to Weekly. The daily state still exists in memory.
+    fireEvent.change(dayInput(0, 0), { target: { value: "8" } });
+    fireEvent.click(screen.getByText("Weekly Totals"));
+    fireEvent.click(screen.getByText("Save Draft"));
+
+    await waitFor(() => expect(saveWorkingTimesheetDraft).toHaveBeenCalledTimes(1));
+    const payload = saveWorkingTimesheetDraft.mock.calls[0][1];
+    expect(payload.entryMode).toBe("WEEKLY");
+    // John's persisted weekly total (40) is sent; the in-memory daily state is NOT.
+    expect(payload.workers[0].jobRows[0].weeklyHours).toBe(40);
+    expect(payload.workers[0].jobRows[0].dailyHours).toBeUndefined();
+  });
+
+  it("FE5-12: wiring Save Draft changed no layout, label or control", async () => {
+    await renderDetail();
+
+    // Header, columns, controls, item sections and footer actions are all still present and
+    // named exactly as before.
+    for (const label of [
+      "Job Site",
+      "Customer",
+      "Week Ending",
+      "Daily",
+      "Weekly Totals",
+      "Save Draft",
+      "Generate Snapshot",
+      "Mark Ready for Payroll",
+      "← Back to Time Entry",
+    ]) {
+      expect(screen.getByText(label)).toBeTruthy();
+    }
+    // Exact existing labels, including "+ Add Item" for billable items.
+    for (const label of ["+ Add Job", "+ Add Item", "+ Add Non-Billable Item"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    // No status text is shown before a save is attempted.
+    expect(screen.queryByText(/Draft saved/)).toBeNull();
+    expect(screen.queryByText(/Saving draft/)).toBeNull();
   });
 });
