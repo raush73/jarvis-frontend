@@ -1,134 +1,38 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  fetchWorkingTimesheetHub,
+  type WorkingTimesheetHubResponse,
+} from "@/lib/timeEntry/workingTimesheetApi";
 
-// Mock data for working timesheets grouped by customer (UI-only)
-const CUSTOMER_GROUPS = [
-  {
-    customerName: "Acme Manufacturing",
-    orders: [
-      {
-        id: "wts-001",
-        orderRef: "ORD-1042",
-        weekEnding: "2026-02-08",
-        workers: 12,
-        status: "Draft" as const,
-      },
-      {
-        id: "wts-009",
-        orderRef: "ORD-1051",
-        weekEnding: "2026-02-08",
-        workers: 8,
-        status: "Submitted" as const,
-      },
-    ],
-  },
-  {
-    customerName: "Summit Industries",
-    orders: [
-      {
-        id: "wts-002",
-        orderRef: "ORD-1038",
-        weekEnding: "2026-02-08",
-        workers: 8,
-        status: "Submitted" as const,
-      },
-    ],
-  },
-  {
-    customerName: "Precision Parts Co",
-    orders: [
-      {
-        id: "wts-003",
-        orderRef: "ORD-1045",
-        weekEnding: "2026-02-08",
-        workers: 5,
-        status: "Needs Customer" as const,
-      },
-      {
-        id: "wts-010",
-        orderRef: "ORD-1052",
-        weekEnding: "2026-02-08",
-        workers: 3,
-        status: "Draft" as const,
-      },
-    ],
-  },
-  {
-    customerName: "Delta Logistics",
-    orders: [
-      {
-        id: "wts-004",
-        orderRef: "ORD-1039",
-        weekEnding: "2026-02-08",
-        workers: 15,
-        status: "Ready to Snapshot" as const,
-      },
-    ],
-  },
-  {
-    customerName: "Northern Steel",
-    orders: [
-      {
-        id: "wts-005",
-        orderRef: "ORD-1041",
-        weekEnding: "2026-02-08",
-        workers: 10,
-        status: "Draft" as const,
-      },
-    ],
-  },
-  {
-    customerName: "Midwest Assembly",
-    orders: [
-      {
-        id: "wts-006",
-        orderRef: "ORD-1044",
-        weekEnding: "2026-02-08",
-        workers: 7,
-        status: "Submitted" as const,
-      },
-      {
-        id: "wts-011",
-        orderRef: "ORD-1053",
-        weekEnding: "2026-02-08",
-        workers: 4,
-        status: "Needs Customer" as const,
-      },
-      {
-        id: "wts-012",
-        orderRef: "ORD-1054",
-        weekEnding: "2026-02-08",
-        workers: 6,
-        status: "Draft" as const,
-      },
-    ],
-  },
-  {
-    customerName: "Harbor Freight Services",
-    orders: [
-      {
-        id: "wts-007",
-        orderRef: "ORD-1046",
-        weekEnding: "2026-02-08",
-        workers: 9,
-        status: "Draft" as const,
-      },
-    ],
-  },
-  {
-    customerName: "Central Fabrication",
-    orders: [
-      {
-        id: "wts-008",
-        orderRef: "ORD-1047",
-        weekEnding: "2026-02-08",
-        workers: 6,
-        status: "Needs Customer" as const,
-      },
-    ],
-  },
-];
+type HubStatus = "Draft" | "Submitted" | "Needs Customer" | "Ready to Snapshot";
+
+// Working timesheets grouped by customer, shaped for this page's existing card layout.
+type HubGroup = {
+  customerName: string;
+  orders: {
+    id: string;
+    orderRef: string;
+    weekEnding: string;
+    workers: number;
+    status: HubStatus;
+  }[];
+};
+
+function toHubGroups(hub: WorkingTimesheetHubResponse): HubGroup[] {
+  return hub.customerGroups.map((group) => ({
+    customerName: group.customerName,
+    orders: group.workingTimesheets.map((sheet) => ({
+      id: sheet.id,
+      orderRef: sheet.orderRef,
+      weekEnding: sheet.weekEnding,
+      workers: sheet.workers,
+      status: sheet.status,
+    })),
+  }));
+}
 
 function getStatusColor(
   status: "Draft" | "Submitted" | "Needs Customer" | "Ready to Snapshot"
@@ -148,6 +52,27 @@ function getStatusColor(
 }
 
 export default function TimeEntryHubPage() {
+  const [groups, setGroups] = useState<HubGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadHub = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const hub = await fetchWorkingTimesheetHub();
+      setGroups(toHubGroups(hub));
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to load working timesheets.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadHub();
+  }, [loadHub]);
+
   return (
     <div style={{ padding: "32px", maxWidth: "1200px", margin: "0 auto" }}>
       {/* Header */}
@@ -201,7 +126,20 @@ export default function TimeEntryHubPage() {
 
       {/* Customer Groups */}
       <div style={{ display: "flex", flexDirection: "column", gap: "24px", marginBottom: "32px" }}>
-        {CUSTOMER_GROUPS.map((group) => (
+        {loading && (
+          <div style={{ color: "#6b7280", fontSize: "14px" }}>
+            Loading working timesheets...
+          </div>
+        )}
+        {!loading && error && (
+          <div style={{ color: "#b91c1c", fontSize: "14px" }}>{error}</div>
+        )}
+        {!loading && !error && groups.length === 0 && (
+          <div style={{ color: "#6b7280", fontSize: "14px" }}>
+            No open working timesheets for the completed week.
+          </div>
+        )}
+        {!loading && !error && groups.map((group) => (
           <div
             key={group.customerName}
             style={{
