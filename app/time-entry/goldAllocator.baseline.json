@@ -1,0 +1,1242 @@
+{
+  "D1": {
+    "totals": {
+      "totalHours": 40,
+      "reg": 40,
+      "ot": 0,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 0,
+          "dt": 0,
+          "total": 40
+        }
+      ]
+    },
+    "cells": [
+      [
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ]
+    ]
+  },
+  "D2": {
+    "totals": {
+      "totalHours": 45,
+      "reg": 40,
+      "ot": 5,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 5,
+          "dt": 0,
+          "total": 45
+        }
+      ]
+    },
+    "cells": [
+      [
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 5,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ]
+    ]
+  },
+  "D3": {
+    "totals": {
+      "totalHours": 52,
+      "reg": 40,
+      "ot": 12,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 12,
+          "dt": 0,
+          "total": 52
+        }
+      ]
+    },
+    "cells": [
+      [
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 8,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 4,
+          "dt": 0
+        }
+      ]
+    ]
+  },
+  "D4": {
+    "totals": {
+      "totalHours": 36,
+      "reg": 36,
+      "ot": 0,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 24,
+          "ot": 0,
+          "dt": 0,
+          "total": 24
+        },
+        {
+          "jobId": "r2",
+          "reg": 12,
+          "ot": 0,
+          "dt": 0,
+          "total": 12
+        }
+      ]
+    },
+    "cells": [
+      [
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ],
+      [
+        {
+          "reg": 4,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 4,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 4,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ]
+    ]
+  },
+  "D5": {
+    "totals": {
+      "totalHours": 40,
+      "reg": 40,
+      "ot": 0,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 32,
+          "ot": 0,
+          "dt": 0,
+          "total": 32
+        },
+        {
+          "jobId": "r2",
+          "reg": 8,
+          "ot": 0,
+          "dt": 0,
+          "total": 8
+        }
+      ]
+    },
+    "cells": [
+      [
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ],
+      [
+        {
+          "reg": 2,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 2,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 2,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 2,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ]
+    ]
+  },
+  "D6": {
+    "totals": {
+      "totalHours": 52,
+      "reg": 40,
+      "ot": 12,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 0,
+          "dt": 0,
+          "total": 40
+        },
+        {
+          "jobId": "r2",
+          "reg": 0,
+          "ot": 12,
+          "dt": 0,
+          "total": 12
+        }
+      ]
+    },
+    "cells": [
+      [
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ],
+      [
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 8,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 4,
+          "dt": 0
+        }
+      ]
+    ]
+  },
+  "D7": {
+    "totals": {
+      "totalHours": 44,
+      "reg": 40,
+      "ot": 4,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 31,
+          "ot": 1,
+          "dt": 0,
+          "total": 32
+        },
+        {
+          "jobId": "r2",
+          "reg": 9,
+          "ot": 3,
+          "dt": 0,
+          "total": 12
+        }
+      ]
+    },
+    "cells": [
+      [
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 7,
+          "ot": 1,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ],
+      [
+        {
+          "reg": 3,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 3,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 3,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 3,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ]
+    ]
+  },
+  "D8": {
+    "totals": {
+      "totalHours": 28,
+      "reg": 28,
+      "ot": 0,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 16,
+          "ot": 0,
+          "dt": 0,
+          "total": 16
+        },
+        {
+          "jobId": "r2",
+          "reg": 12,
+          "ot": 0,
+          "dt": 0,
+          "total": 12
+        }
+      ]
+    },
+    "cells": [
+      [
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ],
+      [
+        {
+          "reg": 6,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 6,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ]
+    ]
+  },
+  "D13": {
+    "totals": {
+      "totalHours": 40.5,
+      "reg": 40,
+      "ot": 0.5,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 0.5,
+          "dt": 0,
+          "total": 40.5
+        }
+      ]
+    },
+    "cells": [
+      [
+        {
+          "reg": 8.25,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8.5,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 7.75,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 7.5,
+          "ot": 0.5,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ]
+    ]
+  },
+  "D14": {
+    "totals": {
+      "totalHours": 46,
+      "reg": 40,
+      "ot": 6,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 24,
+          "ot": 0,
+          "dt": 0,
+          "total": 24
+        },
+        {
+          "jobId": "r2",
+          "reg": 12,
+          "ot": 0,
+          "dt": 0,
+          "total": 12
+        },
+        {
+          "jobId": "r3",
+          "reg": 4,
+          "ot": 6,
+          "dt": 0,
+          "total": 10
+        }
+      ]
+    },
+    "cells": [
+      [
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 8,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ],
+      [
+        {
+          "reg": 4,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 4,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 4,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ],
+      [
+        {
+          "reg": 2,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 2,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 2,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 4,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        },
+        {
+          "reg": 0,
+          "ot": 0,
+          "dt": 0
+        }
+      ]
+    ]
+  },
+  "D9": {
+    "totals": {
+      "totalHours": 52,
+      "reg": 40,
+      "ot": 12,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 12,
+          "dt": 0,
+          "total": 52
+        }
+      ]
+    },
+    "overlay": {
+      "regSdHours": 0,
+      "otSdHours": 0,
+      "dtSdHours": 0
+    },
+    "rowSd": [
+      {
+        "regSd": 0,
+        "otSd": 0,
+        "dtSd": 0
+      }
+    ]
+  },
+  "D10": {
+    "totals": {
+      "totalHours": 52,
+      "reg": 40,
+      "ot": 12,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 12,
+          "dt": 0,
+          "total": 52
+        }
+      ]
+    },
+    "overlay": {
+      "regSdHours": 8,
+      "otSdHours": 0,
+      "dtSdHours": 0
+    },
+    "rowSd": [
+      {
+        "regSd": 8,
+        "otSd": 0,
+        "dtSd": 0
+      }
+    ]
+  },
+  "D11": {
+    "totals": {
+      "totalHours": 52,
+      "reg": 40,
+      "ot": 12,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 12,
+          "dt": 0,
+          "total": 52
+        }
+      ]
+    },
+    "overlay": {
+      "regSdHours": 0,
+      "otSdHours": 8,
+      "dtSdHours": 0
+    },
+    "rowSd": [
+      {
+        "regSd": 0,
+        "otSd": 8,
+        "dtSd": 0
+      }
+    ]
+  },
+  "D12": {
+    "totals": {
+      "totalHours": 52,
+      "reg": 40,
+      "ot": 12,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 12,
+          "dt": 0,
+          "total": 52
+        }
+      ]
+    },
+    "overlay": {
+      "regSdHours": 8,
+      "otSdHours": 12,
+      "dtSdHours": 0
+    },
+    "rowSd": [
+      {
+        "regSd": 8,
+        "otSd": 12,
+        "dtSd": 0
+      }
+    ]
+  },
+  "W1": {
+    "weekly": {
+      "totalHours": 40,
+      "reg": 40,
+      "ot": 0,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 0,
+          "dt": 0,
+          "total": 40
+        }
+      ],
+      "allocatedOt": 0,
+      "otEditable": false,
+      "mismatch": false
+    }
+  },
+  "W2": {
+    "weekly": {
+      "totalHours": 45,
+      "reg": 40,
+      "ot": 5,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 5,
+          "dt": 0,
+          "total": 45
+        }
+      ],
+      "allocatedOt": 5,
+      "otEditable": false,
+      "mismatch": false
+    }
+  },
+  "W3": {
+    "weekly": {
+      "totalHours": 52,
+      "reg": 40,
+      "ot": 12,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 40,
+          "ot": 12,
+          "dt": 0,
+          "total": 52
+        }
+      ],
+      "allocatedOt": 12,
+      "otEditable": false,
+      "mismatch": false
+    }
+  },
+  "W4": {
+    "weekly": {
+      "totalHours": 35,
+      "reg": 35,
+      "ot": 0,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 20,
+          "ot": 0,
+          "dt": 0,
+          "total": 20
+        },
+        {
+          "jobId": "r2",
+          "reg": 15,
+          "ot": 0,
+          "dt": 0,
+          "total": 15
+        }
+      ],
+      "allocatedOt": 0,
+      "otEditable": false,
+      "mismatch": false
+    }
+  },
+  "W5": {
+    "weekly": {
+      "totalHours": 40,
+      "reg": 40,
+      "ot": 0,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 25,
+          "ot": 0,
+          "dt": 0,
+          "total": 25
+        },
+        {
+          "jobId": "r2",
+          "reg": 15,
+          "ot": 0,
+          "dt": 0,
+          "total": 15
+        }
+      ],
+      "allocatedOt": 0,
+      "otEditable": false,
+      "mismatch": false
+    }
+  },
+  "W6": {
+    "weekly": {
+      "totalHours": 52,
+      "reg": 40,
+      "ot": 12,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 30,
+          "ot": 0,
+          "dt": 0,
+          "total": 30
+        },
+        {
+          "jobId": "r2",
+          "reg": 22,
+          "ot": 0,
+          "dt": 0,
+          "total": 22
+        }
+      ],
+      "allocatedOt": 0,
+      "otEditable": true,
+      "mismatch": true
+    }
+  },
+  "W7": {
+    "weekly": {
+      "totalHours": 52,
+      "reg": 40,
+      "ot": 12,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 30,
+          "ot": 0,
+          "dt": 0,
+          "total": 30
+        },
+        {
+          "jobId": "r2",
+          "reg": 10,
+          "ot": 12,
+          "dt": 0,
+          "total": 22
+        }
+      ],
+      "allocatedOt": 12,
+      "otEditable": true,
+      "mismatch": false
+    }
+  },
+  "W8": {
+    "weekly": {
+      "totalHours": 60,
+      "reg": 40,
+      "ot": 20,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 20,
+          "ot": 0,
+          "dt": 0,
+          "total": 20
+        },
+        {
+          "jobId": "r2",
+          "reg": 20,
+          "ot": 0,
+          "dt": 0,
+          "total": 20
+        },
+        {
+          "jobId": "r3",
+          "reg": 0,
+          "ot": 20,
+          "dt": 0,
+          "total": 20
+        }
+      ],
+      "allocatedOt": 20,
+      "otEditable": true,
+      "mismatch": false
+    }
+  },
+  "W9": {
+    "weekly": {
+      "totalHours": 52.75,
+      "reg": 40,
+      "ot": 12.75,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 30.25,
+          "ot": 0,
+          "dt": 0,
+          "total": 30.25
+        },
+        {
+          "jobId": "r2",
+          "reg": 9.75,
+          "ot": 12.75,
+          "dt": 0,
+          "total": 22.5
+        }
+      ],
+      "allocatedOt": 12.75,
+      "otEditable": true,
+      "mismatch": false
+    }
+  },
+  "W10": {
+    "weekly": {
+      "totalHours": 60,
+      "reg": 40,
+      "ot": 20,
+      "dt": 0,
+      "jobBreakdown": [
+        {
+          "jobId": "r1",
+          "reg": 25,
+          "ot": 5,
+          "dt": 0,
+          "total": 30
+        },
+        {
+          "jobId": "r2",
+          "reg": 25,
+          "ot": 5,
+          "dt": 0,
+          "total": 30
+        }
+      ],
+      "allocatedOt": 10,
+      "otEditable": true,
+      "mismatch": true
+    }
+  }
+}

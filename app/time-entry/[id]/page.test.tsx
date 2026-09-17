@@ -136,10 +136,12 @@ describe("Working Timesheet detail page", () => {
 
     // A weekly total exists for John, but the day-by-day split does not. Nothing is
     // invented: the seven day cells stay empty rather than fabricating a distribution.
-    // Two workers x (7 day cells + 1 PD cell) = 16 inputs, and the ONLY populated one
-    // is John's persisted PD day count.
+    //
+    // Two workers x (7 day cells + 7 manual DT cells + 1 PD cell) = 30 inputs. The DT cells
+    // were added by TE-S2B4 and start empty, because a DT designation is an operator decision
+    // and none is persisted yet. The ONLY populated input remains John's persisted PD days.
     const values = (screen.getAllByRole("textbox") as HTMLInputElement[]).map((i) => i.value);
-    expect(values).toHaveLength(16);
+    expect(values).toHaveLength(30);
     expect(values.filter((v) => v !== "")).toEqual(["3.25"]);
   });
 
@@ -273,5 +275,132 @@ describe("Owner-approved Working Timesheet UI is unchanged", () => {
     // The SD control is present and defaults to OFF, because no SD eligibility is
     // persisted yet. The calculation engine is untouched.
     expect(screen.getAllByText("Shift Diff OFF").length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * TE-S2B4 - manual Double Time is entered through the real screen.
+ *
+ * These drive the actual page rather than the allocator directly, so they prove the input
+ * grain is genuinely wired: a Daily designation belongs to one worker, one JobRow and one day,
+ * and a Weekly designation belongs to one worker and one JobRow.
+ */
+describe("manual DT designation through the Working Timesheet", () => {
+  /** In Daily view each worker owns: 7 day cells, 1 PD cell, then 7 manual DT cells. */
+  const DAY_CELLS = 7;
+  const CELLS_PER_WORKER_DAILY = 15;
+
+  function dailyInputs(workerIdx: number) {
+    const all = screen.getAllByRole("textbox") as HTMLInputElement[];
+    const base = workerIdx * CELLS_PER_WORKER_DAILY;
+    return {
+      day: (dayIdx: number) => all[base + dayIdx],
+      perDiem: all[base + DAY_CELLS],
+      dt: (dayIdx: number) => all[base + DAY_CELLS + 1 + dayIdx],
+    };
+  }
+
+  async function renderDetail() {
+    fetchWorkingTimesheetDetail.mockResolvedValue(DETAIL);
+    render(<WorkingTimesheetPage />);
+    await waitFor(() => expect(screen.getByText("John Martinez")).toBeTruthy());
+  }
+
+  it("carves DT out of OT for the exact JobRow and day it was designated on", async () => {
+    await renderDetail();
+
+    // 48 worked hours for John: Mon-Fri REG, Saturday entirely OT.
+    for (let day = 0; day < 5; day++) {
+      fireEvent.change(dailyInputs(0).day(day), { target: { value: "8" } });
+    }
+    fireEvent.change(dailyInputs(0).day(5), { target: { value: "8" } });
+    expect(screen.getByText("Employee Weekly: REG 40 | OT 8 | DT 0 | Total 48")).toBeTruthy();
+
+    // Designate 4 DT on Saturday only.
+    fireEvent.change(dailyInputs(0).dt(5), { target: { value: "4" } });
+
+    // OT falls by exactly 4, REG is untouched, and worked hours do not move.
+    expect(screen.getByText("Employee Weekly: REG 40 | OT 4 | DT 4 | Total 48")).toBeTruthy();
+    // The worked Saturday cell still reads 8 - DT classifies, it does not rewrite hours.
+    expect(dailyInputs(0).day(5).value).toBe("8");
+  });
+
+  it("rejects a Daily designation on a REG-only day and leaves REG intact", async () => {
+    await renderDetail();
+
+    // Exactly 40 hours: every cell is REG, so there is no OT pool anywhere.
+    for (let day = 0; day < 5; day++) {
+      fireEvent.change(dailyInputs(0).day(day), { target: { value: "8" } });
+    }
+    fireEvent.change(dailyInputs(0).dt(0), { target: { value: "4" } });
+
+    expect(screen.getByText(/Invalid DT designation/)).toBeTruthy();
+    expect(screen.getByText("Employee Weekly: REG 40 | OT 0 | DT 0 | Total 40")).toBeTruthy();
+  });
+
+  it("rejects a non-quarter-hour Daily designation", async () => {
+    await renderDetail();
+
+    for (let day = 0; day < 6; day++) {
+      fireEvent.change(dailyInputs(0).day(day), { target: { value: "8" } });
+    }
+    fireEvent.change(dailyInputs(0).dt(5), { target: { value: "1.33" } });
+
+    expect(screen.getByText(/Invalid DT designation/)).toBeTruthy();
+    expect(screen.getByText("Employee Weekly: REG 40 | OT 8 | DT 0 | Total 48")).toBeTruthy();
+  });
+
+  it("designates Weekly DT per JobRow without any day being involved", async () => {
+    await renderDetail();
+    fireEvent.click(screen.getByText("Weekly Totals"));
+
+    // In Weekly Totals each worker owns: weekly total, DT, then PD.
+    const weekly = () => screen.getAllByRole("textbox") as HTMLInputElement[];
+    fireEvent.change(weekly()[0], { target: { value: "52" } });
+    expect(screen.getByText("Employee Weekly: REG 40 | OT 12 | DT 0 | Total 52")).toBeTruthy();
+
+    fireEvent.change(weekly()[1], { target: { value: "4" } });
+    expect(screen.getByText("Employee Weekly: REG 40 | OT 8 | DT 4 | Total 52")).toBeTruthy();
+  });
+
+  it("rejects a Weekly designation larger than the row's OT pool, without clamping", async () => {
+    await renderDetail();
+    fireEvent.click(screen.getByText("Weekly Totals"));
+
+    const weekly = () => screen.getAllByRole("textbox") as HTMLInputElement[];
+    fireEvent.change(weekly()[0], { target: { value: "45" } }); // OT pool is 5
+    fireEvent.change(weekly()[1], { target: { value: "8" } });
+
+    expect(screen.getByText(/Invalid DT designation/)).toBeTruthy();
+    // Not clamped to 5: the designation is refused outright.
+    expect(screen.getByText("Employee Weekly: REG 40 | OT 5 | DT 0 | Total 45")).toBeTruthy();
+  });
+
+  it("keeps one worker's DT designation off another worker", async () => {
+    await renderDetail();
+
+    for (let day = 0; day < 6; day++) {
+      fireEvent.change(dailyInputs(0).day(day), { target: { value: "8" } });
+    }
+    fireEvent.change(dailyInputs(0).dt(5), { target: { value: "4" } });
+
+    // John reclassified; Sarah still has nothing at all.
+    expect(screen.getByText("Employee Weekly: REG 40 | OT 4 | DT 4 | Total 48")).toBeTruthy();
+    expect(screen.getByText("Employee Weekly: REG 0 | OT 0 | DT 0 | Total 0")).toBeTruthy();
+    for (let day = 0; day < 7; day++) {
+      expect(dailyInputs(1).dt(day).value).toBe("");
+    }
+  });
+
+  it("shows no DT designation cells in the Weekly Totals view", async () => {
+    await renderDetail();
+
+    // Daily view: 2 workers x 15 inputs.
+    expect(screen.getAllByRole("textbox")).toHaveLength(30);
+
+    fireEvent.click(screen.getByText("Weekly Totals"));
+    // Weekly view: 2 workers x (weekly total + DT + PD). The 7-day DT row is gone, because a
+    // weekly designation has no day dimension.
+    expect(screen.getAllByRole("textbox")).toHaveLength(6);
   });
 });

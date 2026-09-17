@@ -62,11 +62,32 @@ describe("GOLD allocator is unchanged by TE-S1", () => {
     expect(source).not.toMatch(/sdPayDeltaRate|sdBillDeltaRate|basePayRate|baseBillRate/);
   });
 
-  it("leaves DT deferred, exactly as the protected source had it", () => {
-    // DT restoration is a later authorized slice. TE-S1 must not reintroduce it.
-    expect(source).toContain("const dt = 0");
+  it("carries DT only as the bounded TE-S2B4 extension, not the old implementation", () => {
+    // TE-S2B4 is the authorized calculation slice this tripwire was waiting for, so DT is no
+    // longer deferred. What must still never come back is the pre-multi-job implementation:
+    // a worker-level scalar carved from a weekly total, which cannot attribute DT to a row or
+    // a day and would therefore leave DT_SD permanently wrong.
     expect(source).not.toContain("function computeRegOt(");
     expect(source).not.toContain("handleDtChange");
+    expect(source).not.toContain("otDisplay");
+
+    // DT is a designation carved from the OT pool, validated at its own grain.
+    expect(source).toContain("function carveDesignatedDt(");
+    expect(source).toContain("function isDtQuantityWellFormed(");
+    expect(source).toContain("const DT_INCREMENT = 0.25");
+    // Daily designations are per JobRow per day; weekly designations are per JobRow.
+    expect(source).toContain("dailyDtHours");
+    expect(source).toContain("weeklyDtHours");
+  });
+
+  it("keeps the REG threshold and the OT pool as the only source of DT", () => {
+    // REG is computed before any DT carve-out and is never reduced by it, so these lines must
+    // survive verbatim.
+    expect(source).toContain("const reg = Math.min(totalHours, 40)");
+    expect(source).toContain("const regComputed = Math.min(totalHours, 40)");
+    // DT is subtracted from OT and from nothing else.
+    expect(source).toContain("ot: ot - dt");
+    expect(source).toContain("ot: otComputed - dt");
   });
 
   it("introduces no punch-clock semantics", () => {

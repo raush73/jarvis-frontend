@@ -20,13 +20,51 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type EntryMode = "daily" | "weekly";
 
-interface JobRow {
+export interface JobRow {
   id: string;
   jobId: string;
   dailyHours: number[]; // Mon-Sun raw hours
   perDiemDays: number;
   weeklyTotalHours: number;
   weeklyOtAllocation: number;
+  // Manually designated Double Time, carved from hours the allocator classifies as OT.
+  // Optional so that any state built without DT behaves exactly as it did before DT existed.
+  dailyDtHours?: number[]; // Mon-Sun designated DT, daily mode
+  weeklyDtHours?: number; // designated DT for this row, weekly totals mode
+}
+
+// =============================================================================
+// MANUAL DT DESIGNATION — VALIDATION (not part of the GOLD allocator)
+// =============================================================================
+// MW4H designates DT manually. It is never derived, and it is only ever carved out of
+// hours the existing allocator has already classified as OT, so REG can never shrink and
+// worked hours can never grow.
+const DT_INCREMENT = 0.25;
+const DT_EPSILON = 1e-9;
+
+/** Worked-hour precision: DT must be a non-negative multiple of a quarter hour. */
+function isDtQuantityWellFormed(value: number): boolean {
+  if (typeof value !== "number" || !Number.isFinite(value)) return false;
+  if (value < 0) return false;
+  const steps = value / DT_INCREMENT;
+  return Math.abs(steps - Math.round(steps)) < DT_EPSILON;
+}
+
+/**
+ * Resolve a designated DT quantity against the OT actually available at the same truthful
+ * grain (one Daily JobRow/day cell, or one Weekly JobRow).
+ *
+ * An invalid designation is REJECTED, never clamped: it contributes no DT and is reported,
+ * so the operator sees an error instead of a silently altered number.
+ */
+function carveDesignatedDt(
+  requested: number,
+  availableOt: number,
+): { dt: number; invalid: boolean } {
+  if (!requested) return { dt: 0, invalid: false };
+  if (!isDtQuantityWellFormed(requested)) return { dt: 0, invalid: true };
+  if (requested > availableOt + DT_EPSILON) return { dt: 0, invalid: true };
+  return { dt: requested, invalid: false };
 }
 
 interface NonHourItem {
@@ -47,7 +85,7 @@ interface EmployeeData {
 
 // Compute weekly mode totals for an employee
 // Returns per-row breakdown, employee totals, and mismatch info
-function computeWeeklyTotals(jobRows: JobRow[]): {
+export function computeWeeklyTotals(jobRows: JobRow[]): {
   totalHours: number;
   reg: number;
   ot: number;
@@ -56,11 +94,15 @@ function computeWeeklyTotals(jobRows: JobRow[]): {
   allocatedOt: number;
   otEditable: boolean;
   mismatch: boolean;
+  dtInvalid: boolean;
 } {
   const totalHours = jobRows.reduce((sum, row) => sum + row.weeklyTotalHours, 0);
   const regComputed = Math.min(totalHours, 40);
   const otComputed = Math.max(totalHours - 40, 0);
-  const dt = 0;
+  // Manual DT is carved from each row's OT below, after the existing allocation decides
+  // which row owns that OT. Zero designations leave every figure exactly as before.
+  let dt = 0;
+  let dtInvalid = false;
 
   const hasMultipleRows = jobRows.length >= 2;
   const hasOtHours = totalHours > 40;
@@ -74,13 +116,19 @@ function computeWeeklyTotals(jobRows: JobRow[]): {
     jobRows.forEach((row) => {
       const otAlloc = Math.max(0, Math.min(row.weeklyOtAllocation, row.weeklyTotalHours));
       const regRow = Math.max(row.weeklyTotalHours - otAlloc, 0);
+      // DT may only consume OT allocated to THIS row, so it can never borrow from another.
+      const carve = carveDesignatedDt(row.weeklyDtHours ?? 0, otAlloc);
+      if (carve.invalid) dtInvalid = true;
+      dt += carve.dt;
       jobBreakdown.push({
         jobId: row.id,
         reg: regRow,
-        ot: otAlloc,
-        dt: 0,
+        ot: otAlloc - carve.dt,
+        dt: carve.dt,
         total: row.weeklyTotalHours,
       });
+      // Unchanged: allocatedOt remains the operator's OT allocation, so mismatch keeps its
+      // existing meaning and is not affected by a DT carve-out.
       allocatedOt += otAlloc;
     });
   } else {
@@ -106,11 +154,16 @@ function computeWeeklyTotals(jobRows: JobRow[]): {
         otRow = hours - regRow;
       }
 
+      // DT may only consume the OT this row was deterministically given.
+      const carve = carveDesignatedDt(row.weeklyDtHours ?? 0, otRow);
+      if (carve.invalid) dtInvalid = true;
+      dt += carve.dt;
+
       jobBreakdown.push({
         jobId: row.id,
         reg: regRow,
-        ot: otRow,
-        dt: 0,
+        ot: otRow - carve.dt,
+        dt: carve.dt,
         total: hours,
       });
 
@@ -124,12 +177,13 @@ function computeWeeklyTotals(jobRows: JobRow[]): {
   return {
     totalHours,
     reg: regComputed,
-    ot: otComputed,
+    ot: otComputed - dt,
     dt,
     jobBreakdown,
     allocatedOt,
     otEditable,
     mismatch,
+    dtInvalid,
   };
 }
 
@@ -139,15 +193,18 @@ function computeWeeklyTotals(jobRows: JobRow[]): {
 // Compute derived REG/OT/DT for an employee across all job rows
 // Chronological allocation: Mon→Sun, within day: top row to bottom row
 // First 40 hours = REG, remaining = OT, DT = 0 for now
-function computeEmployeeTotals(jobRows: JobRow[]): {
+export function computeEmployeeTotals(jobRows: JobRow[]): {
   totalHours: number;
   reg: number;
   ot: number;
   dt: number;
   jobBreakdown: { jobId: string; reg: number; ot: number; dt: number; total: number }[];
+  dtInvalid: boolean;
 } {
   let runningTotal = 0;
   const jobBreakdown: { jobId: string; reg: number; ot: number; dt: number; total: number }[] = [];
+  let dt = 0;
+  let dtInvalid = false;
 
   // Initialize breakdown for each job row
   jobRows.forEach((row) => {
@@ -167,19 +224,33 @@ function computeEmployeeTotals(jobRows: JobRow[]): {
       const hoursBeforeThisCell = runningTotal;
       const hoursAfterThisCell = runningTotal + hours;
 
+      // The cell's REG/OT split is decided FIRST, exactly as before, and is never revisited.
+      let cellReg = 0;
+      let cellOt = 0;
+
       if (hoursBeforeThisCell >= 40) {
         // All OT
-        breakdown.ot += hours;
+        cellOt = hours;
       } else if (hoursAfterThisCell <= 40) {
         // All REG
-        breakdown.reg += hours;
+        cellReg = hours;
       } else {
         // Split: some REG, some OT
         const regPortion = 40 - hoursBeforeThisCell;
         const otPortion = hours - regPortion;
-        breakdown.reg += regPortion;
-        breakdown.ot += otPortion;
+        cellReg = regPortion;
+        cellOt = otPortion;
       }
+
+      // Manual DT is then carved out of THIS cell's OT only. REG is untouched, the worked
+      // cell is untouched, and DT cannot migrate to another row or another day.
+      const carve = carveDesignatedDt(jobRows[rowIdx].dailyDtHours?.[dayIdx] ?? 0, cellOt);
+      if (carve.invalid) dtInvalid = true;
+      dt += carve.dt;
+
+      breakdown.reg += cellReg;
+      breakdown.ot += cellOt - carve.dt;
+      breakdown.dt += carve.dt;
 
       runningTotal = hoursAfterThisCell;
     }
@@ -188,9 +259,8 @@ function computeEmployeeTotals(jobRows: JobRow[]): {
   const totalHours = runningTotal;
   const reg = Math.min(totalHours, 40);
   const ot = Math.max(totalHours - 40, 0);
-  const dt = 0;
 
-  return { totalHours, reg, ot, dt, jobBreakdown };
+  return { totalHours, reg, ot: ot - dt, dt, jobBreakdown, dtInvalid };
 }
 
 // =============================================================================
@@ -199,7 +269,7 @@ function computeEmployeeTotals(jobRows: JobRow[]): {
 // Returns per-cell REG/OT/DT breakdown for SD overlay consumption.
 // Uses SAME allocation logic as computeEmployeeTotals: Mon→Sun, row order, first 40 REG.
 // This is a READ-ONLY parallel breakdown — does NOT affect GOLD totals.
-function computeAllocatorCellBreakdownDaily(jobRows: JobRow[]): {
+export function computeAllocatorCellBreakdownDaily(jobRows: JobRow[]): {
   cell: { reg: number; ot: number; dt: number }[][];
 } {
   const cell: { reg: number; ot: number; dt: number }[][] = [];
@@ -237,6 +307,16 @@ function computeAllocatorCellBreakdownDaily(jobRows: JobRow[]): {
         cell[rowIdx][dayIdx].ot = otPortion;
       }
 
+      // Carve manual DT out of this cell's OT. Because the SD overlay already reads
+      // cellData.dt, an SD-selected cell now yields DT_SD for the carved portion and OT_SD
+      // for what remains, with no change to the SD functions themselves.
+      const carve = carveDesignatedDt(
+        jobRows[rowIdx].dailyDtHours?.[dayIdx] ?? 0,
+        cell[rowIdx][dayIdx].ot,
+      );
+      cell[rowIdx][dayIdx].ot -= carve.dt;
+      cell[rowIdx][dayIdx].dt = carve.dt;
+
       runningTotal = hoursAfterThisCell;
     }
   }
@@ -249,7 +329,7 @@ function computeAllocatorCellBreakdownDaily(jobRows: JobRow[]): {
 // =============================================================================
 // Computes SD hour buckets by reading the per-cell breakdown.
 // rowSdFlagsForEmployee: { [rowId]: boolean[7] } — SD intent flags per row/day
-function computeShiftDiffOverlayDaily({
+export function computeShiftDiffOverlayDaily({
   jobRows,
   cellBreakdown,
   rowSdFlagsForEmployee,
@@ -288,7 +368,7 @@ function computeShiftDiffOverlayDaily({
 // =============================================================================
 // Computes SD hour buckets for a SINGLE row (scoped by rowIdx).
 // Uses the same cellBreakdown but only sums for the specific row.
-function computeRowShiftDiffTotals({
+export function computeRowShiftDiffTotals({
   rowIdx,
   cellBreakdown,
   sdFlags,
@@ -341,6 +421,10 @@ function toEmployees(detail: WorkingTimesheetDetail): EmployeeData[] {
           perDiemDays,
           weeklyTotalHours: worker.draft?.totalHours ?? 0,
           weeklyOtAllocation: 0,
+          // No manual DT is persisted yet, so this starts at zero rather than carrying a
+          // fabricated saved designation.
+          dailyDtHours: [0, 0, 0, 0, 0, 0, 0],
+          weeklyDtHours: 0,
         },
       ],
       billableItems: [],
@@ -479,6 +563,8 @@ export default function TimeEntryPage() {
               perDiemDays: 0,
               weeklyTotalHours: 0,
               weeklyOtAllocation: 0,
+              dailyDtHours: [0, 0, 0, 0, 0, 0, 0],
+              weeklyDtHours: 0,
             },
           ],
         };
@@ -596,6 +682,51 @@ export default function TimeEntryPage() {
           ...emp,
           jobRows: emp.jobRows.map((r) =>
             r.id === rowId ? { ...r, weeklyOtAllocation: numValue } : r
+          ),
+        };
+      })
+    );
+  };
+
+  // Update manually designated DT for a job row on one day (Daily mode).
+  // The worked-hour cell is never touched: this only classifies part of what was worked.
+  const updateDailyDtHours = (
+    employeeId: string,
+    rowId: string,
+    dayIdx: number,
+    value: string
+  ) => {
+    const numValue = parseFloat(value) || 0;
+    setEmployees((prev) =>
+      prev.map((emp) => {
+        if (emp.id !== employeeId) return emp;
+        return {
+          ...emp,
+          jobRows: emp.jobRows.map((r) => {
+            if (r.id !== rowId) return r;
+            const next = [...(r.dailyDtHours ?? [0, 0, 0, 0, 0, 0, 0])];
+            next[dayIdx] = numValue;
+            return { ...r, dailyDtHours: next };
+          }),
+        };
+      })
+    );
+  };
+
+  // Update manually designated DT for a job row (Weekly Totals mode).
+  const updateWeeklyDtHours = (
+    employeeId: string,
+    rowId: string,
+    value: string
+  ) => {
+    const numValue = parseFloat(value) || 0;
+    setEmployees((prev) =>
+      prev.map((emp) => {
+        if (emp.id !== employeeId) return emp;
+        return {
+          ...emp,
+          jobRows: emp.jobRows.map((r) =>
+            r.id === rowId ? { ...r, weeklyDtHours: numValue } : r
           ),
         };
       })
@@ -840,6 +971,14 @@ export default function TimeEntryPage() {
               {showMismatchWarning && (
                 <div className="mt-2 px-2 py-1 bg-amber-900/30 border border-amber-700 rounded text-xs text-amber-400">
                   OT allocation mismatch — computed OT: {weeklyTotals.ot}, allocated OT: {weeklyTotals.allocatedOt}
+                </div>
+              )}
+
+              {/* Invalid DT designation — rejected, never silently clamped */}
+              {totals.dtInvalid && (
+                <div className="mt-2 px-2 py-1 bg-amber-900/30 border border-amber-700 rounded text-xs text-amber-400">
+                  Invalid DT designation — DT must be a quarter-hour amount no greater than the OT
+                  available on that job row{entryMode === "daily" ? " and day" : ""}. It was not applied.
                 </div>
               )}
 
@@ -1089,8 +1228,23 @@ export default function TimeEntryPage() {
                               </span>
                             )}
                           </td>
-                          <td className="px-2 py-2 text-center text-sm text-slate-400">
-                            {breakdown?.dt || 0}
+                          {/* DT column: editable in Weekly Totals mode, otherwise the carved
+                              result. Mirrors how the OT column already behaves. */}
+                          <td className="px-1 py-2 text-center">
+                            {entryMode === "weekly" ? (
+                              <input
+                                type="text"
+                                value={row.weeklyDtHours || ""}
+                                onChange={(e) =>
+                                  updateWeeklyDtHours(employee.id, row.id, e.target.value)
+                                }
+                                className="w-12 px-1 py-1 text-center text-sm bg-slate-800 border border-slate-600 rounded text-slate-200"
+                              />
+                            ) : (
+                              <span className="text-sm text-slate-400">
+                                {breakdown?.dt || 0}
+                              </span>
+                            )}
                           </td>
                           <td className="px-1 py-2 text-center">
                             <input
@@ -1113,6 +1267,36 @@ export default function TimeEntryPage() {
                             )}
                           </td>
                         </tr>
+
+                        {/* Per-row manual DT designation — Daily mode only.
+                            Grain is worker + JobRow + day, matching the cell the allocator
+                            classifies. DT is carved from that cell's OT; worked hours above
+                            are never altered. */}
+                        {entryMode === "daily" && (
+                          <tr className="bg-amber-900/10 border-b border-slate-700/30">
+                            <td className="px-4 py-1 text-[10px] text-amber-400">
+                              DT
+                            </td>
+                            {DAYS.map((day, dayIdx) => (
+                              <td key={day} className="px-1 py-1 text-center">
+                                <input
+                                  type="text"
+                                  value={row.dailyDtHours?.[dayIdx] || ""}
+                                  onChange={(e) =>
+                                    updateDailyDtHours(
+                                      employee.id,
+                                      row.id,
+                                      dayIdx,
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-8 px-1 py-0.5 text-center text-[10px] bg-slate-800 border border-slate-600 rounded text-slate-200"
+                                />
+                              </td>
+                            ))}
+                            <td colSpan={6}>&nbsp;</td>
+                          </tr>
+                        )}
 
                         {/* Per-row SD toggles — only shown when worker SD is enabled (INTENT ONLY) */}
                         {isWorkerSdEnabled && entryMode === "daily" && (() => {
