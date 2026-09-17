@@ -13,7 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API_BASE } from "@/lib/api";
-import { fetchWorkingTimesheetHub } from "./workingTimesheetApi";
+import { fetchWorkingTimesheetDetail, fetchWorkingTimesheetHub } from "./workingTimesheetApi";
 
 const TOKEN_KEY = "jp_accessToken";
 
@@ -112,5 +112,79 @@ describe("fetchWorkingTimesheetHub", () => {
     vi.stubGlobal("fetch", respondWith(403, { message: "Forbidden" }));
 
     await expect(fetchWorkingTimesheetHub()).rejects.toThrow(/403/);
+  });
+});
+
+const DETAIL_BODY = {
+  id: "order-a__2026-09-07",
+  orderId: "order-a",
+  weekStart: "2026-09-07",
+  weekEnding: "2026-09-13",
+  orderRef: "Main Assembly",
+  jobSite: "Acme Plant A",
+  customerId: "cust-1",
+  customerName: "Acme Manufacturing",
+  status: "Draft",
+  workers: [
+    {
+      candidateId: "cand-1",
+      workerName: "John Martinez",
+      trade: "Welder",
+      assignmentIds: ["a1"],
+      draft: {
+        hoursEntryId: "h1",
+        totalHours: 40,
+        lines: [
+          { earningCode: "REG", unit: "HOURS", quantity: 40, projectRef: null, tradeId: null },
+        ],
+      },
+      draftConflict: false,
+    },
+  ],
+  draftConflictCandidateIds: [],
+  orphanedDraftCandidateIds: [],
+};
+
+describe("fetchWorkingTimesheetDetail", () => {
+  it("requests the identified Working Timesheet with the staff credential", async () => {
+    const fetchMock = respondWith(200, DETAIL_BODY);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchWorkingTimesheetDetail("order-a__2026-09-07");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${API_BASE}/time-entry/working-timesheets/order-a__2026-09-07`);
+
+    const headers = new Headers((init as RequestInit).headers);
+    expect(headers.get("Authorization")).toBe("Bearer staff-token");
+  });
+
+  it("url-encodes the identity", async () => {
+    const fetchMock = respondWith(200, DETAIL_BODY);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchWorkingTimesheetDetail("order a__2026-09-07");
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${API_BASE}/time-entry/working-timesheets/order%20a__2026-09-07`);
+  });
+
+  it("returns the roster left-joined with any saved draft", async () => {
+    vi.stubGlobal("fetch", respondWith(200, DETAIL_BODY));
+
+    const detail = await fetchWorkingTimesheetDetail("order-a__2026-09-07");
+
+    expect(detail.orderId).toBe("order-a");
+    expect(detail.weekEnding).toBe("2026-09-13");
+    expect(detail.workers).toHaveLength(1);
+    expect(detail.workers[0].candidateId).toBe("cand-1");
+    expect(detail.workers[0].draft?.totalHours).toBe(40);
+    expect(detail.workers[0].draftConflict).toBe(false);
+  });
+
+  it("surfaces a refusal rather than rendering a fabricated timesheet", async () => {
+    vi.stubGlobal("fetch", respondWith(404, { message: "Working Timesheet not found" }));
+
+    await expect(fetchWorkingTimesheetDetail("order-a__2026-09-07")).rejects.toThrow(/404/);
   });
 });

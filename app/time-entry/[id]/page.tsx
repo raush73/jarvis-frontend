@@ -1,7 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
+import {
+  fetchWorkingTimesheetDetail,
+  type WorkingTimesheetDetail,
+} from "@/lib/timeEntry/workingTimesheetApi";
 
 // =============================================================================
 // JOB-LEVEL SD GATE (MOCK)
@@ -9,13 +14,7 @@ import Link from "next/link";
 // =============================================================================
 const JOB_HAS_SHIFT_DIFF = true;
 
-// Mock job/order options for dropdown
-const MOCK_JOB_OPTIONS = [
-  { id: "job1", name: "ORD-1042 - Main Assembly" },
-  { id: "job2", name: "ORD-1043 - Line 2 Support" },
-  { id: "job3", name: "ORD-1044 - Shutdown Crew" },
-  { id: "job4", name: "ORD-1045 - Maintenance" },
-];
+type JobOption = { id: string; name: string };
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -318,14 +317,55 @@ function computeRowShiftDiffTotals({
   return { regSd, otSd, dtSd };
 }
 
+// =============================================================================
+// HYDRATION — map the Working Timesheet read response onto the existing state shapes
+// =============================================================================
+// Only facts that are actually persisted are restored. Nothing is invented: per-day
+// hours are not stored yet, so dailyHours stays zeroed rather than fabricating a split
+// out of a weekly total.
+function toEmployees(detail: WorkingTimesheetDetail): EmployeeData[] {
+  return detail.workers.map((worker) => {
+    const perDiemDays = (worker.draft?.lines ?? [])
+      .filter((line) => line.earningCode === "PD" && line.unit === "DAYS")
+      .reduce((sum, line) => sum + line.quantity, 0);
+
+    return {
+      id: worker.candidateId,
+      name: worker.workerName,
+      trade: worker.trade ?? "",
+      jobRows: [
+        {
+          id: `${worker.candidateId}-job1`,
+          jobId: detail.orderId,
+          dailyHours: [0, 0, 0, 0, 0, 0, 0],
+          perDiemDays,
+          weeklyTotalHours: worker.draft?.totalHours ?? 0,
+          weeklyOtAllocation: 0,
+        },
+      ],
+      billableItems: [],
+      nonBillableItems: [],
+    };
+  });
+}
+
 export default function TimeEntryPage() {
-  // Mock context data
-  const mockContext = {
-    jobSite: "Acme Manufacturing - Plant A",
-    customer: "Acme Manufacturing",
-    weekEnding: "2026-02-08",
+  const params = useParams();
+  const workingTimesheetId = Array.isArray(params?.id) ? params.id[0] : (params?.id as string);
+
+  // Working Timesheet context (Job Site / Customer / Week Ending / status)
+  const [context, setContext] = useState({
+    jobSite: "",
+    customer: "",
+    weekEnding: "",
     status: "Working",
-  };
+  });
+
+  // Job/order options for the per-row job selector
+  const [jobOptions, setJobOptions] = useState<JobOption[]>([]);
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   // Entry mode state
   const [entryMode, setEntryMode] = useState<EntryMode>("daily");
@@ -336,22 +376,16 @@ export default function TimeEntryPage() {
   // Worker-level SD enable: { [employeeId]: boolean }
   // This gates ALL SD UI for the employee (week-scoped enable)
   // Meaning: "This employee is eligible for shift differential THIS WEEK."
-  const [workerSdEnabled, setWorkerSdEnabled] = useState<Record<string, boolean>>({
-    emp1: false,
-    emp2: true, // Demo: Sarah Chen has SD enabled
-  });
+  // No SD eligibility is persisted yet, so this starts empty rather than carrying a
+  // fabricated saved state. Toggling remains available exactly as before.
+  const [workerSdEnabled, setWorkerSdEnabled] = useState<Record<string, boolean>>({});
 
   // Project-Row/Day SD flags: { [employeeId]: { [jobRowId]: boolean[7] } }
   // Each job row has its OWN SD-by-day state (SNAPSHOT-SAFE shape)
   // Records INTENT only — which PROJECT + DAY hours are marked as SD
-  const [rowSdFlags, setRowSdFlags] = useState<Record<string, Record<string, boolean[]>>>({
-    emp1: {
-      "emp1-job1": [false, false, false, false, false, false, false],
-    },
-    emp2: {
-      "emp2-job1": [true, true, true, true, true, false, false], // Demo: Mon-Fri SD for Sarah's first job
-    },
-  });
+  // Per-row/day SD intent is not persisted yet. getRowSdFlags() already falls back to
+  // all-false, so this starts empty rather than carrying a fabricated saved state.
+  const [rowSdFlags, setRowSdFlags] = useState<Record<string, Record<string, boolean[]>>>({});
 
   // Toggle worker-level SD (gates all SD UI for this employee)
   const toggleWorkerSd = (employeeId: string) => {
@@ -398,43 +432,35 @@ export default function TimeEntryPage() {
     return rowSdFlags[employeeId]?.[rowId] || [false, false, false, false, false, false, false];
   };
 
-  // Initialize with 2 mock employees, each with 1 default job row
-  const [employees, setEmployees] = useState<EmployeeData[]>([
-    {
-      id: "emp1",
-      name: "John Martinez",
-      trade: "Welder",
-      jobRows: [
-        {
-          id: "emp1-job1",
-          jobId: "job1",
-          dailyHours: [8, 8, 8, 8, 8, 0, 0],
-          perDiemDays: 3.5,
-          weeklyTotalHours: 40, // sum of dailyHours
-          weeklyOtAllocation: 0,
-        },
-      ],
-      billableItems: [],
-      nonBillableItems: [],
-    },
-    {
-      id: "emp2",
-      name: "Sarah Chen",
-      trade: "Assembler",
-      jobRows: [
-        {
-          id: "emp2-job1",
-          jobId: "job1",
-          dailyHours: [10, 10, 10, 10, 10, 4, 0],
-          perDiemDays: 3.5,
-          weeklyTotalHours: 54, // sum of dailyHours
-          weeklyOtAllocation: 0,
-        },
-      ],
-      billableItems: [],
-      nonBillableItems: [],
-    },
-  ]);
+  // Dispatched roster for this Order + crew-week, left-joined with any saved draft.
+  const [employees, setEmployees] = useState<EmployeeData[]>([]);
+
+  // Load the Working Timesheet. Read-only: this never writes Time Entry.
+  const loadWorkingTimesheet = useCallback(async () => {
+    if (!workingTimesheetId) return;
+
+    setLoading(true);
+    setLoadError("");
+    try {
+      const detail = await fetchWorkingTimesheetDetail(workingTimesheetId);
+      setContext({
+        jobSite: detail.jobSite,
+        customer: detail.customerName,
+        weekEnding: detail.weekEnding,
+        status: detail.status,
+      });
+      setJobOptions([{ id: detail.orderId, name: detail.orderRef }]);
+      setEmployees(toEmployees(detail));
+    } catch (e: any) {
+      setLoadError(e?.message ?? "Failed to load working timesheet.");
+    } finally {
+      setLoading(false);
+    }
+  }, [workingTimesheetId]);
+
+  useEffect(() => {
+    void loadWorkingTimesheet();
+  }, [loadWorkingTimesheet]);
 
   // Add a new job row for an employee
   const addJobRow = (employeeId: string) => {
@@ -578,7 +604,7 @@ export default function TimeEntryPage() {
 
   // Get job name by id
   const getJobName = (jobId: string): string => {
-    const job = MOCK_JOB_OPTIONS.find((j) => j.id === jobId);
+    const job = jobOptions.find((j) => j.id === jobId);
     return job ? job.name : "Unknown Job";
   };
 
@@ -693,24 +719,24 @@ export default function TimeEntryPage() {
           <div>
             <div className="text-xs text-slate-400 mb-1">Job Site</div>
             <div className="text-base font-medium text-slate-100">
-              {mockContext.jobSite}
+              {context.jobSite}
             </div>
           </div>
           <div>
             <div className="text-xs text-slate-400 mb-1">Customer</div>
             <div className="text-base font-medium text-slate-100">
-              {mockContext.customer}
+              {context.customer}
             </div>
           </div>
           <div>
             <div className="text-xs text-slate-400 mb-1">Week Ending</div>
             <div className="text-base font-medium text-slate-100">
-              {mockContext.weekEnding}
+              {context.weekEnding}
             </div>
           </div>
           <div>
             <span className="inline-block px-3 py-1 rounded-full text-xs font-medium bg-amber-900/50 text-amber-400 border border-amber-700">
-              {mockContext.status}
+              {context.status}
             </span>
           </div>
         </div>
@@ -754,6 +780,17 @@ export default function TimeEntryPage() {
       </div>
 
       {/* Employee Sections */}
+      {loading && (
+        <div className="text-sm text-slate-400 mb-6">Loading working timesheet...</div>
+      )}
+      {!loading && loadError && (
+        <div className="text-sm text-red-400 mb-6">{loadError}</div>
+      )}
+      {!loading && !loadError && employees.length === 0 && (
+        <div className="text-sm text-slate-400 mb-6">
+          No dispatched workers for this crew-week.
+        </div>
+      )}
       {employees.map((employee) => {
         const dailyTotals = computeEmployeeTotals(employee.jobRows);
         const weeklyTotals = computeWeeklyTotals(employee.jobRows);
@@ -994,7 +1031,7 @@ export default function TimeEntryPage() {
                                 }
                                 className="w-full px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded text-slate-200"
                               >
-                                {MOCK_JOB_OPTIONS.map((job) => (
+                                {jobOptions.map((job) => (
                                   <option key={job.id} value={job.id}>
                                     {job.name}
                                   </option>
