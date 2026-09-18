@@ -22,7 +22,7 @@
  */
 
 import type { BuilderItem, BuilderJobRow } from "./buildDraftPayload";
-import type { WorkingTimesheetDetail } from "./workingTimesheetApi";
+import type { CustomerJob, WorkingTimesheetDetail } from "./workingTimesheetApi";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const DAYS_IN_WEEK = 7;
@@ -41,6 +41,18 @@ export interface HydratedWorksheet {
   employees: HydratedEmployee[];
   workerSdEnabled: Record<string, boolean>;
   rowSdFlags: Record<string, Record<string, boolean[]>>;
+  /**
+   * TE-S2B8 the Customer Jobs this saved worksheet actually REFERENCES.
+   *
+   * WHY THIS IS SEPARATE FROM THE ORDER'S SELECTABLE LIST. That list is active-only, which is
+   * correct for NEW choices but would leave an archived job unrepresented - and a `<select>` whose
+   * value has no matching option silently shows something else, which would look like the
+   * operator's saved selection had been changed. Merging these in makes an archived saved job
+   * displayable without making it a normal new choice.
+   *
+   * Derived only from rows that recorded a Customer Job, so nothing is invented.
+   */
+  referencedCustomerJobs: CustomerJob[];
 }
 
 /** Persisted item taxonomy back to the label the approved dropdowns display. */
@@ -91,6 +103,8 @@ function hydrateJobRows(
       {
         id: jobRowId(candidateId, 0),
         jobId: detail.orderId,
+        // A legacy draft recorded no Customer Job, and none is invented for it.
+        customerJobId: null,
         dailyHours: emptyWeek(),
         perDiemDays: legacyPerDiemDays,
         weeklyTotalHours: legacyWeeklyTotal,
@@ -120,6 +134,9 @@ function hydrateJobRows(
       // own Order is used, because it is the only job this Order-scoped sheet can offer - no
       // other job is invented.
       jobId: row.projectRef ?? detail.orderId,
+      // TE-S2B8: the durable id is restored verbatim. It is NOT reconstructed from the
+      // description, and a row that recorded none stays null rather than defaulting to the Order.
+      customerJobId: row.customerJobId ?? null,
       dailyHours,
       perDiemDays: row.perDiemDays ?? 0,
       weeklyTotalHours: row.weeklyHours ?? 0,
@@ -158,6 +175,8 @@ function hydrateItems(
 export function hydrateDraftState(detail: WorkingTimesheetDetail): HydratedWorksheet {
   const workerSdEnabled: Record<string, boolean> = {};
   const rowSdFlags: Record<string, Record<string, boolean[]>> = {};
+  // Deduplicated by durable id: many workers legitimately share one Customer Job.
+  const referenced = new Map<string, CustomerJob>();
 
   const employees: HydratedEmployee[] = detail.workers.map((worker) => {
     const state = worker.draftState;
@@ -176,6 +195,19 @@ export function hydrateDraftState(detail: WorkingTimesheetDetail): HydratedWorks
       // A per-row PD value supersedes the summed legacy fallback.
       (state?.jobRows ?? []).length > 0 ? 0 : legacyPerDiemDays,
     );
+
+    for (const row of state?.jobRows ?? []) {
+      // Only rows that actually recorded a Customer Job, and only with the description the
+      // backend resolved. No description is guessed for an id that arrived without one.
+      if (!row.customerJobId || !row.customerJobDescription) continue;
+      if (referenced.has(row.customerJobId)) continue;
+      referenced.set(row.customerJobId, {
+        id: row.customerJobId,
+        orderId: detail.orderId,
+        description: row.customerJobDescription,
+        isActive: row.customerJobIsActive ?? true,
+      });
+    }
 
     if (state?.sdEligible) workerSdEnabled[worker.candidateId] = true;
 
@@ -210,5 +242,6 @@ export function hydrateDraftState(detail: WorkingTimesheetDetail): HydratedWorks
     employees,
     workerSdEnabled,
     rowSdFlags,
+    referencedCustomerJobs: Array.from(referenced.values()),
   };
 }

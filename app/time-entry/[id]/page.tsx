@@ -4,8 +4,12 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
+  createCustomerJob,
+  describeCustomerJobCreateError,
+  fetchCustomerJobs,
   fetchWorkingTimesheetDetail,
   saveWorkingTimesheetDraft,
+  type CustomerJob,
   type WorkingTimesheetDetail,
 } from "@/lib/timeEntry/workingTimesheetApi";
 import { buildDraftPayload } from "@/lib/timeEntry/buildDraftPayload";
@@ -24,8 +28,28 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 type EntryMode = "daily" | "weekly";
 
 export interface JobRow {
+  /**
+   * TRANSIENT RENDER IDENTITY ONLY. React key and SD-flag map key. Never persisted, and never
+   * Customer Job identity.
+   */
   id: string;
+  /**
+   * The parent Job Order reference this row inherits. It is the PROJECT, not the Customer Job,
+   * and it is what `projectRef` persists.
+   */
   jobId: string;
+  /**
+   * TE-S2B8 the selected durable Customer Job, or null when none is selected.
+   *
+   * This is the row's BUSINESS identity: it is created once through the Order-owned API, shared
+   * across workers, and reused in later weeks. It is deliberately separate from `id` (transient),
+   * from the row's ordinal position (worksheet grain) and from `jobId` (the parent Order).
+   *
+   * Optional for the same reason `dailyDtHours` is: any state built without a Customer Job - a
+   * historical draft, or an existing test fixture - behaves exactly as it did before this field
+   * existed. Absent and null both mean "no Customer Job recorded".
+   */
+  customerJobId?: string | null;
   dailyHours: number[]; // Mon-Sun raw hours
   perDiemDays: number;
   weeklyTotalHours: number;
@@ -430,6 +454,29 @@ export default function TimeEntryPage() {
   // Job/order options for the per-row job selector
   const [jobOptions, setJobOptions] = useState<JobOption[]>([]);
 
+  // TE-S2B8 the parent Job Order. Customer Jobs are Order-owned, so every Customer Job list and
+  // create call is scoped to this id, which is also what a new job row inherits as its project.
+  const [orderId, setOrderId] = useState("");
+
+  /**
+   * TE-S2B8 the selectable Customer Jobs for this Job Order.
+   *
+   * Loaded from the durable Order-owned list, NOT derived from this week's rows - which is what
+   * makes a Customer Job typed this week available next week for the same Order. Archived jobs
+   * referenced by a saved row are merged in on hydration so their rows still display correctly,
+   * without becoming normal new choices.
+   */
+  const [customerJobs, setCustomerJobs] = useState<CustomerJob[]>([]);
+
+  // Inline "+ Add New Job", tracked per row so only the intended row opens an input, and so the
+  // created job is selected for that row.
+  const [addingJobFor, setAddingJobFor] = useState<{ employeeId: string; rowId: string } | null>(
+    null,
+  );
+  const [newJobDescription, setNewJobDescription] = useState("");
+  const [creatingJob, setCreatingJob] = useState(false);
+  const [customerJobError, setCustomerJobError] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -525,6 +572,7 @@ export default function TimeEntryPage() {
         status: detail.status,
       });
       setWeekStart(detail.weekStart);
+      setOrderId(detail.orderId);
       setJobOptions([{ id: detail.orderId, name: detail.orderRef }]);
 
       // Restore the whole persisted worksheet: mode, both source granularities, operator
@@ -534,6 +582,24 @@ export default function TimeEntryPage() {
       setEmployees(hydrated.employees);
       setWorkerSdEnabled(hydrated.workerSdEnabled);
       setRowSdFlags(hydrated.rowSdFlags);
+
+      // TE-S2B8 Customer Job options: the durable ACTIVE list for this Order, plus any job a
+      // saved row references. The second part is what keeps an ARCHIVED saved job displayable -
+      // a select whose value has no option would otherwise appear to have changed the operator's
+      // selection. A list failure must not block the timesheet, so it degrades to the referenced
+      // jobs only rather than throwing the whole load away.
+      let active: CustomerJob[] = [];
+      try {
+        active = (await fetchCustomerJobs(detail.orderId)) ?? [];
+      } catch {
+        active = [];
+      }
+      const merged = new Map<string, CustomerJob>();
+      for (const job of active) merged.set(job.id, job);
+      for (const job of hydrated.referencedCustomerJobs) {
+        if (!merged.has(job.id)) merged.set(job.id, job);
+      }
+      setCustomerJobs(Array.from(merged.values()));
     } catch (e: any) {
       setLoadError(e?.message ?? "Failed to load working timesheet.");
     } finally {
@@ -557,7 +623,13 @@ export default function TimeEntryPage() {
             ...emp.jobRows,
             {
               id: newRowId,
-              jobId: "job2",
+              // TE-S2B8: `jobId: "job2"` is retired. It was a hardcoded placeholder that named
+              // nothing - not a project, not a Customer Job, not a persisted identity - and it
+              // made every added row claim the same fictional job. A new row inherits the
+              // worksheet's real parent Order as its project, and carries NO Customer Job until
+              // the operator selects or creates one.
+              jobId: orderId,
+              customerJobId: null,
               dailyHours: [0, 0, 0, 0, 0, 0, 0],
               perDiemDays: 0,
               weeklyTotalHours: 0,
@@ -602,6 +674,110 @@ export default function TimeEntryPage() {
       })
     );
   };
+
+  /** The sentinel value of the "+ Add New Job" option. Never a Customer Job id. */
+  const ADD_NEW_CUSTOMER_JOB = "__add_new_customer_job__";
+
+  /**
+   * TE-S2B8 select a durable Customer Job for one row, or open the inline create.
+   *
+   * Only the ID is stored. The description is never copied onto the row, so a later correction to
+   * the Customer Job shows through everywhere instead of leaving stale text behind.
+   */
+  const updateCustomerJobSelection = (
+    employeeId: string,
+    rowId: string,
+    value: string,
+  ) => {
+    setCustomerJobError("");
+
+    if (value === ADD_NEW_CUSTOMER_JOB) {
+      setAddingJobFor({ employeeId, rowId });
+      setNewJobDescription("");
+      return;
+    }
+
+    setAddingJobFor(null);
+    setEmployees((prev) =>
+      prev.map((emp) => {
+        if (emp.id !== employeeId) return emp;
+        return {
+          ...emp,
+          jobRows: emp.jobRows.map((r) =>
+            // Empty string is the "no Customer Job" choice and stores null, not "".
+            r.id === rowId ? { ...r, customerJobId: value === "" ? null : value } : r,
+          ),
+        };
+      }),
+    );
+  };
+
+  /**
+   * TE-S2B8 create a Customer Job inline and select it for the row that asked for it.
+   *
+   * ENTER ONCE, SELECT MANY. Creation goes through the authoritative Order-owned API, so the
+   * durable id comes back from the server rather than being invented here. Adding it to
+   * `customerJobs` is what makes it immediately available to every other worker on this sheet -
+   * and, because the list is Order-owned, to later weeks for the same Job Order.
+   *
+   * A duplicate is NOT silently turned into a second identity: the backend's conflict is surfaced
+   * as a recoverable message telling the operator to pick the existing job.
+   */
+  const handleCreateCustomerJob = async () => {
+    if (!addingJobFor || !orderId) return;
+
+    const description = newJobDescription.trim();
+    if (!description) {
+      setCustomerJobError("Enter a Customer Job description.");
+      return;
+    }
+
+    setCreatingJob(true);
+    setCustomerJobError("");
+    try {
+      const created = await createCustomerJob(orderId, description);
+
+      setCustomerJobs((prev) =>
+        prev.some((j) => j.id === created.id) ? prev : [...prev, created],
+      );
+
+      const { employeeId, rowId } = addingJobFor;
+      setEmployees((prev) =>
+        prev.map((emp) => {
+          if (emp.id !== employeeId) return emp;
+          return {
+            ...emp,
+            jobRows: emp.jobRows.map((r) =>
+              r.id === rowId ? { ...r, customerJobId: created.id } : r,
+            ),
+          };
+        }),
+      );
+
+      setAddingJobFor(null);
+      setNewJobDescription("");
+    } catch (e: any) {
+      // The inline input stays open with the typed text intact, so the operator can correct it.
+      setCustomerJobError(describeCustomerJobCreateError(e));
+    } finally {
+      setCreatingJob(false);
+    }
+  };
+
+  const cancelCreateCustomerJob = () => {
+    setAddingJobFor(null);
+    setNewJobDescription("");
+    setCustomerJobError("");
+  };
+
+  /** Active jobs, plus any job currently selected somewhere, so archived selections still show. */
+  const selectableCustomerJobs = (
+    selectedId: string | null | undefined,
+  ): CustomerJob[] =>
+    customerJobs
+      .filter((job) => job.isActive || job.id === selectedId)
+      .slice()
+      .sort((a, b) => a.description.localeCompare(b.description));
 
   // Update daily hours for a job row
   const updateDailyHours = (
@@ -1225,24 +1401,74 @@ export default function TimeEntryPage() {
                       <React.Fragment key={row.id}>
                         {/* Main job row */}
                         <tr className="border-b border-slate-700/50">
+                          {/*
+                            TE-S2B8 the Job/Order cell, unchanged in position and still the only
+                            job column. The parent Job Order stays visible on the worker's first
+                            row as project context; the Customer Job selector sits underneath it,
+                            because the Customer Job is an allocation UNDER that Order rather than
+                            a competing project.
+                          */}
                           <td className="px-4 py-2">
-                            {isFirstRow ? (
-                              <span className="text-sm text-slate-200">
+                            {isFirstRow && (
+                              <div className="text-xs text-slate-400 mb-1">
                                 {getJobName(row.jobId)}
-                              </span>
+                              </div>
+                            )}
+                            {addingJobFor?.employeeId === employee.id &&
+                            addingJobFor?.rowId === row.id ? (
+                              <div className="flex flex-col gap-1">
+                                <input
+                                  type="text"
+                                  autoFocus
+                                  value={newJobDescription}
+                                  onChange={(e) => setNewJobDescription(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") void handleCreateCustomerJob();
+                                    if (e.key === "Escape") cancelCreateCustomerJob();
+                                  }}
+                                  placeholder="Customer Job description"
+                                  aria-label="New Customer Job description"
+                                  className="w-full px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded text-slate-200"
+                                />
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={creatingJob}
+                                    onClick={() => void handleCreateCustomerJob()}
+                                    className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-white"
+                                  >
+                                    {creatingJob ? "Saving..." : "Save Job"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={cancelCreateCustomerJob}
+                                    className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded text-slate-200"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                                {customerJobError && (
+                                  <div className="text-xs text-red-400">{customerJobError}</div>
+                                )}
+                              </div>
                             ) : (
                               <select
-                                value={row.jobId}
+                                value={row.customerJobId ?? ""}
+                                aria-label="Customer Job"
                                 onChange={(e) =>
-                                  updateJobSelection(employee.id, row.id, e.target.value)
+                                  updateCustomerJobSelection(employee.id, row.id, e.target.value)
                                 }
                                 className="w-full px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded text-slate-200"
                               >
-                                {jobOptions.map((job) => (
+                                <option value="">— Select Customer Job —</option>
+                                {selectableCustomerJobs(row.customerJobId).map((job) => (
                                   <option key={job.id} value={job.id}>
-                                    {job.name}
+                                    {job.isActive
+                                      ? job.description
+                                      : `${job.description} (inactive)`}
                                   </option>
                                 ))}
+                                <option value={ADD_NEW_CUSTOMER_JOB}>+ Add New Job</option>
                               </select>
                             )}
                           </td>

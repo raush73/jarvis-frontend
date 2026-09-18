@@ -85,6 +85,12 @@ function jobRow(overrides: Record<string, any> = {}) {
     weeklyDt: null,
     sdDates: [],
     perDiemDays: null,
+    // TE-S2B8. The default is deliberately "no Customer Job recorded", which is what every one of
+    // these pre-Customer-Job TE-S2B6 cases means - so they keep asserting exactly what they did
+    // before, and hydration must still reopen them truthfully.
+    customerJobId: null,
+    customerJobDescription: null,
+    customerJobIsActive: null,
     ...overrides,
   };
 }

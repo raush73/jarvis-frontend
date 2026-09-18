@@ -23,6 +23,14 @@ export type DraftEntryMode = "DAILY" | "WEEKLY";
 export interface DraftPayloadJobRow {
   jobRowIndex: number;
   projectRef?: string | null;
+  /**
+   * TE-S2B8 the DURABLE Customer Job id, never the typed description.
+   *
+   * Text is not sent and is never matched into an identity: descriptions are renameable, and two
+   * Job Orders may each legitimately have a "First Floor", so text could not identify one. Null
+   * when the operator selected no Customer Job, which persists truthfully as "not recorded".
+   */
+  customerJobId?: string | null;
   dailyHours?: Array<{ workDate: string; quantity: number }>;
   weeklyHours?: number;
   weeklyOtAllocation?: number;
@@ -67,6 +75,8 @@ export interface SaveDraftPayload {
 export interface BuilderJobRow {
   id: string;
   jobId: string;
+  /** TE-S2B8 selected durable Customer Job, or null when none has been selected for this row. */
+  customerJobId?: string | null;
   dailyHours: number[];
   perDiemDays: number;
   weeklyTotalHours: number;
@@ -187,9 +197,17 @@ function buildClassifications(
   return lines;
 }
 
-/** True when this job row carries any fact worth persisting. */
+/**
+ * True when this job row carries any fact worth persisting.
+ *
+ * TE-S2B8 counts a selected Customer Job as one. Choosing "First Floor" IS operator input, so a
+ * row carrying only that selection must persist - otherwise the choice would silently vanish on
+ * reopen. An untouched row still has no Customer Job and is still omitted, so pressing Save Draft
+ * continues to manufacture nothing.
+ */
 function rowHasFact(row: DraftPayloadJobRow): boolean {
   return (
+    !!row.customerJobId ||
     (row.dailyHours?.length ?? 0) > 0 ||
     (row.weeklyHours ?? 0) > 0 ||
     (row.dailyDt?.length ?? 0) > 0 ||
@@ -223,6 +241,9 @@ export function buildDraftPayload(input: BuildDraftPayloadInput): SaveDraftPaylo
       const payloadRow: DraftPayloadJobRow = {
         jobRowIndex,
         projectRef: row.jobId ?? null,
+        // Normalized to null so "no Customer Job" is one value rather than both undefined and
+        // empty string, which the backend would otherwise have to disambiguate.
+        customerJobId: row.customerJobId ? row.customerJobId : null,
       };
 
       if (isDaily) {

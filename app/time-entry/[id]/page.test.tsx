@@ -10,11 +10,16 @@
  *  - Save Draft remains disabled - TE-S2A introduces no write.
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const fetchWorkingTimesheetDetail = vi.fn();
 const saveWorkingTimesheetDraft = vi.fn();
+// TE-S2B8: the page now also reads the Order-owned Customer Job list. Mocked here so this suite
+// keeps testing the approved TE-S2A surface against the page's real module contract rather than a
+// stale one.
+const fetchCustomerJobs = vi.fn();
+const createCustomerJob = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "order-a__2026-09-07" }),
@@ -23,6 +28,9 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/timeEntry/workingTimesheetApi", () => ({
   fetchWorkingTimesheetDetail: (...args: unknown[]) => fetchWorkingTimesheetDetail(...args),
   saveWorkingTimesheetDraft: (...args: unknown[]) => saveWorkingTimesheetDraft(...args),
+  fetchCustomerJobs: (...args: unknown[]) => fetchCustomerJobs(...args),
+  createCustomerJob: (...args: unknown[]) => createCustomerJob(...args),
+  describeCustomerJobCreateError: () => "Could not create the Customer Job. Please try again.",
 }));
 
 import WorkingTimesheetPage from "./page";
@@ -78,10 +86,18 @@ const DETAIL = {
   orphanedDraftCandidateIds: [],
 };
 
+beforeEach(() => {
+  // No Customer Jobs by default: these TE-S2A cases predate them, so the sheet must behave
+  // exactly as it always did when the Order has none.
+  fetchCustomerJobs.mockResolvedValue([]);
+});
+
 afterEach(() => {
   cleanup();
   fetchWorkingTimesheetDetail.mockReset();
   saveWorkingTimesheetDraft.mockReset();
+  fetchCustomerJobs.mockReset();
+  createCustomerJob.mockReset();
 });
 
 describe("Working Timesheet detail page", () => {

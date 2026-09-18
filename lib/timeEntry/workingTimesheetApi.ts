@@ -98,6 +98,23 @@ export interface WorkingTimesheetDraftJobRow {
   weeklyDt: number | null;
   sdDates: string[];
   perDiemDays: number | null;
+  /**
+   * TE-S2B8 the durable Customer Job recorded for this row, or null when none was.
+   *
+   * Null means only "not recorded". It is never the parent Order, and nothing is invented for a
+   * historical row saved before Customer Jobs existed.
+   */
+  customerJobId: string | null;
+  /**
+   * The Customer Job's CURRENT description, resolved by the backend through the relation.
+   *
+   * Sent alongside the id for two reasons: descriptions are renameable while the id is durable,
+   * and this is how a row referencing an ARCHIVED Customer Job can still display its real job
+   * even though the archived job is absent from the selectable list.
+   */
+  customerJobDescription: string | null;
+  /** False when the referenced Customer Job has been archived. Never a reason to clear the row. */
+  customerJobIsActive: boolean | null;
 }
 
 export interface WorkingTimesheetDraftItem {
@@ -165,6 +182,82 @@ export async function fetchWorkingTimesheetDetail(
   return apiFetch<WorkingTimesheetDetail>(
     `/time-entry/working-timesheets/${encodeURIComponent(id)}`,
   );
+}
+
+/**
+ * TE-S2B8 one durable Customer Job under a Job Order.
+ *
+ * The customer's own paperwork names the work - "First Floor", "Paint Area",
+ * "Customer Job #12345" - as ONE free-text description. `id` is the durable business identity
+ * that Time Entry rows reference; `description` is display only and may be corrected later
+ * without the id moving.
+ */
+export interface CustomerJob {
+  id: string;
+  orderId: string;
+  description: string;
+  isActive: boolean;
+}
+
+/**
+ * List the Customer Jobs for one Job Order.
+ *
+ * ORDER-OWNED, NOT WEEK-OWNED, and that is the whole point: because the list belongs to the Job
+ * Order rather than to a worksheet, a Customer Job typed once is offered to every worker on this
+ * sheet and to every LATER WEEK for the same Order, with no retyping and no derivation from the
+ * current week's rows.
+ *
+ * Returns ACTIVE jobs by default, which is the correct set of NEW choices. `includeInactive` uses
+ * the backend's existing `activeOnly=false` support and is not part of normal selection.
+ */
+export async function fetchCustomerJobs(
+  orderId: string,
+  options: { includeInactive?: boolean } = {},
+): Promise<CustomerJob[]> {
+  const query = options.includeInactive ? "?activeOnly=false" : "";
+  return apiFetch<CustomerJob[]>(
+    `/orders/${encodeURIComponent(orderId)}/customer-jobs${query}`,
+  );
+}
+
+/**
+ * Create one Customer Job under a Job Order and return it, including its durable id.
+ *
+ * The returned id - never the typed text - is what a Time Entry row stores. Duplicate identity is
+ * decided by the backend (case-insensitive, whitespace-normalized, per Order), so "first floor"
+ * cannot become a second "First Floor" here.
+ */
+export async function createCustomerJob(
+  orderId: string,
+  description: string,
+): Promise<CustomerJob> {
+  return apiFetch<CustomerJob>(`/orders/${encodeURIComponent(orderId)}/customer-jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ description }),
+  });
+}
+
+/**
+ * Turn a Customer Job create failure into something an operator can act on.
+ *
+ * `apiFetch` throws one Error whose message embeds the HTTP status, so this reads that rather
+ * than inventing a second error channel. The three cases worth distinguishing are the three an
+ * operator can actually respond to: the job already exists, they lack the capability, or the
+ * description was rejected.
+ */
+export function describeCustomerJobCreateError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/\b409\b/.test(message)) {
+    return "That Customer Job already exists for this Job Order. Select it from the list instead.";
+  }
+  if (/\b(401|403)\b/.test(message)) {
+    return "You do not have permission to create a Customer Job for this Job Order.";
+  }
+  if (/\b400\b/.test(message)) {
+    return "Enter a Customer Job description.";
+  }
+  return "Could not create the Customer Job. Please try again.";
 }
 
 export interface SaveWorkingTimesheetDraftResult {
