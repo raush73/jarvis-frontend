@@ -22,10 +22,28 @@ import { buildDraftPayload } from "@/lib/timeEntry/buildDraftPayload";
 import { hydrateDraftState } from "@/lib/timeEntry/hydrateDraftState";
 
 // =============================================================================
-// JOB-LEVEL SD GATE (MOCK)
-// If false, all SD UI is hidden. Set to true for demo.
+// SHIFT DIFFERENTIAL GATE — AUTHORITATIVE, SERVER-DERIVED, PER DATE
+//
+// TE-SD-2A replaced a hard-coded `JOB_HAS_SHIFT_DIFF = true` demo constant with
+// `detail.sdEligibilityByDate`, which the backend derives from the Job Order's SD agreement.
+// The answer is per crew-week DATE, not per sheet, so that a future governed effective-dated
+// SD change needs no change here.
+//
+// This is a display gate only. The Save Draft writer enforces the same rule independently,
+// because a UI can be bypassed and persisted SD must never lack an economic basis.
 // =============================================================================
-const JOB_HAS_SHIFT_DIFF = true;
+
+/** Is Shift Differential available on this crew-week day index (0 = Monday)? */
+function isSdEligibleOnDayIndex(
+  sdEligibilityByDate: Record<string, boolean>,
+  weekStart: string,
+  dayIdx: number,
+): boolean {
+  if (!weekStart) return false;
+  const date = new Date(`${weekStart}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + dayIdx);
+  return sdEligibilityByDate[date.toISOString().slice(0, 10)] === true;
+}
 
 type JobOption = { id: string; name: string };
 
@@ -500,6 +518,13 @@ export default function TimeEntryPage() {
   // Crew-week Monday, used to turn day indexes into real work dates when saving. Held in
   // state rather than parsed out of the route so the server value stays authoritative.
   const [weekStart, setWeekStart] = useState("");
+  /**
+   * TE-SD-2A authoritative per-date SD eligibility from the server.
+   *
+   * Empty until the sheet loads, which correctly means "no SD anywhere" rather than defaulting to
+   * available - the previous demo constant defaulted the other way.
+   */
+  const [sdEligibilityByDate, setSdEligibilityByDate] = useState<Record<string, boolean>>({});
 
   // Save Draft status, using this page's existing plain-text conventions.
   const [saving, setSaving] = useState(false);
@@ -567,6 +592,15 @@ export default function TimeEntryPage() {
   };
 
   // Helper: Get SD flags for a row (with fallback)
+  /**
+   * TE-SD-2A does the Job Order grant Shift Differential on ANY day of this crew week?
+   *
+   * Gates the worker-level toggle and the breakdown panel. It is deliberately NOT sufficient for a
+   * day checkmark - individual days consult `isSdEligibleOnDayIndex`, so a week that acquires SD
+   * partway through cannot have SD recorded on its earlier days.
+   */
+  const sdConfiguredThisWeek = Object.values(sdEligibilityByDate).some((eligible) => eligible);
+
   const getRowSdFlags = (employeeId: string, rowId: string): boolean[] => {
     return rowSdFlags[employeeId]?.[rowId] || [false, false, false, false, false, false, false];
   };
@@ -589,6 +623,7 @@ export default function TimeEntryPage() {
         status: detail.status,
       });
       setWeekStart(detail.weekStart);
+      setSdEligibilityByDate(detail.sdEligibilityByDate ?? {});
       setOrderId(detail.orderId);
       setReadiness(detail.readiness);
       setJobOptions([{ id: detail.orderId, name: detail.orderRef }]);
@@ -1013,7 +1048,7 @@ export default function TimeEntryPage() {
 
         // SD classification is only truthful when the worker is actually SD-enabled, and SD
         // itself is Daily-only.
-        const sdEnabled = JOB_HAS_SHIFT_DIFF && (workerSdEnabled[employee.id] ?? false);
+        const sdEnabled = sdConfiguredThisWeek && (workerSdEnabled[employee.id] ?? false);
         if (entryMode === "daily" && sdEnabled) {
           const cellBreakdown = computeAllocatorCellBreakdownDaily(employee.jobRows);
           sdOverlayByEmployeeId[employee.id] = computeShiftDiffOverlayDaily({
@@ -1288,7 +1323,7 @@ export default function TimeEntryPage() {
         const showMismatchWarning = entryMode === "weekly" && weeklyTotals.mismatch;
 
         // SD state for this worker (INTENT ONLY — no calculations)
-        const isWorkerSdEnabled = JOB_HAS_SHIFT_DIFF && (workerSdEnabled[employee.id] ?? false);
+        const isWorkerSdEnabled = sdConfiguredThisWeek && (workerSdEnabled[employee.id] ?? false);
 
         return (
           <div
@@ -1307,8 +1342,9 @@ export default function TimeEntryPage() {
                   <span className="text-sm text-slate-400">
                     {employee.trade}
                   </span>
-                  {/* Worker-level SD Toggle — only shown if job has SD */}
-                  {JOB_HAS_SHIFT_DIFF && (
+                  {/* Worker-level SD Toggle — shown only when the Order grants SD on some day of
+                      this crew week. Per-day availability is enforced separately below. */}
+                  {sdConfiguredThisWeek && (
                     <button
                       onClick={() => toggleWorkerSd(employee.id)}
                       className={`ml-2 px-2 py-0.5 text-xs font-medium rounded border transition-colors ${
@@ -1346,7 +1382,7 @@ export default function TimeEntryPage() {
                   Read-only display of SD vs non-SD hour buckets.
                   Reflects existing data; does NOT compute or modify anything.
                   ================================================================ */}
-              {JOB_HAS_SHIFT_DIFF && entryMode === "daily" && (() => {
+              {sdConfiguredThisWeek && entryMode === "daily" && (() => {
                 // Compute SD overlay for this employee (read-only, parallel to GOLD)
                 const cellBreakdown = computeAllocatorCellBreakdownDaily(employee.jobRows);
                 const rowSdFlagsForEmployee = rowSdFlags[employee.id] || {};
@@ -1444,7 +1480,7 @@ export default function TimeEntryPage() {
               })()}
 
               {/* Job Order has NO Shift Differential — explicit indicator */}
-              {!JOB_HAS_SHIFT_DIFF && (
+              {!sdConfiguredThisWeek && (
                 <div className="mt-3 pt-3 border-t border-slate-700">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
@@ -1721,20 +1757,38 @@ export default function TimeEntryPage() {
                               <td className="px-4 py-1 text-[10px] text-purple-400">
                                 SD
                               </td>
-                              {DAYS.map((day, dayIdx) => (
-                                <td key={day} className="px-1 py-1 text-center">
-                                  <button
-                                    onClick={() => toggleRowDaySd(employee.id, row.id, dayIdx)}
-                                    className={`w-8 h-5 text-[10px] font-medium rounded transition-colors ${
-                                      rowSdFlagsArr[dayIdx]
-                                        ? "bg-purple-700/70 text-purple-200 border border-purple-500"
-                                        : "bg-slate-700/40 text-slate-500 border border-slate-600 hover:text-slate-400"
-                                    }`}
-                                  >
-                                    {rowSdFlagsArr[dayIdx] ? "✓" : ""}
-                                  </button>
-                                </td>
-                              ))}
+                              {DAYS.map((day, dayIdx) => {
+                                // TE-SD-2A per-DAY availability. A day the Job Order does not cover
+                                // cannot be selected, which is what makes a mid-Order SD start
+                                // representable without a whole-week boolean.
+                                const dayEligible = isSdEligibleOnDayIndex(
+                                  sdEligibilityByDate,
+                                  weekStart,
+                                  dayIdx,
+                                );
+                                return (
+                                  <td key={day} className="px-1 py-1 text-center">
+                                    <button
+                                      onClick={() => toggleRowDaySd(employee.id, row.id, dayIdx)}
+                                      disabled={!dayEligible}
+                                      title={
+                                        dayEligible
+                                          ? undefined
+                                          : "Shift Differential is not available on this date for this Job Order"
+                                      }
+                                      className={`w-8 h-5 text-[10px] font-medium rounded transition-colors ${
+                                        !dayEligible
+                                          ? "bg-slate-800/40 text-slate-600 border border-slate-700 cursor-not-allowed"
+                                          : rowSdFlagsArr[dayIdx]
+                                            ? "bg-purple-700/70 text-purple-200 border border-purple-500"
+                                            : "bg-slate-700/40 text-slate-500 border border-slate-600 hover:text-slate-400"
+                                      }`}
+                                    >
+                                      {rowSdFlagsArr[dayIdx] ? "✓" : ""}
+                                    </button>
+                                  </td>
+                                );
+                              })}
                               {/* Per-row SD totals: REG_SD / OT_SD / DT_SD */}
                               <td className="px-2 py-1 text-center">
                                 {/* Total column - empty for SD row */}

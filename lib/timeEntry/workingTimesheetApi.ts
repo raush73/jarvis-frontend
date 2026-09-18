@@ -203,6 +203,14 @@ export interface WorkingTimesheetWorker {
   draftConflict: boolean;
 }
 
+/**
+ * TE-SD-2A authoritative Shift Differential availability per crew-week date, keyed `YYYY-MM-DD`.
+ *
+ * Server-derived from the Job Order's SD agreement and the replacement for the former hard-coded
+ * `JOB_HAS_SHIFT_DIFF` constant. Carries capability only - never an SD dollar amount.
+ */
+export type SdEligibilityByDate = Record<string, boolean>;
+
 export interface WorkingTimesheetDetail {
   id: string;
   /** Saved worksheet operating mode, or null when this worksheet was never saved. */
@@ -223,6 +231,8 @@ export interface WorkingTimesheetDetail {
   workers: WorkingTimesheetWorker[];
   draftConflictCandidateIds: string[];
   orphanedDraftCandidateIds: string[];
+  /** TE-SD-2A per-date Shift Differential availability. Optional so older fixtures stay valid. */
+  sdEligibilityByDate?: SdEligibilityByDate;
 }
 
 /**

@@ -84,6 +84,18 @@ const DETAIL = {
   ],
   draftConflictCandidateIds: [],
   orphanedDraftCandidateIds: [],
+  // TE-SD-2A the Job Order grants Shift Differential across this crew week, which is what these
+  // existing SD cases have always assumed. SD UI is now server-gated, so the fixture must say so
+  // rather than relying on the removed `JOB_HAS_SHIFT_DIFF` demo constant.
+  sdEligibilityByDate: {
+    "2026-09-07": true,
+    "2026-09-08": true,
+    "2026-09-09": true,
+    "2026-09-10": true,
+    "2026-09-11": true,
+    "2026-09-12": true,
+    "2026-09-13": true,
+  },
 };
 
 beforeEach(() => {
