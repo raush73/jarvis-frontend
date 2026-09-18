@@ -7,7 +7,20 @@ import {
   type WorkingTimesheetHubResponse,
 } from "@/lib/timeEntry/workingTimesheetApi";
 
-type HubStatus = "Draft" | "Submitted" | "Needs Customer" | "Ready to Snapshot";
+/**
+ * TE-S3 adds "Ready for Approvals" - the one lifecycle state beyond Draft the backend actually
+ * produces today.
+ *
+ * The other three remain the approved shell's forward-looking legend placeholders. They are kept so the
+ * shell is not redesigned, but they are NOT authoritative and nothing emits them: MW4H Initial Approval,
+ * Customer Review, MW4H Final Approval and the Immutable Approved Snapshot are later slices.
+ */
+type HubStatus =
+  | "Draft"
+  | "Ready for Approvals"
+  | "Submitted"
+  | "Needs Customer"
+  | "Ready to Snapshot";
 
 // Working timesheets grouped by customer, shaped for this page's existing card layout.
 type HubGroup = {
@@ -34,12 +47,13 @@ function toHubGroups(hub: WorkingTimesheetHubResponse): HubGroup[] {
   }));
 }
 
-function getStatusColor(
-  status: "Draft" | "Submitted" | "Needs Customer" | "Ready to Snapshot"
-): string {
+function getStatusColor(status: HubStatus): string {
   switch (status) {
     case "Draft":
       return "#6b7280";
+    // TE-S3 the one state beyond Draft that is real today.
+    case "Ready for Approvals":
+      return "#059669";
     case "Submitted":
       return "#2563eb";
     case "Needs Customer":
@@ -104,6 +118,12 @@ export default function TimeEntryHubPage() {
               <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#6b7280", flexShrink: 0 }} />
               <span style={{ fontSize: "12px", color: "#111827", fontWeight: 500 }}>Draft</span>
               <span style={{ fontSize: "11px", color: "#6b7280" }}>— Internal entry in progress</span>
+            </div>
+            {/* TE-S3 the one state beyond Draft the backend produces today. */}
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#059669", flexShrink: 0 }} />
+              <span style={{ fontSize: "12px", color: "#111827", fontWeight: 500 }}>Ready for Approvals</span>
+              <span style={{ fontSize: "11px", color: "#6b7280" }}>— Entry complete, approvals may begin</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#2563eb", flexShrink: 0 }} />

@@ -121,6 +121,87 @@ describe("Working Timesheet Hub", () => {
     expect(screen.getByText("Submitted")).toBeTruthy();
     expect(screen.getByText("Needs Customer")).toBeTruthy();
     expect(screen.getByText("Ready to Snapshot")).toBeTruthy();
+    // TE-S3 added the one state beyond Draft that is real today, without removing the placeholders.
+    expect(screen.getByText("Ready for Approvals")).toBeTruthy();
+  });
+
+  // =========================================================================================
+  // TE-S3 the Hub displays readiness but is never the approval console.
+  // =========================================================================================
+
+  it("displays Ready for Approvals when the backend reports it", async () => {
+    fetchWorkingTimesheetHub.mockResolvedValue({
+      ...HUB,
+      customerGroups: [
+        {
+          ...HUB.customerGroups[0],
+          workingTimesheets: [
+            { ...HUB.customerGroups[0].workingTimesheets[0], status: "Ready for Approvals" },
+          ],
+        },
+      ],
+    });
+
+    render(<TimeEntryHubPage />);
+    await waitFor(() => expect(screen.getByText("Main Assembly")).toBeTruthy());
+
+    // Twice: once in the legend, once as this sheet's badge.
+    expect(screen.getAllByText("Ready for Approvals").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("still shows Draft for a sheet the backend reports as Draft", async () => {
+    fetchWorkingTimesheetHub.mockResolvedValue(HUB);
+
+    render(<TimeEntryHubPage />);
+    await waitFor(() => expect(screen.getByText("Main Assembly")).toBeTruthy());
+
+    expect(screen.getAllByText("Draft").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("is NOT the approval console: it offers no approval action of any kind", async () => {
+    // Owner ruling: the person approving must open the actual Working Timesheet and review it. The Hub
+    // may show the status and nothing more, so there is deliberately no one-click path from here.
+    fetchWorkingTimesheetHub.mockResolvedValue({
+      ...HUB,
+      customerGroups: [
+        {
+          ...HUB.customerGroups[0],
+          workingTimesheets: [
+            { ...HUB.customerGroups[0].workingTimesheets[0], status: "Ready for Approvals" },
+          ],
+        },
+      ],
+    });
+
+    render(<TimeEntryHubPage />);
+    await waitFor(() => expect(screen.getByText("Main Assembly")).toBeTruthy());
+
+    // Asserted against INTERACTIVE CONTROLS, not against any occurrence of the words. The approved
+    // legend legitimately describes future states in prose - "Submitted for customer review" is one of
+    // its own descriptions - and the rule is about what an operator can CLICK here, not what the page
+    // is allowed to say.
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+
+    const actionable = [
+      ...screen.queryAllByRole("button"),
+      ...screen.queryAllByRole("link"),
+    ].map((el) => el.textContent ?? '');
+
+    for (const forbidden of [
+      /Mark Ready/i,
+      /Approval/i,
+      /Approve/i,
+      /Generate Snapshot/i,
+      /Customer Review/i,
+      /Immutable/i,
+      /Payroll/i,
+      /Invoice/i,
+    ]) {
+      expect(actionable.filter((text) => forbidden.test(text))).toHaveLength(0);
+    }
+
+    // The only way in remains opening the working timesheet itself.
+    expect(screen.getAllByText(/Open Working Timesheet/i).length).toBeGreaterThan(0);
   });
 
   it("shows the empty state when the completed week produced no working timesheets", async () => {

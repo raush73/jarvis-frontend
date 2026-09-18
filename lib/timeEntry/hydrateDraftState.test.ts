@@ -40,6 +40,21 @@ function detail(overrides: Partial<WorkingTimesheetDetail> = {}): WorkingTimeshe
     customerId: "cust-1",
     customerName: "Acme Manufacturing",
     status: "Draft",
+    // TE-S3 added the server's readiness verdict to the detail contract. These TE-S2B6 cases assert
+    // HYDRATION, so the verdict is inert here: nothing entered means NOT_STARTED, and hydration must
+    // behave identically either way.
+    readiness: {
+      state: "NOT_STARTED",
+      rosterWorkerCount: 0,
+      accountedWorkerCount: 0,
+      unaccountedWorkers: [],
+      dataConflicts: [],
+      incompleteEntries: [],
+      customerJobsApplicable: false,
+      markedReadyAt: null,
+      markedReadyByUserId: null,
+      evaluatedAt: "2026-09-18T12:00:00.000Z",
+    },
     workers: [],
     draftConflictCandidateIds: [],
     orphanedDraftCandidateIds: [],

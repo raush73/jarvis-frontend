@@ -9,8 +9,58 @@ import type { SaveDraftPayload } from "@/lib/timeEntry/buildDraftPayload";
  * reads and safe to use as the Hub's navigation target.
  */
 
-/** Only state produced by TE-S1. Later lifecycle states are owned by a later slice. */
-export type WorkingTimesheetStatus = "Draft";
+/**
+ * The Working Timesheet lifecycle states the backend actually produces.
+ *
+ * TE-S1 produced only "Draft". TE-S3 adds "Ready for Approvals", the Owner-authoritative name for a
+ * worksheet that has passed its entry checks and may begin the governed approval lifecycle.
+ *
+ * The Hub legend's other placeholders ("Submitted", "Needs Customer", "Ready to Snapshot") remain
+ * display-only and are still NOT produced: MW4H Initial Approval, Customer Review, MW4H Final Approval
+ * and the Immutable Approved Snapshot are later slices.
+ */
+export type WorkingTimesheetStatus = "Draft" | "Ready for Approvals";
+
+/**
+ * TE-S3 the server's readiness verdict for one Working Timesheet.
+ *
+ * `state` is the ONLY representation of the verdict; the three lists explain it and never compete with
+ * it. The backend recomputes this on every read, so a screen must consume it rather than deciding
+ * readiness for itself - and `markedReadyAt` is audit, never a reason to display readiness.
+ */
+export type WorkingTimesheetReadinessState = "NOT_STARTED" | "INCOMPLETE" | "READY";
+
+export interface ReadinessUnaccountedWorker {
+  candidateId: string;
+  workerName: string;
+}
+
+export interface ReadinessDataConflict {
+  kind: "AMBIGUOUS_DRAFT" | "ORPHANED_DRAFT";
+  candidateId: string;
+}
+
+export interface ReadinessIncompleteEntry {
+  kind: "WEEKLY_OT_NOT_FULLY_ALLOCATED" | "WORKED_ROW_MISSING_CUSTOMER_JOB";
+  candidateId: string;
+  jobRowIndex: number | null;
+  detail: string | null;
+}
+
+export interface WorkingTimesheetReadiness {
+  state: WorkingTimesheetReadinessState;
+  rosterWorkerCount: number;
+  accountedWorkerCount: number;
+  /** Rostered workers nobody entered anything for and nobody reviewed. */
+  unaccountedWorkers: ReadinessUnaccountedWorker[];
+  dataConflicts: ReadinessDataConflict[];
+  incompleteEntries: ReadinessIncompleteEntry[];
+  /** True when the parent Job Order operates with subordinate Customer Jobs. */
+  customerJobsApplicable: boolean;
+  markedReadyAt: string | null;
+  markedReadyByUserId: string | null;
+  evaluatedAt: string;
+}
 
 export interface WorkingTimesheetSummary {
   id: string;
@@ -165,6 +215,11 @@ export interface WorkingTimesheetDetail {
   customerId: string;
   customerName: string;
   status: WorkingTimesheetStatus;
+  /**
+   * TE-S3 whether this worksheet may begin the approval lifecycle, recomputed server-side on every
+   * read. `status` above is the display consequence; this is the reasoned verdict.
+   */
+  readiness: WorkingTimesheetReadiness;
   workers: WorkingTimesheetWorker[];
   draftConflictCandidateIds: string[];
   orphanedDraftCandidateIds: string[];
@@ -258,6 +313,59 @@ export function describeCustomerJobCreateError(error: unknown): string {
     return "Enter a Customer Job description.";
   }
   return "Could not create the Customer Job. Please try again.";
+}
+
+export interface MarkReadyForApprovalsResult {
+  workingTimesheetId: string;
+  orderId: string;
+  weekStart: string;
+  status: WorkingTimesheetStatus;
+  readiness: WorkingTimesheetReadiness;
+}
+
+/**
+ * TE-S3 mark one Working Timesheet READY FOR APPROVALS.
+ *
+ * The server recomputes readiness and refuses unless its own verdict is READY, so this is a request to
+ * record an operator's assertion rather than a claim the client can make stick. It records who and when,
+ * creates no snapshot, performs no approval, and leaves the worksheet editable.
+ */
+export async function markWorkingTimesheetReadyForApprovals(
+  id: string,
+): Promise<MarkReadyForApprovalsResult> {
+  return apiFetch<MarkReadyForApprovalsResult>(
+    `/time-entry/working-timesheets/${encodeURIComponent(id)}/ready-for-approvals`,
+    { method: "PUT", headers: { "Content-Type": "application/json" } },
+  );
+}
+
+export interface AcknowledgeRosterWorkerResult {
+  workingTimesheetId: string;
+  candidateId: string;
+  acknowledgedAt: string;
+  acknowledgedByUserId: string;
+  readiness: WorkingTimesheetReadiness;
+}
+
+/**
+ * TE-S3 record that a rostered worker was reviewed and has no Time Entry facts to enter this week.
+ *
+ * This exists because "untouched" must never silently mean "reviewed and worked zero hours". It is a
+ * TIME ENTRY acknowledgement only: it ends no Assignment, suspends nobody, removes nobody from
+ * Dispatch, and creates no zero-hour entry.
+ */
+export async function acknowledgeRosterWorker(
+  id: string,
+  candidateId: string,
+): Promise<AcknowledgeRosterWorkerResult> {
+  return apiFetch<AcknowledgeRosterWorkerResult>(
+    `/time-entry/working-timesheets/${encodeURIComponent(id)}/roster-acknowledgement`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ candidateId }),
+    },
+  );
 }
 
 export interface SaveWorkingTimesheetDraftResult {

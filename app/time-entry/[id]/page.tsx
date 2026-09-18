@@ -8,10 +8,16 @@ import {
   describeCustomerJobCreateError,
   fetchCustomerJobs,
   fetchWorkingTimesheetDetail,
+  markWorkingTimesheetReadyForApprovals,
   saveWorkingTimesheetDraft,
   type CustomerJob,
   type WorkingTimesheetDetail,
+  type WorkingTimesheetReadiness,
 } from "@/lib/timeEntry/workingTimesheetApi";
+import {
+  describeReadinessBlockers,
+  describeReadinessState,
+} from "@/lib/timeEntry/readinessReasons";
 import { buildDraftPayload } from "@/lib/timeEntry/buildDraftPayload";
 import { hydrateDraftState } from "@/lib/timeEntry/hydrateDraftState";
 
@@ -477,6 +483,17 @@ export default function TimeEntryPage() {
   const [creatingJob, setCreatingJob] = useState(false);
   const [customerJobError, setCustomerJobError] = useState("");
 
+  /**
+   * TE-S3 the server's readiness verdict for this worksheet.
+   *
+   * Held as received and never recomputed here: the backend is authoritative about whether the sheet may
+   * begin approvals, and a screen that decided for itself could disagree with the transition endpoint.
+   */
+  const [readiness, setReadiness] = useState<WorkingTimesheetReadiness | null>(null);
+  const [markingReady, setMarkingReady] = useState(false);
+  const [readyError, setReadyError] = useState("");
+  const [readyMessage, setReadyMessage] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -573,6 +590,7 @@ export default function TimeEntryPage() {
       });
       setWeekStart(detail.weekStart);
       setOrderId(detail.orderId);
+      setReadiness(detail.readiness);
       setJobOptions([{ id: detail.orderId, name: detail.orderRef }]);
 
       // Restore the whole persisted worksheet: mode, both source granularities, operator
@@ -1025,6 +1043,43 @@ export default function TimeEntryPage() {
       setSaving(false);
     }
   };
+
+  /**
+   * TE-S3 mark this worksheet READY FOR APPROVALS.
+   *
+   * The server recomputes readiness and refuses unless its own verdict is READY, so this records an
+   * operator's assertion rather than making a claim the client can force. On success the refreshed
+   * verdict and status come back from the server, so the screen shows what actually happened rather
+   * than assuming the write succeeded as requested.
+   */
+  const handleMarkReadyForApprovals = async () => {
+    if (!workingTimesheetId || markingReady) return;
+
+    setMarkingReady(true);
+    setReadyError("");
+    setReadyMessage("");
+    try {
+      const result = await markWorkingTimesheetReadyForApprovals(workingTimesheetId);
+      setReadiness(result.readiness);
+      setContext((prev) => ({ ...prev, status: result.status }));
+      setReadyMessage(
+        result.status === "Ready for Approvals"
+          ? "Marked Ready for Approvals."
+          : "Saved, but this working timesheet is no longer ready. Review the outstanding items.",
+      );
+    } catch (e: any) {
+      setReadyError(e?.message ?? "Could not mark this working timesheet ready.");
+    } finally {
+      setMarkingReady(false);
+    }
+  };
+
+  /** The blocking reasons, named by the shared describer so no wording is invented per screen. */
+  const readinessBlockers = readiness
+    ? describeReadinessBlockers(readiness, (candidateId) =>
+        employees.find((e) => e.id === candidateId)?.name ?? candidateId,
+      )
+    : [];
 
   /**
    * TE-S2B9 true while any Weekly worker still has unallocated computed OT.
@@ -1890,6 +1945,11 @@ export default function TimeEntryPage() {
         >
           Save Draft
         </button>
+        {/*
+          TE-S3 repurposes the existing "Mark Ready for Payroll" placeholder into the Owner-authoritative
+          action, and leaves "Generate Snapshot" disabled because TE-S4 owns it. No new action was added
+          and the approved shell was not redesigned.
+        */}
         <button
           disabled
           className="px-5 py-2 text-sm font-medium bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
@@ -1897,12 +1957,44 @@ export default function TimeEntryPage() {
           Generate Snapshot
         </button>
         <button
-          disabled
-          className="px-5 py-2 text-sm font-medium bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
+          onClick={() => void handleMarkReadyForApprovals()}
+          disabled={markingReady || readiness?.state !== "READY"}
+          title={
+            readiness?.state === "READY"
+              ? undefined
+              : "Resolve the outstanding items before marking this working timesheet ready."
+          }
+          className={
+            markingReady || readiness?.state !== "READY"
+              ? "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
+              : "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-200 border border-slate-600 rounded hover:text-slate-100"
+          }
         >
-          Mark Ready for Payroll
+          {markingReady ? "Marking..." : "Mark Ready for Approvals"}
         </button>
       </div>
+
+      {/*
+        TE-S3 the server's readiness verdict, and the blocking reasons it supplied.
+        The screen explains the hold; it never decides it.
+      */}
+      {readiness && (
+        <div className="mb-6">
+          <div className="text-sm text-slate-300 mb-1">
+            {status === "Ready for Approvals" ? "Ready for Approvals" : "Draft"}
+            <span className="text-slate-500"> — {describeReadinessState(readiness)}</span>
+          </div>
+          {readinessBlockers.length > 0 && (
+            <ul className="text-xs text-amber-400 list-disc pl-5">
+              {readinessBlockers.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          )}
+          {readyError && <div className="text-sm text-red-400 mt-1">{readyError}</div>}
+          {readyMessage && <div className="text-sm text-emerald-400 mt-1">{readyMessage}</div>}
+        </div>
+      )}
 
       {/* Save Draft status, using this page's existing plain-text conventions */}
       {saving && <div className="text-sm text-slate-400 mb-6">Saving draft…</div>}

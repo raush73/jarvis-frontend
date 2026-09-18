@@ -267,7 +267,7 @@ describe("Owner-approved Working Timesheet UI is unchanged", () => {
     // Footer actions, in their approved order.
     expect(screen.getByText("Save Draft")).toBeTruthy();
     expect(screen.getByText("Generate Snapshot")).toBeTruthy();
-    expect(screen.getByText("Mark Ready for Payroll")).toBeTruthy();
+    expect(screen.getByText("Mark Ready for Approvals")).toBeTruthy();
 
     // Navigation.
     expect(screen.getByText("← Back to Time Entry")).toBeTruthy();
@@ -283,11 +283,20 @@ describe("Owner-approved Working Timesheet UI is unchanged", () => {
     const saveDraft = screen.getByText("Save Draft").closest("button")!;
     expect(saveDraft.hasAttribute("disabled")).toBe(false);
 
-    // The approval boundary is untouched: neither of these was wired.
-    for (const label of ["Generate Snapshot", "Mark Ready for Payroll"]) {
-      const button = screen.getByText(label).closest("button")!;
-      expect(button.hasAttribute("disabled")).toBe(true);
-    }
+    // The SNAPSHOT boundary is untouched: TE-S4 owns it and it was not wired.
+    expect(screen.getByText("Generate Snapshot").closest("button")!.hasAttribute("disabled")).toBe(
+      true,
+    );
+
+    // TE-S3 wired the readiness action, and it is correctly UNAVAILABLE here: this fixture's detail
+    // carries no readiness verdict, so the screen has no server statement that the sheet is ready.
+    // Readiness is the server's to grant, never the screen's to assume.
+    expect(
+      screen
+        .getByText("Mark Ready for Approvals")
+        .closest("button")!
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 
   it("still renders the shift-differential surface without persisting eligibility", async () => {
@@ -563,7 +572,7 @@ describe("Save Draft wiring", () => {
       "Weekly Totals",
       "Save Draft",
       "Generate Snapshot",
-      "Mark Ready for Payroll",
+      "Mark Ready for Approvals",
       "← Back to Time Entry",
     ]) {
       expect(screen.getByText(label)).toBeTruthy();
@@ -719,7 +728,7 @@ describe("reopen hydration through the Working Timesheet", () => {
       "Weekly Totals",
       "Save Draft",
       "Generate Snapshot",
-      "Mark Ready for Payroll",
+      "Mark Ready for Approvals",
       "← Back to Time Entry",
     ]) {
       expect(screen.getByText(label)).toBeTruthy();
@@ -728,7 +737,7 @@ describe("reopen hydration through the Working Timesheet", () => {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
     // The approval boundary is still closed.
-    for (const label of ["Generate Snapshot", "Mark Ready for Payroll"]) {
+    for (const label of ["Generate Snapshot"]) {
       expect(screen.getByText(label).closest("button")!.hasAttribute("disabled")).toBe(true);
     }
   });
