@@ -12,6 +12,7 @@ import {
   buildDraftPayload,
   workDateForDayIndex,
   type BuilderEmployee,
+  type BuilderTotals,
   type BuildDraftPayloadInput,
 } from "./buildDraftPayload";
 
@@ -46,6 +47,21 @@ function employee(overrides: Partial<BuilderEmployee> = {}): BuilderEmployee {
   };
 }
 
+/**
+ * Worker totals plus the approved engine's per-JobRow REG/OT/DT split.
+ *
+ * TE-S2B9 made `jobBreakdown` part of the builder contract, because classification lines are now
+ * emitted per JobRow. `rows` is index-aligned with the worker's jobRows, so entry i is
+ * jobRowIndex i. Omitting it means "one row owns all of this worker's hours", which is what every
+ * single-row fixture below intends.
+ */
+function totals(
+  t: { totalHours: number; reg: number; ot: number; dt: number },
+  rows?: { reg: number; ot: number; dt: number }[],
+): BuilderTotals {
+  return { ...t, jobBreakdown: rows ?? [{ reg: t.reg, ot: t.ot, dt: t.dt }] };
+}
+
 function input(overrides: Partial<BuildDraftPayloadInput> = {}): BuildDraftPayloadInput {
   return {
     entryMode: "daily",
@@ -53,7 +69,7 @@ function input(overrides: Partial<BuildDraftPayloadInput> = {}): BuildDraftPaylo
     weekStart: WEEK_START,
     workerSdEnabled: {},
     rowSdFlags: {},
-    totalsByEmployeeId: { "cand-1": { totalHours: 0, reg: 0, ot: 0, dt: 0 } },
+    totalsByEmployeeId: { "cand-1": totals({ totalHours: 0, reg: 0, ot: 0, dt: 0 }) },
     ...overrides,
   };
 }
@@ -73,7 +89,7 @@ describe("FE5-1: DAILY mode sends actual Daily source facts", () => {
       input({
         entryMode: "daily",
         employees: [employee({ jobRows: [row({ dailyHours: [8, 8, 0, 0, 0, 0, 0] })] })],
-        totalsByEmployeeId: { "cand-1": { totalHours: 16, reg: 16, ot: 0, dt: 0 } },
+        totalsByEmployeeId: { "cand-1": totals({ totalHours: 16, reg: 16, ot: 0, dt: 0 }) },
       }),
     );
 
@@ -89,9 +105,9 @@ describe("FE5-1: DAILY mode sends actual Daily source facts", () => {
     expect(jobRow.dailyHours).toHaveLength(2);
     // No weekly source fact is invented from the daily entries.
     expect(jobRow.weeklyHours).toBeUndefined();
-    // Governed classification travels with it.
+    // Governed classification travels with it, attributed to the job row that earned it.
     expect(payload.workers[0].classifications).toEqual([
-      { earningCode: "REG", unit: "HOURS", quantity: 16 },
+      { earningCode: "REG", unit: "HOURS", quantity: 16, jobRowIndex: 0 },
     ]);
     expect(payload.workers[0].totalHours).toBe(16);
   });
@@ -106,7 +122,7 @@ describe("FE5-2: WEEKLY mode sends weekly source facts without fabricating Daily
         employees: [
           employee({ jobRows: [row({ dailyHours: [8, 8, 0, 0, 0, 0, 0], weeklyTotalHours: 52 })] }),
         ],
-        totalsByEmployeeId: { "cand-1": { totalHours: 52, reg: 40, ot: 12, dt: 0 } },
+        totalsByEmployeeId: { "cand-1": totals({ totalHours: 52, reg: 40, ot: 12, dt: 0 }) },
       }),
     );
 
@@ -134,7 +150,13 @@ describe("FE5-3: Weekly multi-job OT allocation", () => {
             ],
           }),
         ],
-        totalsByEmployeeId: { "cand-1": { totalHours: 60, reg: 40, ot: 20, dt: 0 } },
+        // The operator allocated 10 OT to each row, so each row is 20 REG + 10 OT of its 30 hours.
+        totalsByEmployeeId: {
+          "cand-1": totals({ totalHours: 60, reg: 40, ot: 20, dt: 0 }, [
+            { reg: 20, ot: 10, dt: 0 },
+            { reg: 20, ot: 10, dt: 0 },
+          ]),
+        },
       }),
     );
 
@@ -143,6 +165,14 @@ describe("FE5-3: Weekly multi-job OT allocation", () => {
     expect(rows.map((r) => [r.jobRowIndex, r.projectRef, r.weeklyHours, r.weeklyOtAllocation])).toEqual([
       [0, "order-a", 30, 10],
       [1, "order-b", 30, 10],
+    ]);
+    // TE-S2B9: the operator's OT allocation is what decides which row's classification owns the
+    // overtime, so each row's REG/OT is persisted against its own jobRowIndex.
+    expect(payload.workers[0].classifications).toEqual([
+      { earningCode: "REG", unit: "HOURS", quantity: 20, jobRowIndex: 0 },
+      { earningCode: "OT", unit: "HOURS", quantity: 10, jobRowIndex: 0 },
+      { earningCode: "REG", unit: "HOURS", quantity: 20, jobRowIndex: 1 },
+      { earningCode: "OT", unit: "HOURS", quantity: 10, jobRowIndex: 1 },
     ]);
   });
 });
@@ -165,7 +195,13 @@ describe("FE5-4: Daily DT designations use worker + JobRow + day", () => {
             ],
           }),
         ],
-        totalsByEmployeeId: { "cand-1": { totalHours: 16, reg: 12, ot: 0, dt: 4 } },
+        // Row 0 worked 8 straight hours; row 1's 8 hours are 4 REG plus the 4 designated DT.
+        totalsByEmployeeId: {
+          "cand-1": totals({ totalHours: 16, reg: 12, ot: 0, dt: 4 }, [
+            { reg: 8, ot: 0, dt: 0 },
+            { reg: 4, ot: 0, dt: 4 },
+          ]),
+        },
       }),
     );
 
@@ -175,6 +211,13 @@ describe("FE5-4: Daily DT designations use worker + JobRow + day", () => {
     expect(rows[1].dailyDt).toEqual([{ workDate: SAT, quantity: 4 }]);
     // DT never masquerades as worked source hours.
     expect(rows[1].dailyHours).toEqual([{ workDate: SAT, quantity: 8 }]);
+    // TE-S2B9: the DT classification lands on the row that was actually designated, and row 0
+    // gets no DT line at all rather than a zero.
+    expect(payload.workers[0].classifications).toEqual([
+      { earningCode: "REG", unit: "HOURS", quantity: 8, jobRowIndex: 0 },
+      { earningCode: "REG", unit: "HOURS", quantity: 4, jobRowIndex: 1 },
+      { earningCode: "DT", unit: "HOURS", quantity: 4, jobRowIndex: 1 },
+    ]);
   });
 });
 
@@ -186,7 +229,7 @@ describe("FE5-5: Weekly DT designations use worker + JobRow only", () => {
         employees: [
           employee({ jobRows: [row({ weeklyTotalHours: 52, weeklyDtHours: 4 })] }),
         ],
-        totalsByEmployeeId: { "cand-1": { totalHours: 52, reg: 40, ot: 8, dt: 4 } },
+        totalsByEmployeeId: { "cand-1": totals({ totalHours: 52, reg: 40, ot: 8, dt: 4 }) },
       }),
     );
 
@@ -194,9 +237,9 @@ describe("FE5-5: Weekly DT designations use worker + JobRow only", () => {
     expect(jobRow.weeklyDt).toBe(4);
     expect(jobRow.dailyDt).toBeUndefined();
     expect(payload.workers[0].classifications).toEqual([
-      { earningCode: "REG", unit: "HOURS", quantity: 40 },
-      { earningCode: "OT", unit: "HOURS", quantity: 8 },
-      { earningCode: "DT", unit: "HOURS", quantity: 4 },
+      { earningCode: "REG", unit: "HOURS", quantity: 40, jobRowIndex: 0 },
+      { earningCode: "OT", unit: "HOURS", quantity: 8, jobRowIndex: 0 },
+      { earningCode: "DT", unit: "HOURS", quantity: 4, jobRowIndex: 0 },
     ]);
   });
 });
@@ -211,7 +254,7 @@ describe("FE5-6: SD eligibility and Daily selections stay distinct", () => {
         ],
         workerSdEnabled: { "cand-1": true },
         rowSdFlags: { "cand-1": { r1: [true, false, false, false, false, false, false] } },
-        totalsByEmployeeId: { "cand-1": { totalHours: 16, reg: 16, ot: 0, dt: 0 } },
+        totalsByEmployeeId: { "cand-1": totals({ totalHours: 16, reg: 16, ot: 0, dt: 0 }) },
         sdOverlayByEmployeeId: { "cand-1": { regSdHours: 8, otSdHours: 0, dtSdHours: 0 } },
       }),
     );
@@ -221,9 +264,11 @@ describe("FE5-6: SD eligibility and Daily selections stay distinct", () => {
     // ...and the selection is a per-row, per-day fact. Two Mondays' worth of hours were
     // entered but only one day was marked.
     expect(payload.workers[0].jobRows![0].sdDates).toEqual([MON]);
-    // The SD decomposition rides along as classification, never as extra worked time.
+    // The SD decomposition rides along as classification, never as extra worked time. TE-S2B9
+    // attributes the worked-hour line to its job row and deliberately leaves the SD bucket
+    // worker-level, because SD decomposes hours already counted rather than adding any.
     expect(payload.workers[0].classifications).toEqual([
-      { earningCode: "REG", unit: "HOURS", quantity: 16 },
+      { earningCode: "REG", unit: "HOURS", quantity: 16, jobRowIndex: 0 },
       { earningCode: "REG", unit: "REG_SD", quantity: 8 },
     ]);
   });
@@ -243,12 +288,12 @@ describe("FE5-6: SD eligibility and Daily selections stay distinct", () => {
         entryMode: "weekly",
         employees: [employee({ jobRows: [row({ weeklyTotalHours: 40 })] })],
         workerSdEnabled: { "cand-1": true },
-        totalsByEmployeeId: { "cand-1": { totalHours: 40, reg: 40, ot: 0, dt: 0 } },
+        totalsByEmployeeId: { "cand-1": totals({ totalHours: 40, reg: 40, ot: 0, dt: 0 }) },
         sdOverlayByEmployeeId: { "cand-1": { regSdHours: 8, otSdHours: 0, dtSdHours: 0 } },
       }),
     );
     expect(payload.workers[0].classifications).toEqual([
-      { earningCode: "REG", unit: "HOURS", quantity: 40 },
+      { earningCode: "REG", unit: "HOURS", quantity: 40, jobRowIndex: 0 },
     ]);
   });
 });
@@ -263,7 +308,7 @@ describe("FE5-7: billable JobRow PD is serialized separately from non-billable P
             nonBillableItems: [{ id: "i1", type: "Per Diem", note: "", value: 2 }],
           }),
         ],
-        totalsByEmployeeId: { "cand-1": { totalHours: 8, reg: 8, ot: 0, dt: 0 } },
+        totalsByEmployeeId: { "cand-1": totals({ totalHours: 8, reg: 8, ot: 0, dt: 0 }) },
       }),
     );
 
@@ -338,7 +383,7 @@ describe("FE5-8: monetary items preserve their dollar values", () => {
             billableItems: [{ id: "b1", type: "Bonus", note: "", value: 0 }],
           }),
         ],
-        totalsByEmployeeId: { "cand-1": { totalHours: 8, reg: 8, ot: 0, dt: 0 } },
+        totalsByEmployeeId: { "cand-1": totals({ totalHours: 8, reg: 8, ot: 0, dt: 0 }) },
       }),
     );
     expect(payload.workers[0].items).toBeUndefined();
@@ -354,8 +399,8 @@ describe("FE5-9: an untouched roster worker produces no payload entry", () => {
           employee({ id: "cand-2" }), // untouched
         ],
         totalsByEmployeeId: {
-          "cand-1": { totalHours: 8, reg: 8, ot: 0, dt: 0 },
-          "cand-2": { totalHours: 0, reg: 0, ot: 0, dt: 0 },
+          "cand-1": totals({ totalHours: 8, reg: 8, ot: 0, dt: 0 }),
+          "cand-2": totals({ totalHours: 0, reg: 0, ot: 0, dt: 0 }),
         },
       }),
     );

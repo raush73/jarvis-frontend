@@ -99,11 +99,36 @@ export interface BuilderEmployee {
   nonBillableItems: BuilderItem[];
 }
 
+/**
+ * TE-S2B9 one JobRow's share of the worker's REG/OT/DT, exactly as the approved engine computed it.
+ *
+ * POSITION IS THE IDENTITY. Entry `i` of the array belongs to `employee.jobRows[i]`, and therefore
+ * to `jobRowIndex` `i`. That is not a convention invented here: GOLD builds its breakdown by
+ * walking the same `jobRows` array this builder walks, so the two orderings are the same ordinal.
+ *
+ * GOLD's own `jobId` field is deliberately NOT part of this shape. It carries the transient React
+ * row id, which changes between renders and is never persisted identity.
+ */
+export interface BuilderJobRowClassification {
+  reg: number;
+  ot: number;
+  dt: number;
+}
+
 export interface BuilderTotals {
   totalHours: number;
   reg: number;
   ot: number;
   dt: number;
+  /**
+   * The approved engine's per-JobRow REG/OT/DT split, index-aligned with the worker's `jobRows`.
+   *
+   * REQUIRED, and deliberately so. Before TE-S2B9 the caller computed this and then dropped it,
+   * which is exactly how billable hours lost the JobRow - and therefore the Customer Job - they
+   * belonged to. Making it required means that loss cannot silently reappear: a caller who cannot
+   * supply it cannot produce truthful classification lineage and will not compile.
+   */
+  jobBreakdown: BuilderJobRowClassification[];
 }
 
 export interface BuilderSdOverlay {
@@ -173,9 +198,21 @@ function mapItem(
 /**
  * Governed classification lines for one worker, taken from the approved engine's output.
  *
- * REG/OT/DT are the worker-level hour classifications. The SD buckets decompose those same
- * hours and are therefore never additional worked time. Zero quantities are omitted, so an
- * untouched worker produces nothing.
+ * TE-S2B9: REG/OT/DT are emitted PER JOBROW, each carrying its `jobRowIndex`, because that is what
+ * lets approved billable hours be traced to the Customer Job they were worked against - through
+ * `HoursEntryLine.jobRowIndex` to `HoursEntryJobRowInput.customerJobId` - with no text matching and
+ * no recomputation of the allocator later.
+ *
+ * THEY REPLACE THE WORKER-LEVEL LINES; they are never emitted alongside them. Sending both would
+ * double count the same hours, and the backend's reconciliation check would correctly reject it.
+ * Summing the per-row lines reproduces the worker totals exactly, because the engine derives both
+ * from the same allocation.
+ *
+ * THE SD BUCKETS STAY WORKER-LEVEL. They decompose hours already counted above rather than adding
+ * any, so they are not worked-hour lineage and TE-S2B9 deliberately leaves their shape alone.
+ *
+ * Zero quantities are omitted exactly as before, so a row that worked REG only yields one line
+ * rather than three, and an untouched worker still produces nothing.
  */
 function buildClassifications(
   totals: BuilderTotals,
@@ -183,9 +220,17 @@ function buildClassifications(
 ): DraftPayloadClassification[] {
   const lines: DraftPayloadClassification[] = [];
 
-  if (totals.reg > 0) lines.push({ earningCode: "REG", unit: "HOURS", quantity: totals.reg });
-  if (totals.ot > 0) lines.push({ earningCode: "OT", unit: "HOURS", quantity: totals.ot });
-  if (totals.dt > 0) lines.push({ earningCode: "DT", unit: "HOURS", quantity: totals.dt });
+  totals.jobBreakdown.forEach((row, jobRowIndex) => {
+    if (row.reg > 0) {
+      lines.push({ earningCode: "REG", unit: "HOURS", quantity: row.reg, jobRowIndex });
+    }
+    if (row.ot > 0) {
+      lines.push({ earningCode: "OT", unit: "HOURS", quantity: row.ot, jobRowIndex });
+    }
+    if (row.dt > 0) {
+      lines.push({ earningCode: "DT", unit: "HOURS", quantity: row.dt, jobRowIndex });
+    }
+  });
 
   if (sd) {
     if (sd.regSdHours > 0)

@@ -544,6 +544,10 @@ function resave(hydrated: ReturnType<typeof hydrateDraftState>): SaveDraftPayloa
       reg: totals.reg,
       ot: totals.ot,
       dt: totals.dt,
+      // TE-S2B9: the resave carries the approved engine's real per-JobRow split, exactly as the
+      // page does, so the round trip proves per-row classification lineage survives reopen rather
+      // than only proving the worker totals do.
+      jobBreakdown: totals.jobBreakdown.map((r) => ({ reg: r.reg, ot: r.ot, dt: r.dt })),
     };
   }
 
@@ -711,10 +715,19 @@ describe("FE6-20 / FE6-21 / FE6-22: save -> reopen -> save preserves business fa
     expect(w.jobRows!.every((r) => r.dailyHours === undefined)).toBe(true);
     expect(w.totalHours).toBe(60);
     // 40 REG + 14 OT + 6 DT = 60, the governed carve-out.
+    //
+    // TE-S2B9: classification lines are now per JobRow, so a worker total is the SUM of its lines
+    // rather than a single line. Summing per code is the stronger assertion anyway - it proves the
+    // per-row split reconciles exactly to the worker figures the approved engine reports.
     const hours = w.classifications!.filter((c) => c.unit === "HOURS");
+    const sumOf = (code: string) =>
+      hours.filter((c) => c.earningCode === code).reduce((s, c) => s + c.quantity, 0);
     expect(hours.reduce((s, c) => s + c.quantity, 0)).toBe(60);
-    expect(hours.find((c) => c.earningCode === "DT")?.quantity).toBe(6);
-    expect(hours.find((c) => c.earningCode === "OT")?.quantity).toBe(14);
+    expect(sumOf("REG")).toBe(40);
+    expect(sumOf("DT")).toBe(6);
+    expect(sumOf("OT")).toBe(14);
+    // Every worked-hour line is attributed to a real job row.
+    expect(hours.every((c) => c.jobRowIndex === 0 || c.jobRowIndex === 1)).toBe(true);
     expect(w.items).toEqual([
       {
         billability: "BILLABLE",

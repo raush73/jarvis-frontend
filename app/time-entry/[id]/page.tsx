@@ -918,6 +918,37 @@ export default function TimeEntryPage() {
   const handleSaveDraft = async () => {
     if (!workingTimesheetId || saving) return;
 
+    // TE-S2B9 THE WEEKLY OT ALLOCATION SAVE GATE.
+    //
+    // Jarvis computes HOW MUCH overtime a Weekly worker earned; the OPERATOR decides WHICH JobRow -
+    // and therefore which Customer Job - owns it, from the customer's own reporting or direction.
+    // Jarvis must never distribute, proportion or infer that ownership. The consequence is that
+    // until every computed OT hour has been allocated, there is no truthful answer to "which
+    // Customer Job is this overtime billable to", so the draft must not be persisted at all.
+    //
+    // Enforced HERE, at the action boundary, and not only by disabling the button: a disabled
+    // control is a UX affordance, whereas this function is the only path to the API.
+    //
+    // The mismatch truth is READ from the approved engine, never recomputed. `mismatch` is already
+    // exactly the Owner's rule - multiple JobRows, computed OT present, and allocated OT not equal
+    // to it - so reusing it means there is no second overtime comparison in the system and no new
+    // floating-point behaviour beside the existing quarter-hour architecture.
+    if (entryMode === "weekly") {
+      const unallocated = employees.filter(
+        (employee) => computeWeeklyTotals(employee.jobRows).mismatch,
+      );
+      if (unallocated.length > 0) {
+        const names = unallocated.map((employee) => employee.name).join(", ");
+        // The operator's unsaved inputs are left exactly as they are so the allocation can be
+        // corrected in place.
+        setSaveMessage("");
+        setSaveError(
+          `Allocated OT does not equal calculated OT for ${names}. Allocate all overtime across the job rows before saving.`,
+        );
+        return;
+      }
+    }
+
     setSaving(true);
     setSaveError("");
     setSaveMessage("");
@@ -925,7 +956,13 @@ export default function TimeEntryPage() {
     try {
       const totalsByEmployeeId: Record<
         string,
-        { totalHours: number; reg: number; ot: number; dt: number }
+        {
+          totalHours: number;
+          reg: number;
+          ot: number;
+          dt: number;
+          jobBreakdown: { reg: number; ot: number; dt: number }[];
+        }
       > = {};
       const sdOverlayByEmployeeId: Record<
         string,
@@ -942,6 +979,18 @@ export default function TimeEntryPage() {
           reg: totals.reg,
           ot: totals.ot,
           dt: totals.dt,
+          // TE-S2B9: the approved engine's per-JobRow REG/OT/DT, carried through instead of being
+          // discarded here. This assignment is where billable hours previously lost the JobRow - and
+          // therefore the Customer Job - they belonged to.
+          //
+          // Mapped by POSITION, which is the durable worksheet grain: entry i belongs to
+          // jobRows[i], which is jobRowIndex i. `jobId` is deliberately not read - it holds the
+          // transient React row id and is never persisted identity.
+          jobBreakdown: totals.jobBreakdown.map((row) => ({
+            reg: row.reg,
+            ot: row.ot,
+            dt: row.dt,
+          })),
         };
 
         // SD classification is only truthful when the worker is actually SD-enabled, and SD
@@ -976,6 +1025,17 @@ export default function TimeEntryPage() {
       setSaving(false);
     }
   };
+
+  /**
+   * TE-S2B9 true while any Weekly worker still has unallocated computed OT.
+   *
+   * ONE derived truth, read from the approved engine's own `mismatch` flag, so the amber warning,
+   * the disabled Save Draft button and the guard inside `handleSaveDraft` can never disagree about
+   * whether the sheet is saveable.
+   */
+  const weeklyOtAllocationBlocked =
+    entryMode === "weekly" &&
+    employees.some((employee) => computeWeeklyTotals(employee.jobRows).mismatch);
 
   // Get job name by id
   const getJobName = (jobId: string): string => {
@@ -1807,17 +1867,23 @@ export default function TimeEntryPage() {
 
       {/* Bottom Actions (disabled UI shell) */}
       {/* OT mismatch blocking warning */}
-      {entryMode === "weekly" && employees.some((emp) => computeWeeklyTotals(emp.jobRows).mismatch) && (
+      {weeklyOtAllocationBlocked && (
         <div className="mb-3 px-3 py-2 bg-amber-900/30 border border-amber-700 rounded text-xs text-amber-400">
           Fix OT allocation mismatch warnings before continuing.
         </div>
       )}
       <div className="flex gap-3 mb-6">
+        {/*
+          TE-S2B9: the button is also disabled while any Weekly worker's OT is unallocated, so the
+          existing amber warning above now describes a real block rather than advice. This is the
+          affordance only - `handleSaveDraft` enforces the same rule itself, because a disabled
+          control is not authorization.
+        */}
         <button
           onClick={() => void handleSaveDraft()}
-          disabled={saving}
+          disabled={saving || weeklyOtAllocationBlocked}
           className={
-            saving
+            saving || weeklyOtAllocationBlocked
               ? "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
               : "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-200 border border-slate-600 rounded hover:text-slate-100"
           }

@@ -31,6 +31,18 @@ const CJ_ARCHIVED = "cj-a-old";
 // builder input helpers
 // -------------------------------------------------------------------------------------------
 
+/**
+ * Worker totals plus the approved engine's per-JobRow REG/OT/DT split.
+ *
+ * TE-S2B9 made `jobBreakdown` part of the builder contract. These Customer Job cases are all
+ * single-row-per-worker, so the default is "one row owns all of this worker's hours".
+ */
+function totals(
+  t: { totalHours: number; reg: number; ot: number; dt: number },
+  rows?: { reg: number; ot: number; dt: number }[],
+) {
+  return { ...t, jobBreakdown: rows ?? [{ reg: t.reg, ot: t.ot, dt: t.dt }] };
+}
 function row(overrides: Record<string, any> = {}) {
   return {
     id: "cand-1-job1",
@@ -60,7 +72,7 @@ function input(overrides: Partial<BuildDraftPayloadInput> = {}): BuildDraftPaylo
     ],
     workerSdEnabled: {},
     rowSdFlags: {},
-    totalsByEmployeeId: { "cand-1": { totalHours: 8, reg: 8, ot: 0, dt: 0 } },
+    totalsByEmployeeId: { "cand-1": totals({ totalHours: 8, reg: 8, ot: 0, dt: 0 }) },
     ...overrides,
   } as BuildDraftPayloadInput;
 }
@@ -271,8 +283,8 @@ describe("the Save Draft payload carries the durable id", () => {
           },
         ],
         totalsByEmployeeId: {
-          "cand-1": { totalHours: 8, reg: 8, ot: 0, dt: 0 },
-          "cand-2": { totalHours: 8, reg: 8, ot: 0, dt: 0 },
+          "cand-1": totals({ totalHours: 8, reg: 8, ot: 0, dt: 0 }),
+          "cand-2": totals({ totalHours: 8, reg: 8, ot: 0, dt: 0 }),
         },
       }),
     );
@@ -294,7 +306,7 @@ describe("the Save Draft payload carries the durable id", () => {
             nonBillableItems: [],
           },
         ],
-        totalsByEmployeeId: { "cand-1": { totalHours: 16, reg: 16, ot: 0, dt: 0 } },
+        totalsByEmployeeId: { "cand-1": totals({ totalHours: 16, reg: 16, ot: 0, dt: 0 }) },
       }),
     );
 
@@ -313,7 +325,7 @@ describe("the Save Draft payload carries the durable id", () => {
         employees: [
           { id: "cand-1", jobRows: [rows], billableItems: [], nonBillableItems: [] },
         ],
-        totalsByEmployeeId: { "cand-1": { totalHours: 40, reg: 40, ot: 0, dt: 0 } },
+        totalsByEmployeeId: { "cand-1": totals({ totalHours: 40, reg: 40, ot: 0, dt: 0 }) },
       }),
     );
 
@@ -544,7 +556,7 @@ describe("save -> reopen -> save is a fixed point", () => {
       employees: reopened.employees,
       workerSdEnabled: reopened.workerSdEnabled,
       rowSdFlags: reopened.rowSdFlags,
-      totalsByEmployeeId: { "cand-1": { totalHours: 16, reg: 16, ot: 0, dt: 0 } },
+      totalsByEmployeeId: { "cand-1": totals({ totalHours: 16, reg: 16, ot: 0, dt: 0 }) },
     } as BuildDraftPayloadInput);
 
     return { reopened, resaved };
