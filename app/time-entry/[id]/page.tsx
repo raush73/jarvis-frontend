@@ -9,6 +9,7 @@ import {
   type WorkingTimesheetDetail,
 } from "@/lib/timeEntry/workingTimesheetApi";
 import { buildDraftPayload } from "@/lib/timeEntry/buildDraftPayload";
+import { hydrateDraftState } from "@/lib/timeEntry/hydrateDraftState";
 
 // =============================================================================
 // JOB-LEVEL SD GATE (MOCK)
@@ -402,37 +403,16 @@ export function computeRowShiftDiffTotals({
 // =============================================================================
 // HYDRATION — map the Working Timesheet read response onto the existing state shapes
 // =============================================================================
-// Only facts that are actually persisted are restored. Nothing is invented: per-day
-// hours are not stored yet, so dailyHours stays zeroed rather than fabricating a split
-// out of a weekly total.
+// Delegated to lib/timeEntry/hydrateDraftState, which is the exact inverse of the Save Draft
+// payload builder. Only persisted facts are restored: a weekly total never becomes seven daily
+// cells, daily cells never become a weekly total, and operator inputs come from their own
+// persisted structures rather than from the calculated classification lines.
+//
+// Both granularities are restored together, because JobRow already carries dailyHours and
+// weeklyTotalHours side by side. That is what lets the selector reveal genuinely saved values
+// for the inactive mode after a reopen.
 function toEmployees(detail: WorkingTimesheetDetail): EmployeeData[] {
-  return detail.workers.map((worker) => {
-    const perDiemDays = (worker.draft?.lines ?? [])
-      .filter((line) => line.earningCode === "PD" && line.unit === "DAYS")
-      .reduce((sum, line) => sum + line.quantity, 0);
-
-    return {
-      id: worker.candidateId,
-      name: worker.workerName,
-      trade: worker.trade ?? "",
-      jobRows: [
-        {
-          id: `${worker.candidateId}-job1`,
-          jobId: detail.orderId,
-          dailyHours: [0, 0, 0, 0, 0, 0, 0],
-          perDiemDays,
-          weeklyTotalHours: worker.draft?.totalHours ?? 0,
-          weeklyOtAllocation: 0,
-          // No manual DT is persisted yet, so this starts at zero rather than carrying a
-          // fabricated saved designation.
-          dailyDtHours: [0, 0, 0, 0, 0, 0, 0],
-          weeklyDtHours: 0,
-        },
-      ],
-      billableItems: [],
-      nonBillableItems: [],
-    };
-  });
+  return hydrateDraftState(detail).employees;
 }
 
 export default function TimeEntryPage() {
@@ -546,7 +526,14 @@ export default function TimeEntryPage() {
       });
       setWeekStart(detail.weekStart);
       setJobOptions([{ id: detail.orderId, name: detail.orderRef }]);
-      setEmployees(toEmployees(detail));
+
+      // Restore the whole persisted worksheet: mode, both source granularities, operator
+      // inputs, SD state and items. Nothing is fabricated for what was never saved.
+      const hydrated = hydrateDraftState(detail);
+      setEntryMode(hydrated.entryMode);
+      setEmployees(hydrated.employees);
+      setWorkerSdEnabled(hydrated.workerSdEnabled);
+      setRowSdFlags(hydrated.rowSdFlags);
     } catch (e: any) {
       setLoadError(e?.message ?? "Failed to load working timesheet.");
     } finally {

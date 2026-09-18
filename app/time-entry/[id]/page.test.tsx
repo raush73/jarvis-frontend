@@ -561,3 +561,159 @@ describe("Save Draft wiring", () => {
     expect(screen.queryByText(/Saving draft/)).toBeNull();
   });
 });
+
+/**
+ * TE-S2B6 - a saved draft reopens onto the approved screen.
+ *
+ * These drive the real page, so they prove the hydration actually reaches the controls the
+ * operator sees, and that Save Draft still works afterwards.
+ */
+describe("reopen hydration through the Working Timesheet", () => {
+  /** A saved WEEKLY draft: 52 hours, 4 DT, PD 3.5, SD on, and both item paths. */
+  const HYDRATED = {
+    ...DETAIL,
+    entryMode: "WEEKLY" as const,
+    workers: [
+      {
+        ...DETAIL.workers[0],
+        draftState: {
+          hoursEntryId: "h1",
+          totalHours: 52,
+          sdEligible: true,
+          jobRows: [
+            {
+              jobRowIndex: 0,
+              projectRef: "order-a",
+              dailyHours: [],
+              weeklyHours: 52,
+              weeklyOtAllocation: null,
+              dailyDt: [],
+              weeklyDt: 4,
+              sdDates: [],
+              perDiemDays: 3.5,
+            },
+          ],
+          items: [
+            {
+              billability: "BILLABLE" as const,
+              itemType: "REIMBURSEMENT",
+              unit: "DOLLARS" as const,
+              value: 450,
+              note: "Drug testing",
+              sortOrder: 0,
+            },
+            {
+              billability: "NON_BILLABLE" as const,
+              itemType: "PER_DIEM",
+              unit: "DAYS" as const,
+              value: 2,
+              note: null,
+              sortOrder: 0,
+            },
+          ],
+          classifications: [],
+        },
+      },
+      DETAIL.workers[1], // Sarah: no draft at all
+    ],
+  };
+
+  async function renderHydrated() {
+    fetchWorkingTimesheetDetail.mockResolvedValue(HYDRATED);
+    render(<WorkingTimesheetPage />);
+    await waitFor(() => expect(screen.getByText("John Martinez")).toBeTruthy());
+  }
+
+  it("reopens in the saved WEEKLY mode with the saved facts on screen", async () => {
+    await renderHydrated();
+
+    // The saved mode was restored, so the weekly total input exists and holds 52.
+    const values = (screen.getAllByRole("textbox") as HTMLInputElement[]).map((i) => i.value);
+    expect(values).toContain("52");
+    // The governed classification is recomputed by GOLD from the restored facts:
+    // 40 REG + 8 OT + 4 DT = 52, with DT carved out of OT rather than added.
+    expect(screen.getByText("Employee Weekly: REG 40 | OT 8 | DT 4 | Total 52")).toBeTruthy();
+  });
+
+  it("restores SD eligibility, billable PD and both item paths", async () => {
+    await renderHydrated();
+
+    // SD eligibility is ON for John and untouched for Sarah.
+    expect(screen.getAllByText("Shift Diff ON")).toHaveLength(1);
+    expect(screen.getAllByText("Shift Diff OFF")).toHaveLength(1);
+
+    const values = (screen.getAllByRole("textbox") as HTMLInputElement[]).map((i) => i.value);
+    expect(values).toContain("3.5"); // billable JobRow PD
+    expect(values).toContain("4"); // weekly DT designation
+    expect(values).toContain("450"); // billable monetary item
+    expect(values).toContain("2"); // payroll-only Per Diem, in DAYS
+
+    // The two Per Diem facts stayed separate: neither became 5.5.
+    expect(values).not.toContain("5.5");
+    // The item note is restored into its own input, so it is a textbox value not page text.
+    expect(values).toContain("Drug testing");
+  });
+
+  it("FE6-18 at page level: the roster worker with no draft stays present and blank", async () => {
+    await renderHydrated();
+    expect(screen.getByText("Sarah Chen")).toBeTruthy();
+    expect(screen.getByText("Employee Weekly: REG 0 | OT 0 | DT 0 | Total 0")).toBeTruthy();
+  });
+
+  it("FE6-23: Save Draft remains wired and resaves the hydrated facts", async () => {
+    saveWorkingTimesheetDraft.mockResolvedValue({
+      workingTimesheetId: "order-a__2026-09-07",
+      orderId: "order-a",
+      weekStart: "2026-09-07",
+      entryMode: "WEEKLY",
+      savedCandidateIds: ["cand-1"],
+      skippedEmptyCandidateIds: [],
+    });
+
+    await renderHydrated();
+    const saveDraft = screen.getByText("Save Draft").closest("button")!;
+    expect(saveDraft.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(screen.getByText("Save Draft"));
+    await waitFor(() => expect(saveWorkingTimesheetDraft).toHaveBeenCalledTimes(1));
+
+    // Round trip with no edits: the same business facts go back out.
+    const payload = saveWorkingTimesheetDraft.mock.calls[0][1];
+    expect(payload.entryMode).toBe("WEEKLY");
+    expect(payload.workers.map((w: any) => w.candidateId)).toEqual(["cand-1"]);
+    const row = payload.workers[0].jobRows[0];
+    expect(row.weeklyHours).toBe(52);
+    expect(row.weeklyDt).toBe(4);
+    expect(row.perDiemDays).toBe(3.5);
+    expect(row.dailyHours).toBeUndefined(); // nothing fabricated
+    expect(payload.workers[0].sdEligible).toBe(true);
+    expect(payload.workers[0].items).toHaveLength(2);
+
+    await waitFor(() => expect(screen.getByText(/Draft saved/)).toBeTruthy());
+  });
+
+  it("FE6-24: hydration changed no layout, label or control", async () => {
+    await renderHydrated();
+
+    for (const label of [
+      "Job Site",
+      "Customer",
+      "Week Ending",
+      "Daily",
+      "Weekly Totals",
+      "Save Draft",
+      "Generate Snapshot",
+      "Mark Ready for Payroll",
+      "← Back to Time Entry",
+    ]) {
+      expect(screen.getByText(label)).toBeTruthy();
+    }
+    for (const label of ["+ Add Job", "+ Add Item", "+ Add Non-Billable Item"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    // The approval boundary is still closed.
+    for (const label of ["Generate Snapshot", "Mark Ready for Payroll"]) {
+      expect(screen.getByText(label).closest("button")!.hasAttribute("disabled")).toBe(true);
+    }
+  });
+});

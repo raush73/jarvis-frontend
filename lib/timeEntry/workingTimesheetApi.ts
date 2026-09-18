@@ -71,6 +71,56 @@ export interface WorkingTimesheetWorkerDraft {
   lines: WorkingTimesheetDraftLine[];
 }
 
+/** TE-S2B6: the ONE saved operating mode of a Working Timesheet. */
+export type WorkingTimesheetEntryMode = "DAILY" | "WEEKLY";
+
+/** A quantity belonging to one actual date. `workDate` is YYYY-MM-DD. */
+export interface WorkingTimesheetDatedQuantity {
+  workDate: string;
+  quantity: number;
+}
+
+/**
+ * One persisted job row. Identity is `jobRowIndex` plus `projectRef`; transient UI row ids are
+ * never persistence identity.
+ *
+ * Source facts (`dailyHours`, `weeklyHours`) are kept distinct from operator inputs
+ * (`weeklyOtAllocation`, `dailyDt`, `weeklyDt`, `sdDates`) and from the billable Per Diem
+ * quantity, so hydration never mistakes an output for an input.
+ */
+export interface WorkingTimesheetDraftJobRow {
+  jobRowIndex: number;
+  projectRef: string | null;
+  dailyHours: WorkingTimesheetDatedQuantity[];
+  weeklyHours: number | null;
+  weeklyOtAllocation: number | null;
+  dailyDt: WorkingTimesheetDatedQuantity[];
+  weeklyDt: number | null;
+  sdDates: string[];
+  perDiemDays: number | null;
+}
+
+export interface WorkingTimesheetDraftItem {
+  billability: "BILLABLE" | "NON_BILLABLE";
+  itemType: string;
+  unit: "DOLLARS" | "DAYS";
+  value: number;
+  note: string | null;
+  sortOrder: number;
+}
+
+/** The full persisted draft for one worker, decomposed for reopen fidelity. */
+export interface WorkingTimesheetWorkerDraftState {
+  hoursEntryId: string;
+  totalHours: number;
+  /** Null means SD eligibility was never recorded, not that it is off. */
+  sdEligible: boolean | null;
+  jobRows: WorkingTimesheetDraftJobRow[];
+  items: WorkingTimesheetDraftItem[];
+  /** Persisted classification OUTPUT. Present for fidelity, never re-read as input. */
+  classifications: WorkingTimesheetDraftLine[];
+}
+
 export interface WorkingTimesheetWorker {
   /** Stable worker/draft join identity. */
   candidateId: string;
@@ -80,12 +130,16 @@ export interface WorkingTimesheetWorker {
   assignmentIds: string[];
   /** Null when nothing was saved, or when the saved state was ambiguous. */
   draft: WorkingTimesheetWorkerDraft | null;
+  /** TE-S2B6 full persisted draft. Null under the same conditions as `draft`. */
+  draftState: WorkingTimesheetWorkerDraftState | null;
   /** True when more than one OPEN draft row exists, so no draft truth is guessed. */
   draftConflict: boolean;
 }
 
 export interface WorkingTimesheetDetail {
   id: string;
+  /** Saved worksheet operating mode, or null when this worksheet was never saved. */
+  entryMode: WorkingTimesheetEntryMode | null;
   orderId: string;
   weekStart: string;
   weekEnding: string;
