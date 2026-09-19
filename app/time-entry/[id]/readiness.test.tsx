@@ -344,20 +344,28 @@ describe("the approved shell and the future lifecycle boundary", () => {
     expect(screen.getByText("Generate Snapshot").closest("button")!.disabled).toBe(true);
   });
 
-  it("adds no approval, customer review, payroll or invoice action", async () => {
+  it("adds no customer-delivery, payroll or invoice action", async () => {
+    // TE-S6 narrowed this tripwire. The MW4H approvals it forbade are now legitimately on the page -
+    // TE-S5 and TE-S6 built them, and their own suites cover them. What must STILL be absent is
+    // everything downstream: sending to the customer, running payroll, and creating an invoice.
     await renderSheet();
     for (const forbidden of [
-      /MW4H Initial Approval/i,
-      /MW4H Final Approval/i,
-      /Customer Review/i,
       /Send to Customer/i,
-      /Approve/i,
       /Immutable/i,
       /Run Payroll/i,
       /Create Invoice/i,
+      /Customer Approved/i,
     ]) {
       expect(screen.queryByText(forbidden)).toBeNull();
     }
+  });
+
+  it("keeps the TE-S3 readiness transition distinct from the approvals above it", async () => {
+    // Marking ready is not approving. Three separate controls, three separate acts.
+    await renderSheet();
+    expect(screen.getByRole("button", { name: /Mark Ready for Approvals/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /MW4H Initial Approval/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^MW4H Final Approval$/i })).toBeTruthy();
   });
 
   it("does not use the superseded readiness wording", async () => {

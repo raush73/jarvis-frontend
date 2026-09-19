@@ -7,10 +7,15 @@ import {
   createCustomerJob,
   describeCustomerJobCreateError,
   fetchCustomerJobs,
+  fetchCustomerReviewState,
   fetchWorkingTimesheetDetail,
+  finalApproveWorkingTimesheet,
+  initialApproveWorkingTimesheet,
   markWorkingTimesheetReadyForApprovals,
   saveWorkingTimesheetDraft,
   type CustomerJob,
+  type CustomerReviewState,
+  type FinalApprovalExceptionKind,
   type WorkingTimesheetDetail,
   type WorkingTimesheetReadiness,
 } from "@/lib/timeEntry/workingTimesheetApi";
@@ -512,6 +517,29 @@ export default function TimeEntryPage() {
   const [readyError, setReadyError] = useState("");
   const [readyMessage, setReadyMessage] = useState("");
 
+  /**
+   * TE-S5 / TE-S6 the approval lifecycle, as the server reports it.
+   *
+   * `locked` is the TE-S6 Final Approval lock, derived server-side from the immutable snapshot. Held
+   * separately from `reviewState` because it governs the WHOLE page - editing, saving and every
+   * approval control - and must survive even if the approval-state read is unavailable.
+   */
+  const [reviewState, setReviewState] = useState<CustomerReviewState | null>(null);
+  const [locked, setLocked] = useState(false);
+  /** Which approval is in flight, so the two buttons can never both be pressed. */
+  const [approving, setApproving] = useState<"INITIAL" | "FINAL" | null>(null);
+  const [approvalError, setApprovalError] = useState("");
+  const [approvalMessage, setApprovalMessage] = useState("");
+  /**
+   * The governed exception the approver has deliberately opened, and the reason they typed.
+   *
+   * Null until they explicitly choose it. An override must be an act, not a default: a Final Approval
+   * that proceeds over a customer's objection cannot happen because somebody clicked the ordinary
+   * button without noticing.
+   */
+  const [overrideKind, setOverrideKind] = useState<FinalApprovalExceptionKind | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -626,7 +654,18 @@ export default function TimeEntryPage() {
       setSdEligibilityByDate(detail.sdEligibilityByDate ?? {});
       setOrderId(detail.orderId);
       setReadiness(detail.readiness);
+      // TE-S6 the Final Approval lock, derived server-side from the immutable snapshot.
+      setLocked(detail.finalApproval?.locked === true);
       setJobOptions([{ id: detail.orderId, name: detail.orderRef }]);
+
+      // TE-S5 / TE-S6 the approval state. A failure here must not block the timesheet from loading, so
+      // it degrades to "no approval controls" rather than throwing the whole page away - which is also
+      // the safe direction, since the absent state offers nothing rather than offering too much.
+      try {
+        setReviewState(await fetchCustomerReviewState(workingTimesheetId));
+      } catch {
+        setReviewState(null);
+      }
 
       // Restore the whole persisted worksheet: mode, both source granularities, operator
       // inputs, SD state and items. Nothing is fabricated for what was never saved.
@@ -1108,6 +1147,125 @@ export default function TimeEntryPage() {
       setMarkingReady(false);
     }
   };
+
+  /**
+   * TE-S5 MW4H INITIAL APPROVAL: freeze what the customer will be shown.
+   *
+   * DELIBERATELY A SEPARATE ACTION FROM FINAL APPROVAL. This one is reversible in practice - editing the
+   * sheet afterwards simply supersedes the frozen version - and it locks nothing.
+   */
+  const handleInitialApprove = async () => {
+    if (!workingTimesheetId || approving) return;
+
+    setApproving("INITIAL");
+    setApprovalError("");
+    setApprovalMessage("");
+    try {
+      const result = await initialApproveWorkingTimesheet(workingTimesheetId);
+      setApprovalMessage(
+        result.created
+          ? `MW4H Initial Approval recorded. Customer review version ${result.sequence} frozen with ${result.lineCount} line(s).`
+          : `This working timesheet was already initially approved as version ${result.sequence}. Nothing changed.`,
+      );
+      await refreshApprovalState();
+    } catch (e: any) {
+      setApprovalError(e?.message ?? "Could not record MW4H Initial Approval.");
+    } finally {
+      setApproving(null);
+    }
+  };
+
+  /**
+   * TE-S6 MW4H FINAL APPROVAL: create the immutable snapshot and close this crew week.
+   *
+   * IRREVERSIBLE, SO IT IS CONFIRMED. After this the source is locked and a correction requires an
+   * Adjustment Timesheet, which is worth saying out loud before the request is sent.
+   *
+   * THE SERVER REMAINS THE GATE. This sends the command and, when one applies, the governed exception
+   * and its reason. It asserts nothing about readiness, the review requirement or the customer's
+   * decisions, and a refusal is shown as the server worded it.
+   */
+  const handleFinalApprove = async (
+    exception?: { kind: FinalApprovalExceptionKind; reason: string },
+  ) => {
+    if (!workingTimesheetId || approving) return;
+
+    setApproving("FINAL");
+    setApprovalError("");
+    setApprovalMessage("");
+    try {
+      const result = await finalApproveWorkingTimesheet(workingTimesheetId, exception);
+      setApprovalMessage(
+        result.exceptionUsed
+          ? `MW4H Final Approval recorded through a governed ${
+              result.exceptionUsed === "NO_RESPONSE"
+                ? "no-response"
+                : "dispute override"
+            } exception. ${result.workerCount} worker(s) frozen. This timesheet is now locked.`
+          : `MW4H Final Approval recorded. ${result.workerCount} worker(s) frozen. This timesheet is now locked.`,
+      );
+      setOverrideReason("");
+      setOverrideKind(null);
+      await refreshApprovalState();
+    } catch (e: any) {
+      setApprovalError(e?.message ?? "Could not record MW4H Final Approval.");
+    } finally {
+      setApproving(null);
+    }
+  };
+
+  /**
+   * Re-read the server's approval facts, and the worksheet itself.
+   *
+   * Both are re-read rather than patched from the response, because the lock changes what the whole page
+   * may do - and inferring that locally is exactly how a screen ends up disagreeing with the server.
+   */
+  const refreshApprovalState = async () => {
+    if (!workingTimesheetId) return;
+    try {
+      const [review, detail] = await Promise.all([
+        fetchCustomerReviewState(workingTimesheetId),
+        fetchWorkingTimesheetDetail(workingTimesheetId),
+      ]);
+      setReviewState(review);
+      setReadiness(detail.readiness);
+      setLocked(detail.finalApproval?.locked === true);
+      setContext((prev) => ({ ...prev, status: detail.status }));
+    } catch {
+      // A failed refresh must not silently unlock the page, so nothing is changed here. The next load,
+      // or the server's own refusal, still carries the truth.
+    }
+  };
+
+  /**
+   * TE-S6 which governed exception, if any, does the current evidence actually call for?
+   *
+   * ADVISORY ONLY, AND IT MIRRORS THE SERVER'S ORDERING: a dispute outranks silence, because proceeding
+   * over an objection is a different act from proceeding without an answer. The server independently
+   * decides the same thing and rejects a mismatch, so the worst this can do is offer the wrong control.
+   */
+  const requiredException: FinalApprovalExceptionKind | null = (() => {
+    if (!reviewState?.requirement.required) return null;
+    const current = reviewState.current;
+    if (!current || current.lineCount === 0) return null;
+    if (current.disputed > 0) return "DISPUTE_OVERRIDE";
+    if (current.unanswered > 0) return "NO_RESPONSE";
+    return null;
+  })();
+
+  /**
+   * May a Final Approval control be OFFERED at all?
+   *
+   * Requires the server to have said the sheet is ready, that a valid Initial Approval still describes
+   * current content, and that the week is not already locked. And when the only route forward is the
+   * no-response exception, the deadline must actually have passed - the page never offers a path the
+   * server would certainly refuse.
+   */
+  const finalApprovalOffered =
+    !locked &&
+    readiness?.state === "READY" &&
+    reviewState?.finalApproval.initialApprovalValid === true &&
+    (requiredException !== "NO_RESPONSE" || reviewState?.finalApproval.respondByElapsed === true);
 
   /** The blocking reasons, named by the shared describer so no wording is invented per screen. */
   const readinessBlockers = readiness
@@ -1988,11 +2146,21 @@ export default function TimeEntryPage() {
           affordance only - `handleSaveDraft` enforces the same rule itself, because a disabled
           control is not authorization.
         */}
+        {/*
+          TE-S6: also disabled once the crew week is finally approved. The approved snapshot is the
+          authoritative record from that point, so editing the source would make the two disagree. The
+          writer refuses independently, because a disabled control is not authorization.
+        */}
         <button
           onClick={() => void handleSaveDraft()}
-          disabled={saving || weeklyOtAllocationBlocked}
+          disabled={saving || weeklyOtAllocationBlocked || locked}
+          title={
+            locked
+              ? "This working timesheet has received MW4H Final Approval and is locked. Corrections require an adjustment timesheet."
+              : undefined
+          }
           className={
-            saving || weeklyOtAllocationBlocked
+            saving || weeklyOtAllocationBlocked || locked
               ? "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
               : "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-200 border border-slate-600 rounded hover:text-slate-100"
           }
@@ -2012,20 +2180,271 @@ export default function TimeEntryPage() {
         </button>
         <button
           onClick={() => void handleMarkReadyForApprovals()}
-          disabled={markingReady || readiness?.state !== "READY"}
+          disabled={markingReady || readiness?.state !== "READY" || locked}
           title={
-            readiness?.state === "READY"
-              ? undefined
-              : "Resolve the outstanding items before marking this working timesheet ready."
+            locked
+              ? "This working timesheet has received MW4H Final Approval and is locked."
+              : readiness?.state === "READY"
+                ? undefined
+                : "Resolve the outstanding items before marking this working timesheet ready."
           }
           className={
-            markingReady || readiness?.state !== "READY"
+            markingReady || readiness?.state !== "READY" || locked
               ? "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
               : "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-200 border border-slate-600 rounded hover:text-slate-100"
           }
         >
           {markingReady ? "Marking..." : "Mark Ready for Approvals"}
         </button>
+      </div>
+
+      {/*
+        =========================================================================================
+        TE-S5 / TE-S6 THE MW4H APPROVAL LIFECYCLE
+        =========================================================================================
+
+        TWO DISTINCT APPROVALS, PRESENTED AS TWO DISTINCT ACTS. Initial Approval freezes what the
+        customer will be shown and leaves the sheet editable. Final Approval creates the immutable
+        snapshot and closes the week. They are never one control, because they are never one decision.
+
+        THE SCREEN EXPLAINS; THE SERVER DECIDES. Every fact shown here was resolved server-side, and the
+        Final Approval endpoint re-checks all of it. A stale page can at worst offer a button whose
+        request is refused.
+
+        NO REDESIGN. This reuses the page's existing plain-text and slate/amber conventions.
+      */}
+      <div className="mb-6">
+        <div className="text-sm text-slate-300 mb-2">MW4H Approvals</div>
+
+        {locked ? (
+          /*
+            THE FINALLY APPROVED, LOCKED STATE.
+            It does not suggest the sheet can be reopened, because it cannot. The approved figures stay
+            readable; only editing is gone.
+          */
+          <div className="px-3 py-2 bg-slate-800/60 border border-slate-600 rounded text-xs text-slate-300">
+            <div className="text-emerald-400 font-medium mb-1">
+              MW4H Final Approval complete — this working timesheet is locked.
+            </div>
+            <div>
+              The approved snapshot is the permanent record for payroll and invoicing. This timesheet can
+              no longer be edited, and a correction requires an adjustment timesheet.
+            </div>
+            {reviewState?.finalApproval.exception && (
+              <div className="mt-1 text-amber-400">
+                Final Approval proceeded through a governed MW4H exception:{" "}
+                {reviewState.finalApproval.exception.note}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-3 items-center flex-wrap">
+              <button
+                onClick={() => void handleInitialApprove()}
+                disabled={approving !== null || readiness?.state !== "READY"}
+                title={
+                  readiness?.state === "READY"
+                    ? undefined
+                    : "This working timesheet is not ready for approvals yet."
+                }
+                className={
+                  approving !== null || readiness?.state !== "READY"
+                    ? "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
+                    : "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-200 border border-slate-600 rounded hover:text-slate-100"
+                }
+              >
+                {approving === "INITIAL" ? "Approving..." : "MW4H Initial Approval"}
+              </button>
+
+              {/*
+                THE ORDINARY FINAL APPROVAL, offered only when no governed exception is needed - that is,
+                when review does not apply or the customer approved everything. When an exception IS
+                needed this button is absent entirely, so it can never be the route by which a dispute
+                or a silence gets waved through.
+              */}
+              {requiredException === null && (
+                <button
+                  onClick={() => void handleFinalApprove()}
+                  disabled={approving !== null || !finalApprovalOffered}
+                  title={
+                    finalApprovalOffered
+                      ? "Creates the immutable approved snapshot and locks this timesheet."
+                      : "MW4H Initial Approval must be current before Final Approval."
+                  }
+                  className={
+                    approving !== null || !finalApprovalOffered
+                      ? "px-5 py-2 text-sm font-medium bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
+                      : "px-5 py-2 text-sm font-medium bg-emerald-900/40 text-emerald-300 border border-emerald-700 rounded hover:text-emerald-200"
+                  }
+                >
+                  {approving === "FINAL" ? "Approving..." : "MW4H Final Approval"}
+                </button>
+              )}
+            </div>
+
+            {/* The customer review situation, stated plainly and never flattered. */}
+            {reviewState?.requirement.required && reviewState.current && (
+              <div className="text-xs text-slate-400">
+                Customer review version {reviewState.current.sequence}:{" "}
+                {reviewState.current.approved + reviewState.current.carriedForward} approved,{" "}
+                {reviewState.current.disputed} disputed, {reviewState.current.unanswered} awaiting a
+                response, of {reviewState.current.lineCount} line(s).
+              </div>
+            )}
+
+            {/*
+              AN UNRESOLVED DISPUTE. Never described as a customer approval, because it is the opposite
+              of one. The override is available, clearly labelled as MW4H's own act, and it demands a
+              reason before it can be used.
+            */}
+            {requiredException === "DISPUTE_OVERRIDE" && (
+              <div className="px-3 py-2 bg-amber-900/30 border border-amber-700 rounded text-xs text-amber-300">
+                <div className="font-medium mb-1">
+                  The customer disputed {reviewState?.current?.disputed} line(s). This is not a customer
+                  approval and the dispute remains on record.
+                </div>
+                {overrideKind === "DISPUTE_OVERRIDE" ? (
+                  <div className="flex flex-col gap-2 mt-2">
+                    <label className="text-amber-200" htmlFor="te-override-reason">
+                      Why is MW4H proceeding over the customer&apos;s dispute? This is recorded
+                      permanently against the approval.
+                    </label>
+                    <textarea
+                      id="te-override-reason"
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                      rows={2}
+                      className="px-2 py-1 bg-slate-900 border border-slate-600 rounded text-slate-200"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() =>
+                          void handleFinalApprove({
+                            kind: "DISPUTE_OVERRIDE",
+                            reason: overrideReason,
+                          })
+                        }
+                        disabled={
+                          approving !== null ||
+                          !finalApprovalOffered ||
+                          overrideReason.trim().length < 10
+                        }
+                        className={
+                          approving !== null ||
+                          !finalApprovalOffered ||
+                          overrideReason.trim().length < 10
+                            ? "px-4 py-1 bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
+                            : "px-4 py-1 bg-amber-900/50 text-amber-200 border border-amber-600 rounded hover:text-amber-100"
+                        }
+                      >
+                        {approving === "FINAL"
+                          ? "Approving..."
+                          : "MW4H Final Approval — override dispute"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setOverrideKind(null);
+                          setOverrideReason("");
+                        }}
+                        className="px-4 py-1 bg-slate-800 text-slate-300 border border-slate-600 rounded hover:text-slate-100"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setOverrideKind("DISPUTE_OVERRIDE")}
+                    className="mt-1 px-4 py-1 bg-slate-800 text-amber-300 border border-amber-700 rounded hover:text-amber-200"
+                  >
+                    Use MW4H dispute override
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/*
+              NO CUSTOMER RESPONSE. Before the deadline there is deliberately no completion path here at
+              all - only a statement of when it passes. Afterwards the action says what it actually is:
+              proceeding WITHOUT a customer response, not with their approval.
+            */}
+            {requiredException === "NO_RESPONSE" && (
+              <div className="px-3 py-2 bg-amber-900/30 border border-amber-700 rounded text-xs text-amber-300">
+                <div className="font-medium mb-1">
+                  The customer has not responded to {reviewState?.current?.unanswered} line(s). This is
+                  not a customer approval.
+                </div>
+                {reviewState?.finalApproval.respondByElapsed !== true ? (
+                  <div>
+                    {reviewState?.finalApproval.governingRespondBy
+                      ? `The response deadline has not passed yet (${reviewState.finalApproval.governingRespondBy}). Final Approval cannot proceed without a customer response until then.`
+                      : "No customer review request has been sent yet, so there is no response deadline."}
+                  </div>
+                ) : overrideKind === "NO_RESPONSE" ? (
+                  <div className="flex flex-col gap-2 mt-2">
+                    <label className="text-amber-200" htmlFor="te-noresponse-reason">
+                      Record why MW4H is proceeding without a customer response. This is kept permanently
+                      against the approval.
+                    </label>
+                    <textarea
+                      id="te-noresponse-reason"
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                      rows={2}
+                      className="px-2 py-1 bg-slate-900 border border-slate-600 rounded text-slate-200"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() =>
+                          void handleFinalApprove({
+                            kind: "NO_RESPONSE",
+                            reason: overrideReason,
+                          })
+                        }
+                        disabled={
+                          approving !== null ||
+                          !finalApprovalOffered ||
+                          overrideReason.trim().length < 10
+                        }
+                        className={
+                          approving !== null ||
+                          !finalApprovalOffered ||
+                          overrideReason.trim().length < 10
+                            ? "px-4 py-1 bg-slate-800 text-slate-500 border border-slate-700 rounded cursor-not-allowed"
+                            : "px-4 py-1 bg-amber-900/50 text-amber-200 border border-amber-600 rounded hover:text-amber-100"
+                        }
+                      >
+                        {approving === "FINAL"
+                          ? "Approving..."
+                          : "MW4H Final Approval — proceed without customer response"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setOverrideKind(null);
+                          setOverrideReason("");
+                        }}
+                        className="px-4 py-1 bg-slate-800 text-slate-300 border border-slate-600 rounded hover:text-slate-100"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setOverrideKind("NO_RESPONSE")}
+                    className="mt-1 px-4 py-1 bg-slate-800 text-amber-300 border border-amber-700 rounded hover:text-amber-200"
+                  >
+                    Proceed without customer response
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {approvalError && <div className="text-sm text-red-400 mt-2">{approvalError}</div>}
+        {approvalMessage && <div className="text-sm text-emerald-400 mt-2">{approvalMessage}</div>}
       </div>
 
       {/*

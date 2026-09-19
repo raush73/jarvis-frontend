@@ -233,6 +233,22 @@ export interface WorkingTimesheetDetail {
   orphanedDraftCandidateIds: string[];
   /** TE-SD-2A per-date Shift Differential availability. Optional so older fixtures stay valid. */
   sdEligibilityByDate?: SdEligibilityByDate;
+  /** TE-S6 the Final Approval lock. Optional so older fixtures stay valid. */
+  finalApproval?: WorkingTimesheetFinalApprovalState;
+}
+
+/**
+ * TE-S6 has this crew week received MW4H Final Approval?
+ *
+ * `locked` is derived server-side from the existence of the immutable Approved Snapshot, which IS the
+ * lock. It is advisory for the screen: it withdraws the editing controls, while every write path
+ * re-checks the same truth on the server.
+ */
+export interface WorkingTimesheetFinalApprovalState {
+  locked: boolean;
+  snapshotId: string | null;
+  approvedAt: string | null;
+  approvedByUserId: string | null;
 }
 
 /**
@@ -406,6 +422,137 @@ export async function saveWorkingTimesheetDraft(
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    },
+  );
+}
+
+// =============================================================================
+// THE APPROVAL LIFECYCLE
+// =============================================================================
+
+/**
+ * TE-S5 / TE-S6 the approval state of one crew week.
+ *
+ * FACTS, NOT PERMISSION. Every field here is something the server observed - review is required, the
+ * frozen version still matches current content, the customer disputed four lines, the deadline passed.
+ * None of it is the server saying "you may finally approve". That decision is re-made inside the Final
+ * Approval transaction, so the screen's job is only to show the right controls and explain the hold.
+ */
+export interface CustomerReviewRequirement {
+  orderId: string;
+  customerId: string;
+  required: boolean;
+  source: string;
+}
+
+export interface CustomerReviewVersionSummary {
+  versionId: string;
+  sequence: number;
+  contentHash: string;
+  supersededAt: string | null;
+  lineCount: number;
+  approved: number;
+  disputed: number;
+  carriedForward: number;
+  unanswered: number;
+}
+
+export interface FinalApprovalFacts {
+  /** The week is finally approved. Derived from the immutable snapshot, which IS the lock. */
+  locked: boolean;
+  snapshotId: string | null;
+  approvedAt: string | null;
+  approvedByUserId: string | null;
+  /** A non-superseded Initial Approval exists AND still describes current content. */
+  initialApprovalValid: boolean;
+  /** The latest outstanding customer deadline, so a reminder genuinely extends their time. */
+  governingRespondBy: string | null;
+  /** Null when no review request was ever sent: that is not the same as "not yet due". */
+  respondByElapsed: boolean | null;
+  /** A governed exception already recorded against this version. Permanent. */
+  exception: { at: string; byUserId: string | null; note: string | null } | null;
+}
+
+export interface CustomerReviewState {
+  requirement: CustomerReviewRequirement;
+  finalApproval: FinalApprovalFacts;
+  current: CustomerReviewVersionSummary | null;
+  removedSincePriorVersion: string[];
+  versions: (CustomerReviewVersionSummary | null)[];
+}
+
+/** Read the approval state. Read-only: it approves nothing and freezes nothing. */
+export async function fetchCustomerReviewState(id: string): Promise<CustomerReviewState> {
+  return apiFetch<CustomerReviewState>(
+    `/time-entry/working-timesheets/${encodeURIComponent(id)}/customer-review`,
+  );
+}
+
+export interface InitialApprovalResult {
+  created: boolean;
+  versionId: string;
+  sequence: number;
+  contentHash: string;
+  lineCount: number;
+  carriedForwardCount: number;
+  supersededVersionId: string | null;
+}
+
+/**
+ * TE-S5 MW4H INITIAL APPROVAL: freeze what the customer will be shown.
+ *
+ * NOT Final Approval. It creates no snapshot and locks nothing; the worksheet stays editable, and
+ * editing it simply supersedes this version. The body is empty because there is nothing for a client
+ * to assert - the actor comes from the session and readiness is recomputed server-side.
+ */
+export async function initialApproveWorkingTimesheet(
+  id: string,
+): Promise<InitialApprovalResult> {
+  return apiFetch<InitialApprovalResult>(
+    `/time-entry/working-timesheets/${encodeURIComponent(id)}/initial-approval`,
+    { method: "POST", headers: { "Content-Type": "application/json" } },
+  );
+}
+
+/** The governed exceptions. Neither is, or is displayed as, a customer approval. */
+export type FinalApprovalExceptionKind = "NO_RESPONSE" | "DISPUTE_OVERRIDE";
+
+export interface FinalApprovalResult {
+  snapshotId: string;
+  orderId: string;
+  weekStart: string;
+  weekEnd: string;
+  workerCount: number;
+  customerReviewRequired: boolean;
+  reviewVersionId: string;
+  reviewVersionSequence: number;
+  exceptionUsed: FinalApprovalExceptionKind | null;
+}
+
+/**
+ * TE-S6 MW4H FINAL APPROVAL: create the immutable Approved Snapshot and close the source.
+ *
+ * THE PAYLOAD CARRIES INTENT AND NOTHING ELSE. Readiness, the review requirement, the governing frozen
+ * version, the customer's decisions, the response deadline and the approving user are all resolved on
+ * the server. The only thing this client can say is which governed exception is being invoked and why -
+ * and the server still refuses an exception that does not match the actual evidence.
+ *
+ * IRREVERSIBLE. Afterwards the week is locked and a correction is an Adjustment Timesheet.
+ */
+export async function finalApproveWorkingTimesheet(
+  id: string,
+  exception?: { kind: FinalApprovalExceptionKind; reason: string },
+): Promise<FinalApprovalResult> {
+  return apiFetch<FinalApprovalResult>(
+    `/time-entry/working-timesheets/${encodeURIComponent(id)}/final-approval`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        exception
+          ? { exceptionKind: exception.kind, exceptionReason: exception.reason }
+          : {},
+      ),
     },
   );
 }
